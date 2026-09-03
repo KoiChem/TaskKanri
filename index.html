@@ -207,8 +207,8 @@
   .calendar-weekday-btn:hover { background:#ebf8ff; }
   .calendar-weekday-btn:focus-visible { outline:2px solid #3182ce; outline-offset:-2px; z-index:1; }
   .calendar-weekday-btn.is-all-selected { background:#bee3f8; color:#1e3a8a; font-weight:bold; }
-  .calendar-weekday-btn:first-child { color:#e53e3e; }
-  .calendar-weekday-btn:last-child { color:#3182ce; }
+  .calendar-weekday-btn:nth-child(6) { color:#3182ce; }
+  .calendar-weekday-btn:last-child { color:#e53e3e; }
   .calendar-day-spacer { min-height:35px; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
   .calendar-date-cell { min-height:35px; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:2px 1px; text-align:center; font:inherit; font-size:12px; position:relative; }
   .calendar-date-cell.bg-sat { background-color:#e6f2ff; }
@@ -772,7 +772,7 @@ function renderBulkCalendar() {
     const todayId = getIsoDateStr(new Date()); let html = '';
     for (let offset = 0; offset < 12; offset++) {
         const first = new Date(currentYear, 3 + offset, 1); const year = first.getFullYear(); const month = first.getMonth();
-        const lastDay = new Date(year, month + 1, 0).getDate(); const firstDay = first.getDay();
+        const lastDay = new Date(year, month + 1, 0).getDate(); const firstDay = (first.getDay() + 6) % 7;
         let daysHtml = '';
         for (let blank = 0; blank < firstDay; blank++) daysHtml += '<span class="calendar-day-spacer" aria-hidden="true"></span>';
         for (let day = 1; day <= lastDay; day++) {
@@ -783,7 +783,7 @@ function renderBulkCalendar() {
             daysHtml += `<button type="button" class="calendar-date-cell ${bgClass} ${selected ? 'is-selected' : ''}" aria-pressed="${selected}" title="${dateId}：${state.label}" onclick="toggleBulkCalendarDate('${dateId}', event)"><span>${day}</span>${stateHtml}${todayHtml}</button>`;
         }
         const allMonthSelected = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1))).every(id => bulkCalendarSelection.has(id));
-        const weekHeadHtml = APP_CONFIG.daysStr.map((label, dayIndex) => { const ids = getBulkCalendarWeekdayIds(year, month, dayIndex); const allSelected = ids.every(id => bulkCalendarSelection.has(id)); const action = allSelected ? '解除' : '選択'; return `<button type="button" class="calendar-weekday-btn ${allSelected ? 'is-all-selected' : ''}" aria-pressed="${allSelected}" title="${year}年${month + 1}月の${label}曜日をすべて${action}" onclick="toggleBulkCalendarWeekday(${year}, ${month}, ${dayIndex})">${label}</button>`; }).join('');
+        const weekHeadHtml = [1, 2, 3, 4, 5, 6, 0].map(dayIndex => { const label = APP_CONFIG.daysStr[dayIndex]; const ids = getBulkCalendarWeekdayIds(year, month, dayIndex); const allSelected = ids.every(id => bulkCalendarSelection.has(id)); const action = allSelected ? '解除' : '選択'; return `<button type="button" class="calendar-weekday-btn ${allSelected ? 'is-all-selected' : ''}" aria-pressed="${allSelected}" title="${year}年${month + 1}月の${label}曜日をすべて${action}" onclick="toggleBulkCalendarWeekday(${year}, ${month}, ${dayIndex})">${label}</button>`; }).join('');
         html += `<section class="calendar-month" aria-label="${year}年${month + 1}月"><div class="calendar-month-head"><span>${year}年${month + 1}月</span><button type="button" class="btn-s" onclick="toggleBulkCalendarMonth(${year}, ${month})">${allMonthSelected ? '月を解除' : '月を選択'}</button></div><div class="calendar-week-head">${weekHeadHtml}</div><div class="calendar-days">${daysHtml}</div></section>`;
     }
     container.innerHTML = html; updateBulkCalendarControls();
