@@ -203,11 +203,19 @@
   .calendar-month-head { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:5px 7px; background:#edf2f7; font-weight:bold; font-size:13px; }
   .calendar-month-head .btn-s { font-size:10px; padding:2px 5px; }
   .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, 1fr); }
-  .calendar-week-head span { text-align:center; padding:3px 0; font-size:10px; color:#718096; border-bottom:1px solid #edf2f7; }
-  .calendar-week-head span:first-child { color:#e53e3e; }
-  .calendar-week-head span:last-child { color:#3182ce; }
+  .calendar-weekday-btn { min-height:24px; padding:3px 0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:10px; }
+  .calendar-weekday-btn:hover { background:#ebf8ff; }
+  .calendar-weekday-btn:focus-visible { outline:2px solid #3182ce; outline-offset:-2px; z-index:1; }
+  .calendar-weekday-btn.is-all-selected { background:#bee3f8; color:#1e3a8a; font-weight:bold; }
+  .calendar-weekday-btn:first-child { color:#e53e3e; }
+  .calendar-weekday-btn:last-child { color:#3182ce; }
   .calendar-day-spacer { min-height:35px; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
   .calendar-date-cell { min-height:35px; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:2px 1px; text-align:center; font:inherit; font-size:12px; position:relative; }
+  .calendar-date-cell.bg-sat { background-color:#e6f2ff; }
+  .calendar-date-cell.bg-sun-hol { background-color:#ffe6e6; }
+  .calendar-date-cell.bg-short { background-color:var(--bg-short); }
+  .calendar-date-cell.bg-exam { background-color:var(--bg-exam); }
+  .calendar-date-cell.bg-no-class { background-color:var(--bg-noclass); }
   .calendar-date-cell:hover { filter:brightness(.96); outline:2px solid #90cdf4; outline-offset:-2px; z-index:1; }
   .calendar-date-cell.is-selected { outline:3px solid #3182ce; outline-offset:-3px; z-index:1; font-weight:bold; }
   .calendar-date-cell .calendar-state-mark { display:block; font-size:8px; line-height:1; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -228,6 +236,10 @@
   .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-shrink:0; }
   .calendar-legend { display:flex; gap:8px; flex-wrap:wrap; font-size:11px; color:#4a5568; }
   .calendar-legend span { padding:2px 5px; border-radius:3px; border:1px solid #cbd5e0; }
+  .calendar-context-menu { position:fixed; z-index:1900; min-width:190px; padding:4px; background:#fff; border:1px solid #a0aec0; border-radius:6px; box-shadow:0 5px 16px rgba(0,0,0,.22); }
+  .calendar-context-menu button { width:100%; padding:7px 9px; border:0; border-radius:4px; background:#fff; color:var(--text); cursor:pointer; font:inherit; font-size:13px; text-align:left; }
+  .calendar-context-menu button:hover:not(:disabled), .calendar-context-menu button:focus-visible { background:#ebf8ff; outline:none; }
+  .calendar-context-menu button:disabled { color:#a0aec0; cursor:not-allowed; }
   @media (max-width: 900px) {
     .calendar-modal-box { height:92vh; }
     .calendar-modal-body { flex-direction:column; }
@@ -420,7 +432,7 @@
       <button class="btn-s" onclick="closeBulkCalendarModal()" aria-label="日付一括設定を閉じる">✕ 閉じる</button>
     </div>
     <div class="calendar-modal-body">
-      <section class="calendar-workspace" aria-label="年度カレンダー">
+      <section class="calendar-workspace" aria-label="年度カレンダー" onscroll="closeBulkCalendarContextMenu()">
         <div class="calendar-selection-bar">
           <div id="bulk-calendar-selection-summary" style="font-size:13px; font-weight:bold; white-space:nowrap;">0日を選択中</div>
           <div class="calendar-selection-actions">
@@ -428,7 +440,7 @@
             <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
           </div>
         </div>
-        <div id="bulk-calendar-grid" class="calendar-year-grid"></div>
+        <div id="bulk-calendar-grid" class="calendar-year-grid" oncontextmenu="openBulkCalendarContextMenu(event)"></div>
       </section>
       <aside class="calendar-control-panel" aria-label="選択日の設定">
         <h3>選択日の日種別</h3>
@@ -447,6 +459,9 @@
     <div class="calendar-modal-footer">
       <div class="calendar-legend"><span class="bg-short">短縮時程</span><span class="bg-exam">考査</span><span class="bg-no-class">授業なし</span><span>青枠：選択中</span></div>
       <div style="display:flex; gap:8px;"><button id="bulk-calendar-undo-btn" class="menu-btn" style="display:none; padding:9px 16px; background:#fffaf0; border-color:#ed8936;" onclick="undoBulkCalendarChange()">直前の変更を元に戻す</button><button class="menu-btn" style="padding:9px 20px; background:#cbd5e0;" onclick="closeBulkCalendarModal()">閉じる</button></div>
+    </div>
+    <div id="bulk-calendar-context-menu" class="calendar-context-menu" role="menu" aria-label="日付選択メニュー" hidden>
+      <button id="bulk-calendar-context-clear" type="button" role="menuitem" onclick="clearBulkCalendarSelection()">選択をすべて解除</button>
     </div>
   </div>
 </div>
@@ -616,6 +631,7 @@ let bulkCalendarRangeAnchor = "";
 let bulkCalendarInvoker = null;
 let bulkCalendarUndoSnapshot = null;
 let bulkCalendarStatus = "";
+let bulkCalendarContextMenuInvoker = null;
 
 const AppStorage = {
     init: function() {
@@ -746,6 +762,11 @@ function getBulkCalendarStateLabel(value) {
 function isDateInCurrentAcademicYear(dateId) {
     return dateId >= `${currentYear}-04-01` && dateId <= `${currentYear + 1}-03-31`;
 }
+function getBulkCalendarWeekdayIds(year, month, dayIndex) {
+    const lastDay = new Date(year, month + 1, 0).getDate(); const ids = [];
+    for (let day = 1; day <= lastDay; day++) { const date = new Date(year, month, day); if (date.getDay() === dayIndex) ids.push(getIsoDateStr(date)); }
+    return ids;
+}
 function renderBulkCalendar() {
     const container = document.getElementById('bulk-calendar-grid'); if (!container) return;
     const todayId = getIsoDateStr(new Date()); let html = '';
@@ -762,7 +783,8 @@ function renderBulkCalendar() {
             daysHtml += `<button type="button" class="calendar-date-cell ${bgClass} ${selected ? 'is-selected' : ''}" aria-pressed="${selected}" title="${dateId}：${state.label}" onclick="toggleBulkCalendarDate('${dateId}', event)"><span>${day}</span>${stateHtml}${todayHtml}</button>`;
         }
         const allMonthSelected = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1))).every(id => bulkCalendarSelection.has(id));
-        html += `<section class="calendar-month" aria-label="${year}年${month + 1}月"><div class="calendar-month-head"><span>${year}年${month + 1}月</span><button type="button" class="btn-s" onclick="toggleBulkCalendarMonth(${year}, ${month})">${allMonthSelected ? '月を解除' : '月を選択'}</button></div><div class="calendar-week-head"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div><div class="calendar-days">${daysHtml}</div></section>`;
+        const weekHeadHtml = APP_CONFIG.daysStr.map((label, dayIndex) => { const ids = getBulkCalendarWeekdayIds(year, month, dayIndex); const allSelected = ids.every(id => bulkCalendarSelection.has(id)); const action = allSelected ? '解除' : '選択'; return `<button type="button" class="calendar-weekday-btn ${allSelected ? 'is-all-selected' : ''}" aria-pressed="${allSelected}" title="${year}年${month + 1}月の${label}曜日をすべて${action}" onclick="toggleBulkCalendarWeekday(${year}, ${month}, ${dayIndex})">${label}</button>`; }).join('');
+        html += `<section class="calendar-month" aria-label="${year}年${month + 1}月"><div class="calendar-month-head"><span>${year}年${month + 1}月</span><button type="button" class="btn-s" onclick="toggleBulkCalendarMonth(${year}, ${month})">${allMonthSelected ? '月を解除' : '月を選択'}</button></div><div class="calendar-week-head">${weekHeadHtml}</div><div class="calendar-days">${daysHtml}</div></section>`;
     }
     container.innerHTML = html; updateBulkCalendarControls();
 }
@@ -780,12 +802,17 @@ function toggleBulkCalendarMonth(year, month) {
     const allSelected = ids.every(id => bulkCalendarSelection.has(id)); ids.forEach(id => allSelected ? bulkCalendarSelection.delete(id) : bulkCalendarSelection.add(id));
     bulkCalendarRangeAnchor = ''; renderBulkCalendar();
 }
+function toggleBulkCalendarWeekday(year, month, dayIndex) {
+    const ids = getBulkCalendarWeekdayIds(year, month, dayIndex); const allSelected = ids.every(id => bulkCalendarSelection.has(id));
+    ids.forEach(id => allSelected ? bulkCalendarSelection.delete(id) : bulkCalendarSelection.add(id));
+    bulkCalendarRangeAnchor = ''; renderBulkCalendar();
+}
 function selectBulkCalendarWeekdays() {
     let d = new Date(currentYear, 3, 1); const end = new Date(currentYear + 1, 2, 31);
     while (d <= end) { const day = d.getDay(); if (day >= 1 && day <= 5) bulkCalendarSelection.add(getIsoDateStr(d)); d.setDate(d.getDate() + 1); }
     bulkCalendarRangeAnchor = ''; renderBulkCalendar();
 }
-function clearBulkCalendarSelection() { bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; renderBulkCalendar(); }
+function clearBulkCalendarSelection() { bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; closeBulkCalendarContextMenu(); renderBulkCalendar(); }
 function updateBulkCalendarControls() {
     const count = bulkCalendarSelection.size;
     const summary = document.getElementById('bulk-calendar-selection-summary'); const status = document.getElementById('bulk-calendar-action-status');
@@ -793,6 +820,7 @@ function updateBulkCalendarControls() {
     if (status) status.innerText = bulkCalendarStatus;
     document.querySelectorAll('[data-bulk-day-state]').forEach(btn => { btn.disabled = count === 0; });
     const undoBtn = document.getElementById('bulk-calendar-undo-btn'); if (undoBtn) undoBtn.style.display = bulkCalendarUndoSnapshot ? '' : 'none';
+    const contextClearBtn = document.getElementById('bulk-calendar-context-clear'); if (contextClearBtn) { contextClearBtn.disabled = count === 0; contextClearBtn.innerText = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
 }
 function openBulkCalendarModal() {
     bulkCalendarInvoker = document.activeElement; bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = '';
@@ -801,11 +829,12 @@ function openBulkCalendarModal() {
     setTimeout(() => document.getElementById('bulk-calendar-title').focus(), 0);
 }
 function closeBulkCalendarModal() {
+    closeBulkCalendarContextMenu();
     const modal = document.getElementById('bulk-calendar-modal'); modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true');
     if (bulkCalendarInvoker && typeof bulkCalendarInvoker.focus === 'function') bulkCalendarInvoker.focus();
 }
 function handleBulkCalendarModalKeydown(ev) {
-    if (ev.key === 'Escape') { ev.preventDefault(); closeBulkCalendarModal(); return; }
+    if (ev.key === 'Escape') { ev.preventDefault(); if (isBulkCalendarContextMenuOpen()) closeBulkCalendarContextMenu(true); else closeBulkCalendarModal(); return; }
     if (ev.key !== 'Tab') return;
     const modal = document.querySelector('#bulk-calendar-modal [role="dialog"]');
     const focusables = Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled])')).filter(el => el.offsetParent !== null);
@@ -814,6 +843,23 @@ function handleBulkCalendarModalKeydown(ev) {
     if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
     else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
 }
+function isBulkCalendarContextMenuOpen() { const menu = document.getElementById('bulk-calendar-context-menu'); return !!menu && !menu.hidden; }
+function openBulkCalendarContextMenu(ev) {
+    ev.preventDefault(); const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu) return;
+    bulkCalendarContextMenuInvoker = document.activeElement; menu.hidden = false; updateBulkCalendarControls();
+    const menuWidth = 210; const menuHeight = 46; const left = Math.max(8, Math.min(ev.clientX, window.innerWidth - menuWidth - 8)); const top = Math.max(8, Math.min(ev.clientY, window.innerHeight - menuHeight - 8));
+    menu.style.left = `${left}px`; menu.style.top = `${top}px`;
+    const clearButton = document.getElementById('bulk-calendar-context-clear'); if (clearButton && !clearButton.disabled) clearButton.focus();
+}
+function closeBulkCalendarContextMenu(restoreFocus = false) {
+    const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    if (restoreFocus && bulkCalendarContextMenuInvoker && typeof bulkCalendarContextMenuInvoker.focus === 'function') bulkCalendarContextMenuInvoker.focus();
+    bulkCalendarContextMenuInvoker = null;
+}
+document.addEventListener('pointerdown', ev => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(ev.target)) closeBulkCalendarContextMenu(); });
+document.addEventListener('scroll', () => closeBulkCalendarContextMenu(), true);
+window.addEventListener('resize', () => closeBulkCalendarContextMenu());
 function applyBulkCalendarPreset(preset) {
     const ids = Array.from(bulkCalendarSelection).sort();
     if (!ids.length || !getBulkCalendarStateLabel(preset)) return;
