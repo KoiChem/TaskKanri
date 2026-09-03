@@ -124,6 +124,10 @@
 
   .display-date, .digital-clock-display { font-weight: bold; font-size: 16px; color: var(--text); font-family: sans-serif; }
   .display-date { margin-right: 2px; }
+  .display-date.day-state-short, .display-date.day-state-exam, .display-date.day-state-noclass { padding: 3px 7px; border-radius: 5px; }
+  .display-date.day-state-short { background: var(--bg-short); border: 1px solid #f6e05e; }
+  .display-date.day-state-exam { background: var(--bg-exam); border: 1px solid #d6bcfa; }
+  .display-date.day-state-noclass { background: var(--bg-noclass); border: 1px solid #9ae6b4; }
   .digital-clock-display { margin-left: 8px; }
   body.hide-clock .digital-clock-display { display: none !important; }
 
@@ -180,6 +184,59 @@
   .count-tab { flex:1; padding:10px; text-align:center; cursor:pointer; background:#edf2f7; font-weight:bold; color:#718096; transition:0.2s; box-shadow: inset 0 -2px 5px rgba(0,0,0,0.05); }
   .count-tab.active { background:#fff; color:#3182ce; border-top:3px solid #3182ce; box-shadow:none; border-bottom:1px solid #fff; z-index:2; position:relative; margin-bottom:-1px; }
   .count-tab:not(.active):hover { background:#e2e8f0; }
+  .count-setting-row { display:flex; gap:6px; align-items:center; background:#fff; padding:4px 8px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:4px; width:fit-content; }
+  .count-drag-handle { cursor:grab; color:#718096; font-size:18px; line-height:1; padding:2px 4px; touch-action:none; user-select:none; }
+  .count-drag-handle:active { cursor:grabbing; }
+  .count-sortable-ghost { opacity:.35; background:#ebf8ff !important; }
+  .count-sortable-chosen { box-shadow:0 2px 8px rgba(49,130,206,.25); }
+
+  /* --- 日付一括設定カレンダー --- */
+  .calendar-modal-box { width: min(1180px, 95vw); height: min(90vh, 900px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:16px 20px; box-sizing:border-box; }
+  .calendar-modal-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-shrink:0; }
+  .calendar-modal-header h2 { margin:0; font-size:20px; color:var(--text); }
+  .calendar-modal-body { display:flex; gap:14px; flex:1; min-height:0; overflow:hidden; }
+  .calendar-workspace { flex:1; min-width:0; overflow-y:auto; padding-right:4px; }
+  .calendar-selection-bar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; padding:8px; background:#f7fafc; border:1px solid #e2e8f0; border-radius:6px; position:sticky; top:0; z-index:2; }
+  .calendar-selection-actions { display:flex; gap:5px; flex-wrap:wrap; }
+  .calendar-year-grid { display:grid; grid-template-columns:repeat(3, minmax(190px, 1fr)); gap:10px; padding-bottom:6px; }
+  .calendar-month { border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; }
+  .calendar-month-head { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:5px 7px; background:#edf2f7; font-weight:bold; font-size:13px; }
+  .calendar-month-head .btn-s { font-size:10px; padding:2px 5px; }
+  .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, 1fr); }
+  .calendar-week-head span { text-align:center; padding:3px 0; font-size:10px; color:#718096; border-bottom:1px solid #edf2f7; }
+  .calendar-week-head span:first-child { color:#e53e3e; }
+  .calendar-week-head span:last-child { color:#3182ce; }
+  .calendar-day-spacer { min-height:35px; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
+  .calendar-date-cell { min-height:35px; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:2px 1px; text-align:center; font:inherit; font-size:12px; position:relative; }
+  .calendar-date-cell:hover { filter:brightness(.96); outline:2px solid #90cdf4; outline-offset:-2px; z-index:1; }
+  .calendar-date-cell.is-selected { outline:3px solid #3182ce; outline-offset:-3px; z-index:1; font-weight:bold; }
+  .calendar-date-cell .calendar-state-mark { display:block; font-size:8px; line-height:1; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .calendar-date-cell .calendar-today-mark { position:absolute; top:1px; right:2px; width:4px; height:4px; background:#3182ce; border-radius:50%; }
+  .calendar-control-panel { width:270px; flex:0 0 270px; overflow-y:auto; border:1px solid #cbd5e0; border-radius:6px; padding:12px; box-sizing:border-box; background:#f8fafc; }
+  .calendar-control-panel h3 { margin:0 0 8px; font-size:15px; }
+  .calendar-state-option { display:block; width:100%; padding:7px; margin:4px 0; background:#fff; border:1px solid #cbd5e0; border-radius:4px; cursor:pointer; font:inherit; font-size:12px; color:var(--text); text-align:left; transition:.15s; }
+  .calendar-state-option:hover:not(:disabled) { filter:brightness(.97); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .calendar-state-option:active:not(:disabled) { transform:translateY(1px); }
+  .calendar-state-option:focus-visible { outline:3px solid #3182ce; outline-offset:1px; }
+  .calendar-state-option:disabled { cursor:not-allowed; opacity:.5; }
+  .calendar-state-option.state-normal { background:#fff; border-color:#a0aec0; }
+  .calendar-state-option.state-short { background:var(--bg-short); border-color:#f6e05e; }
+  .calendar-state-option.state-exam { background:var(--bg-exam); border-color:#d6bcfa; }
+  .calendar-state-option.state-noclass { background:var(--bg-noclass); border-color:#9ae6b4; }
+  .calendar-state-option small { display:block; color:#718096; margin-top:2px; }
+  .calendar-action-status { min-height:18px; margin:8px 0 0; color:#2d3748; font-size:12px; line-height:1.4; }
+  .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-shrink:0; }
+  .calendar-legend { display:flex; gap:8px; flex-wrap:wrap; font-size:11px; color:#4a5568; }
+  .calendar-legend span { padding:2px 5px; border-radius:3px; border:1px solid #cbd5e0; }
+  @media (max-width: 900px) {
+    .calendar-modal-box { height:92vh; }
+    .calendar-modal-body { flex-direction:column; }
+    .calendar-workspace { flex:1; }
+    .calendar-year-grid { grid-template-columns:repeat(2, minmax(230px, 1fr)); }
+    .calendar-control-panel { width:auto; flex:0 0 auto; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:4px 7px; max-height:220px; }
+    .calendar-control-panel h3, .calendar-control-panel > p { grid-column:1 / -1; }
+    .calendar-state-option { margin:0; min-height:48px; }
+  }
 </style>
 </head>
 <body class="layout-portrait"> 
@@ -210,6 +267,9 @@
     </button>
     <button class="btn-settings" title="授業時数マネージャー" onclick="openCountModal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14.01"></line><line x1="12" y1="14" x2="12" y2="14.01"></line><line x1="8" y1="14" x2="8" y2="14.01"></line><line x1="16" y1="18" x2="16" y2="18.01"></line><line x1="12" y1="18" x2="12" y2="18.01"></line><line x1="8" y1="18" x2="8" y2="18.01"></line></svg>
+    </button>
+    <button class="btn-settings" title="日付を一括設定" onclick="openBulkCalendarModal()" aria-label="日付を一括設定">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="14" x2="8.01" y2="14"></line><line x1="12" y1="14" x2="12.01" y2="14"></line><line x1="16" y1="14" x2="16.01" y2="14"></line><line x1="8" y1="18" x2="8.01" y2="18"></line><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
     </button>
     <button class="btn-settings" title="各種予定登録・詳細設定" onclick="openSettingsView()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -353,6 +413,44 @@
   </div>
 </div>
 
+<div id="bulk-calendar-modal" class="modal-overlay" style="z-index: 1800;" aria-hidden="true">
+  <div class="calendar-modal-box" role="dialog" aria-modal="true" aria-labelledby="bulk-calendar-title" onkeydown="handleBulkCalendarModalKeydown(event)">
+    <div class="calendar-modal-header">
+      <h2 id="bulk-calendar-title" tabindex="-1">🗓️ 日付を一括設定</h2>
+      <button class="btn-s" onclick="closeBulkCalendarModal()" aria-label="日付一括設定を閉じる">✕ 閉じる</button>
+    </div>
+    <div class="calendar-modal-body">
+      <section class="calendar-workspace" aria-label="年度カレンダー">
+        <div class="calendar-selection-bar">
+          <div id="bulk-calendar-selection-summary" style="font-size:13px; font-weight:bold; white-space:nowrap;">0日を選択中</div>
+          <div class="calendar-selection-actions">
+            <button class="btn-s" onclick="selectBulkCalendarWeekdays()">平日を選択</button>
+            <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
+          </div>
+        </div>
+        <div id="bulk-calendar-grid" class="calendar-year-grid"></div>
+      </section>
+      <aside class="calendar-control-panel" aria-label="選択日の設定">
+        <h3>選択日の日種別</h3>
+        <p style="font-size:11px; color:#718096; margin:0 0 6px;">日付を選び、設定したい種別を押すとすぐに反映されます。状態は重複しません。</p>
+        <button type="button" class="calendar-state-option state-normal" data-bulk-day-state="normal" onclick="applyBulkCalendarPreset('normal')">通常に戻す<small>授業なし・考査・時程を解除</small></button>
+        <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short" onclick="applyBulkCalendarPreset('short')">短縮時程</button>
+        <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short-am" onclick="applyBulkCalendarPreset('short-am')">短縮AM<small>午後の授業枠を隠す</small></button>
+        <button type="button" class="calendar-state-option state-short" data-bulk-day-state="morning" onclick="applyBulkCalendarPreset('morning')">午前時程<small>午後の授業枠を隠す</small></button>
+        <button type="button" class="calendar-state-option state-exam" data-bulk-day-state="exam" onclick="applyBulkCalendarPreset('exam')">定期考査</button>
+        <button type="button" class="calendar-state-option state-exam" data-bulk-day-state="mock-exam" onclick="applyBulkCalendarPreset('mock-exam')">模擬試験</button>
+        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-hide" onclick="applyBulkCalendarPreset('noclass-hide')">授業なし（授業枠を隠す）<small>予定データは残す</small></button>
+        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-show" onclick="applyBulkCalendarPreset('noclass-show')">授業なし（授業枠を表示・時数には数えない）</button>
+        <p id="bulk-calendar-action-status" class="calendar-action-status" aria-live="polite"></p>
+      </aside>
+    </div>
+    <div class="calendar-modal-footer">
+      <div class="calendar-legend"><span class="bg-short">短縮時程</span><span class="bg-exam">考査</span><span class="bg-no-class">授業なし</span><span>青枠：選択中</span></div>
+      <div style="display:flex; gap:8px;"><button id="bulk-calendar-undo-btn" class="menu-btn" style="display:none; padding:9px 16px; background:#fffaf0; border-color:#ed8936;" onclick="undoBulkCalendarChange()">直前の変更を元に戻す</button><button class="menu-btn" style="padding:9px 20px; background:#cbd5e0;" onclick="closeBulkCalendarModal()">閉じる</button></div>
+    </div>
+  </div>
+</div>
+
 <div id="reset-confirm-modal" class="modal-overlay" style="z-index: 2000;">
   <div class="menu-box">
     <h3 style="margin:0; text-align:center; color:#e53e3e;">本当に初期化しますか？</h3>
@@ -465,7 +563,7 @@
 // 【カスタマイズ設定】 APP_CONFIG
 // ==========================================
 const APP_CONFIG = {
-  version: 70, // ジャンプUIの絵文字を🗓️（異体字セレクタ付加版）に変更し確実なレンダリングを保証
+  version: 71, // 授業並べ替え・日付一括設定・日付状態表示
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   
   theme: {
@@ -512,6 +610,12 @@ let currentCountMode = 'list';
 let currentSearchKeywords = [];
 let currentSearchMode = 'day'; 
 let savedScrollPosition = 0;
+let countDragState = null;
+let bulkCalendarSelection = new Set();
+let bulkCalendarRangeAnchor = "";
+let bulkCalendarInvoker = null;
+let bulkCalendarUndoSnapshot = null;
+let bulkCalendarStatus = "";
 
 const AppStorage = {
     init: function() {
@@ -564,13 +668,34 @@ const AppStorage = {
 };
 
 const DayStateEngine = {
+    set: function(dateId, type, value) {
+        if (!dateId) return;
+        const val = Math.max(0, parseInt(value, 10) || 0);
+        if (type === 'normal') {
+            noClassData[dateId] = 0; shortData[dateId] = 0; examData[dateId] = 0;
+        } else if (type === 'noClass') {
+            noClassData[dateId] = Math.min(val, 2);
+            if (val > 0) { shortData[dateId] = 0; examData[dateId] = 0; }
+        } else if (type === 'short') {
+            shortData[dateId] = Math.min(val, 3);
+            if (val > 0) { noClassData[dateId] = 0; examData[dateId] = 0; }
+        } else if (type === 'exam') {
+            examData[dateId] = Math.min(val, 2);
+            if (val > 0) { noClassData[dateId] = 0; shortData[dateId] = 0; }
+        }
+    },
+    applyPreset: function(dateId, preset) {
+        const presets = {
+            normal: ['normal', 0], short: ['short', 1], 'short-am': ['short', 2], morning: ['short', 3],
+            exam: ['exam', 1], 'mock-exam': ['exam', 2], 'noclass-hide': ['noClass', 1], 'noclass-show': ['noClass', 2]
+        };
+        const setting = presets[preset]; if (setting) this.set(dateId, setting[0], setting[1]);
+    },
     toggle: function(dateId, type) {
         if (!dateId) return;
-        let noClass = getStateVal(noClassData, dateId); let short = getStateVal(shortData, dateId); let exam = getStateVal(examData, dateId);
-        if (type === 'noClass') { noClass = (noClass + 1) % 3; if (noClass > 0) { short = 0; exam = 0; }
-        } else if (type === 'short') { short = (short + 1) % 4; if (short > 0) { noClass = 0; exam = 0; }
-        } else if (type === 'exam') { exam = (exam + 1) % 3; if (exam > 0) { noClass = 0; short = 0; } }
-        noClassData[dateId] = noClass; shortData[dateId] = short; examData[dateId] = exam;
+        if (type === 'noClass') this.set(dateId, type, (getStateVal(noClassData, dateId) + 1) % 3);
+        else if (type === 'short') this.set(dateId, type, (getStateVal(shortData, dateId) + 1) % 4);
+        else if (type === 'exam') this.set(dateId, type, (getStateVal(examData, dateId) + 1) % 3);
     }
 };
 
@@ -596,8 +721,115 @@ function getSmartDateRange() {
 function getDayBgClass(id) {
     const d = new Date(id); const dayIndex = d.getDay(); const isHoliday = !!customHolidays[id];
     const noClassState = getStateVal(noClassData, id); const examState = getStateVal(examData, id); const shortState = getStateVal(shortData, id);
-    if (noClassState > 0) return "bg-no-class"; if (isHoliday || dayIndex === 0) return "bg-sun-hol";
-    if (examState > 0) return "bg-exam"; if (shortState > 0) return "bg-short"; if (dayIndex === 6) return "bg-sat"; return "";
+    if (noClassState > 0) return "bg-no-class"; if (examState > 0) return "bg-exam"; if (shortState > 0) return "bg-short";
+    if (isHoliday || dayIndex === 0) return "bg-sun-hol"; if (dayIndex === 6) return "bg-sat"; return "";
+}
+function getDayStateVisual(id) {
+    const noClassState = getStateVal(noClassData, id); const examState = getStateVal(examData, id); const shortState = getStateVal(shortData, id);
+    if (noClassState === 1) return { className: 'day-state-noclass', shortLabel: '休', label: '授業なし（授業枠を隠す）' };
+    if (noClassState === 2) return { className: 'day-state-noclass', shortLabel: '休・表', label: '授業なし（授業枠を表示・時数には数えない）' };
+    if (examState === 1) return { className: 'day-state-exam', shortLabel: '考', label: '定期考査' };
+    if (examState === 2) return { className: 'day-state-exam', shortLabel: '模試', label: '模擬試験' };
+    if (shortState === 1) return { className: 'day-state-short', shortLabel: '短', label: '短縮時程' };
+    if (shortState === 2) return { className: 'day-state-short', shortLabel: '短AM', label: '短縮AM' };
+    if (shortState === 3) return { className: 'day-state-short', shortLabel: '午前', label: '午前時程' };
+    return { className: '', shortLabel: '', label: '通常授業' };
+}
+
+function getBulkCalendarStateLabel(value) {
+    const labels = {
+        normal: '通常に戻す', short: '短縮時程', 'short-am': '短縮AM', morning: '午前時程',
+        exam: '定期考査', 'mock-exam': '模擬試験', 'noclass-hide': '授業なし（授業枠を隠す）', 'noclass-show': '授業なし（授業枠を表示・時数には数えない）'
+    };
+    return labels[value] || '';
+}
+function isDateInCurrentAcademicYear(dateId) {
+    return dateId >= `${currentYear}-04-01` && dateId <= `${currentYear + 1}-03-31`;
+}
+function renderBulkCalendar() {
+    const container = document.getElementById('bulk-calendar-grid'); if (!container) return;
+    const todayId = getIsoDateStr(new Date()); let html = '';
+    for (let offset = 0; offset < 12; offset++) {
+        const first = new Date(currentYear, 3 + offset, 1); const year = first.getFullYear(); const month = first.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate(); const firstDay = first.getDay();
+        let daysHtml = '';
+        for (let blank = 0; blank < firstDay; blank++) daysHtml += '<span class="calendar-day-spacer" aria-hidden="true"></span>';
+        for (let day = 1; day <= lastDay; day++) {
+            const date = new Date(year, month, day); const dateId = getIsoDateStr(date); const state = getDayStateVisual(dateId);
+            const selected = bulkCalendarSelection.has(dateId); const bgClass = getDayBgClass(dateId);
+            const stateHtml = state.shortLabel ? `<span class="calendar-state-mark">${state.shortLabel}</span>` : '<span class="calendar-state-mark">&nbsp;</span>';
+            const todayHtml = dateId === todayId ? '<span class="calendar-today-mark" aria-label="今日"></span>' : '';
+            daysHtml += `<button type="button" class="calendar-date-cell ${bgClass} ${selected ? 'is-selected' : ''}" aria-pressed="${selected}" title="${dateId}：${state.label}" onclick="toggleBulkCalendarDate('${dateId}', event)"><span>${day}</span>${stateHtml}${todayHtml}</button>`;
+        }
+        const allMonthSelected = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1))).every(id => bulkCalendarSelection.has(id));
+        html += `<section class="calendar-month" aria-label="${year}年${month + 1}月"><div class="calendar-month-head"><span>${year}年${month + 1}月</span><button type="button" class="btn-s" onclick="toggleBulkCalendarMonth(${year}, ${month})">${allMonthSelected ? '月を解除' : '月を選択'}</button></div><div class="calendar-week-head"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div><div class="calendar-days">${daysHtml}</div></section>`;
+    }
+    container.innerHTML = html; updateBulkCalendarControls();
+}
+function toggleBulkCalendarDate(dateId, ev) {
+    if (ev && ev.shiftKey && bulkCalendarRangeAnchor && isDateInCurrentAcademicYear(bulkCalendarRangeAnchor)) {
+        const start = bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId;
+        const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
+        let d = new Date(start); while (getIsoDateStr(d) <= end) { bulkCalendarSelection.add(getIsoDateStr(d)); d.setDate(d.getDate() + 1); }
+    } else if (bulkCalendarSelection.has(dateId)) { bulkCalendarSelection.delete(dateId); }
+    else { bulkCalendarSelection.add(dateId); }
+    bulkCalendarRangeAnchor = dateId; renderBulkCalendar();
+}
+function toggleBulkCalendarMonth(year, month) {
+    const lastDay = new Date(year, month + 1, 0).getDate(); const ids = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1)));
+    const allSelected = ids.every(id => bulkCalendarSelection.has(id)); ids.forEach(id => allSelected ? bulkCalendarSelection.delete(id) : bulkCalendarSelection.add(id));
+    bulkCalendarRangeAnchor = ''; renderBulkCalendar();
+}
+function selectBulkCalendarWeekdays() {
+    let d = new Date(currentYear, 3, 1); const end = new Date(currentYear + 1, 2, 31);
+    while (d <= end) { const day = d.getDay(); if (day >= 1 && day <= 5) bulkCalendarSelection.add(getIsoDateStr(d)); d.setDate(d.getDate() + 1); }
+    bulkCalendarRangeAnchor = ''; renderBulkCalendar();
+}
+function clearBulkCalendarSelection() { bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; renderBulkCalendar(); }
+function updateBulkCalendarControls() {
+    const count = bulkCalendarSelection.size;
+    const summary = document.getElementById('bulk-calendar-selection-summary'); const status = document.getElementById('bulk-calendar-action-status');
+    if (summary) summary.innerText = `${count}日を選択中`;
+    if (status) status.innerText = bulkCalendarStatus;
+    document.querySelectorAll('[data-bulk-day-state]').forEach(btn => { btn.disabled = count === 0; });
+    const undoBtn = document.getElementById('bulk-calendar-undo-btn'); if (undoBtn) undoBtn.style.display = bulkCalendarUndoSnapshot ? '' : 'none';
+}
+function openBulkCalendarModal() {
+    bulkCalendarInvoker = document.activeElement; bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = '';
+    bulkCalendarUndoSnapshot = null; bulkCalendarStatus = '';
+    const modal = document.getElementById('bulk-calendar-modal'); modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); renderBulkCalendar();
+    setTimeout(() => document.getElementById('bulk-calendar-title').focus(), 0);
+}
+function closeBulkCalendarModal() {
+    const modal = document.getElementById('bulk-calendar-modal'); modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true');
+    if (bulkCalendarInvoker && typeof bulkCalendarInvoker.focus === 'function') bulkCalendarInvoker.focus();
+}
+function handleBulkCalendarModalKeydown(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); closeBulkCalendarModal(); return; }
+    if (ev.key !== 'Tab') return;
+    const modal = document.querySelector('#bulk-calendar-modal [role="dialog"]');
+    const focusables = Array.from(modal.querySelectorAll('button:not([disabled]), input:not([disabled])')).filter(el => el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0]; const last = focusables[focusables.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+}
+function applyBulkCalendarPreset(preset) {
+    const ids = Array.from(bulkCalendarSelection).sort();
+    if (!ids.length || !getBulkCalendarStateLabel(preset)) return;
+    const label = getBulkCalendarStateLabel(preset);
+    bulkCalendarUndoSnapshot = ids.map(id => ({ id, noClass: getStateVal(noClassData, id), short: getStateVal(shortData, id), exam: getStateVal(examData, id) }));
+    ids.forEach(id => DayStateEngine.applyPreset(id, preset)); AppStorage.saveAll(); refreshMainUI(); renderBulkCalendar();
+    bulkCalendarStatus = `${ids.length}日を「${label}」に設定しました。`;
+    updateBulkCalendarControls();
+}
+function undoBulkCalendarChange() {
+    if (!bulkCalendarUndoSnapshot) return;
+    bulkCalendarUndoSnapshot.forEach(snapshot => { noClassData[snapshot.id] = snapshot.noClass; shortData[snapshot.id] = snapshot.short; examData[snapshot.id] = snapshot.exam; });
+    const count = bulkCalendarUndoSnapshot.length; bulkCalendarUndoSnapshot = null;
+    AppStorage.saveAll(); refreshMainUI(); renderBulkCalendar();
+    bulkCalendarStatus = `${count}日の直前の変更を元に戻しました。`;
+    updateBulkCalendarControls();
 }
 
 // ==========================================
@@ -940,12 +1172,13 @@ const UIBuilders = {
   createHeaderHtml: (dateId, position, displayDate, myEvent, holEvent, placeholderAttr) => {
     const isTop = position === 'top';
     const navHtml = `<button class="nav-btn" onclick="shiftDate('${dateId}', -1, '${position}')" style="margin-left:0;">◀</button><button class="nav-btn" onclick="shiftDate('${dateId}', 1, '${position}')" style="margin-left:0; margin-right:6px;">▶</button>`;
+    const stateVisual = getDayStateVisual(dateId);
     
     let displayMyEvent = applyHighlightToHtml(myEvent, currentSearchKeywords);
 
     return `<div class="panel-header" style="flex-direction: ${isTop ? 'row' : 'column'}; align-items: ${isTop ? 'center' : 'flex-start'}; flex-wrap: wrap;">
         ${!isTop ? `<div style="display:flex; align-items:center; width:100%; margin-bottom:4px; flex-wrap: wrap;">` : ''}
-        ${navHtml}<span class="display-date">${displayDate}</span>${isTop ? `<span class="digital-clock-display"></span>` : ''}
+        ${navHtml}<span class="display-date ${stateVisual.className}" title="${stateVisual.label}">${displayDate}</span>${isTop ? `<span class="digital-clock-display"></span>` : ''}
         ${!isTop ? `</div><div style="display:flex; align-items:center; width:100%; gap:5px;">` : ''}
         <input type="text" class="event-inline-input" value="${cleanHtmlForSave(displayMyEvent)}" oninput="updateAnnualEvent('${dateId}', this.value)" ${placeholderAttr} ${isTop ? 'style="margin-left:15px;"' : ''}>
         <span class="hol-text">${holEvent}</span>${!isTop ? `</div>` : ''}</div>`;
@@ -1328,11 +1561,14 @@ function scanSchedulesForCount() {
                         const firstWord = getFirstWord(slots[slot]);
                         if (firstWord === searchWord) {
                             const dayIndex = new Date(dateId).getDay();
-                            const isExcluded = !(daySlotConfig[dayIndex] && daySlotConfig[dayIndex][slot]);
+                            const isConfigExcluded = !(daySlotConfig[dayIndex] && daySlotConfig[dayIndex][slot]);
+                            const isMorningOnly = [2, 3].includes(getStateVal(shortData, dateId)) && ['５限', '６限', '７限'].includes(slot);
+                            const isExcluded = isConfigExcluded || isMorningOnly;
                             const isSkippedDay = (getStateVal(noClassData, dateId) > 0) || (getStateVal(examData, dateId) > 0);
                             hits.push({ 
                                 dateId, slot, plainText: stripHtml(slots[slot]), originalHtml: slots[slot], 
-                                checked: (!isSkippedDay && !isExcluded), trashed: false, excluded: isExcluded
+                                checked: (!isSkippedDay && !isExcluded), trashed: false, excluded: isExcluded,
+                                excludedReason: isMorningOnly ? '午前時程により除外' : (isConfigExcluded ? '設定により除外' : '')
                             });
                         }
                     }
@@ -1348,8 +1584,11 @@ function renderCountSettings() {
     countSettings.forEach((cond, idx) => {
         const hitCount = previewCountData[idx] ? previewCountData[idx].hits.filter(h=>h.checked && !h.trashed && !h.excluded).length : 0;
         const row = document.createElement('div'); 
-        row.style.cssText = "display:inline-flex; gap:6px; align-items:center; background:#fff; padding:4px 8px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:4px; margin-right:8px;";
+        row.className = 'count-setting-row'; row.dataset.index = idx;
         row.innerHTML = `
+            <span class="count-drag-handle" title="ドラッグして並べ替え" aria-label="${cond.word || '授業'}をドラッグして並べ替え" onpointerdown="startCountDrag(event, ${idx})">⠿</span>
+            <button class="btn-s" style="font-size:12px; padding:2px 5px;" onclick="moveCountCondition(${idx}, ${idx - 1})" title="上へ移動" aria-label="${cond.word || '授業'}を上へ移動" ${idx === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn-s" style="font-size:12px; padding:2px 5px;" onclick="moveCountCondition(${idx}, ${idx + 1})" title="下へ移動" aria-label="${cond.word || '授業'}を下へ移動" ${idx === countSettings.length - 1 ? 'disabled' : ''}>↓</button>
             <button class="btn-s" style="color:#e53e3e; font-size:15px; padding:2px 4px; border:none; background:transparent; cursor:pointer;" onclick="removeCountConditionRow(${idx})" title="この設定を削除">🗑️</button>
             <input type="text" class="cond-word-input" data-idx="${idx}" value="${cond.word}" placeholder="検索ワード" style="width:210px; padding:4px 6px; border:1px solid #cbd5e0; border-radius:4px; font-size:13px;" onchange="updateCondWord(${idx}, this.value)">
             <select style="width:105px; padding:4px 2px; border:1px solid #cbd5e0; border-radius:4px; font-size:12px; font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; letter-spacing:-0.5px;" onchange="updateCondMode(${idx}, this.value)">
@@ -1362,6 +1601,44 @@ function renderCountSettings() {
         container.appendChild(row);
     });
     AppStorage.saveAll(); renderCountTags();
+}
+
+function startCountDrag(ev, fromIdx) {
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    const handle = ev.currentTarget; const row = handle.closest('.count-setting-row'); const container = document.getElementById('count-settings-container');
+    if (!row || !container) return;
+    countDragState = { pointerId: ev.pointerId, fromIdx, row, container, startY: ev.clientY, started: false };
+    row.setAttribute('aria-grabbed', 'true'); handle.setPointerCapture?.(ev.pointerId); ev.preventDefault();
+    document.addEventListener('pointermove', moveCountDrag); document.addEventListener('pointerup', endCountDrag); document.addEventListener('pointercancel', endCountDrag);
+}
+function moveCountDrag(ev) {
+    const state = countDragState; if (!state || ev.pointerId !== state.pointerId) return;
+    if (!state.started) {
+        if (Math.abs(ev.clientY - state.startY) < 5) return;
+        state.started = true; state.row.classList.add('count-sortable-chosen');
+    }
+    const containerRect = state.container.getBoundingClientRect();
+    if (ev.clientY < containerRect.top + 28) state.container.scrollTop -= 12;
+    else if (ev.clientY > containerRect.bottom - 28) state.container.scrollTop += 12;
+    const rows = Array.from(state.container.querySelectorAll('.count-setting-row'));
+    const target = rows.find(row => { if (row === state.row) return false; const rect = row.getBoundingClientRect(); return ev.clientY >= rect.top && ev.clientY <= rect.bottom; });
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    if (ev.clientY < rect.top + rect.height / 2) state.container.insertBefore(state.row, target);
+    else state.container.insertBefore(state.row, target.nextSibling);
+}
+function endCountDrag(ev) {
+    const state = countDragState; if (!state || (ev.pointerId !== undefined && ev.pointerId !== state.pointerId)) return;
+    document.removeEventListener('pointermove', moveCountDrag); document.removeEventListener('pointerup', endCountDrag); document.removeEventListener('pointercancel', endCountDrag);
+    state.row.classList.remove('count-sortable-chosen'); state.row.removeAttribute('aria-grabbed');
+    const toIdx = Array.from(state.container.querySelectorAll('.count-setting-row')).indexOf(state.row); const fromIdx = state.fromIdx; const moved = state.started && toIdx !== fromIdx;
+    countDragState = null; if (moved) moveCountCondition(fromIdx, toIdx);
+}
+function moveCountCondition(fromIdx, toIdx) {
+    if (fromIdx < 0 || fromIdx >= countSettings.length || toIdx < 0 || toIdx >= countSettings.length || fromIdx === toIdx) return;
+    const setting = countSettings.splice(fromIdx, 1)[0]; countSettings.splice(toIdx, 0, setting);
+    if (previewCountData.length) { const preview = previewCountData.splice(fromIdx, 1)[0]; previewCountData.splice(toIdx, 0, preview); }
+    AppStorage.saveAll(); renderCountSettings(); refreshCountViews();
 }
 
 function renderCountPreview() {
@@ -1387,7 +1664,7 @@ function renderCountPreview() {
             const divForClean = document.createElement('div'); divForClean.innerHTML = extractTextWithoutCount(hit.originalHtml || "");
             const cleanPlain = (divForClean.textContent || divForClean.innerText || "").trim(); const origPlain = hit.plainText;
             
-            if (hit.excluded) { rowClass += "excluded"; afterHtml = `<span style="color:#a0aec0; font-weight:bold;">(設定により除外)</span>`;
+            if (hit.excluded) { rowClass += "excluded"; afterHtml = `<span style="color:#a0aec0; font-weight:bold;">(${hit.excludedReason || '設定により除外'})</span>`;
             } else if (hit.trashed) { rowClass += "trashed"; afterHtml = `<span style="color:#e53e3e; text-decoration:line-through;">(消去)</span>`;
             } else if (!hit.checked) { rowClass += "skipped"; afterHtml = `<span style="color:#a0aec0;">(スキップ)</span>`;
             } else {
@@ -1828,7 +2105,7 @@ function applyWeeklyRange(isOverwrite) {
 
 function saveAnnual() { configEvents = {}; document.getElementById('annual-text-ui').value.split('\n').forEach(line => { const p = line.split(':'); if(p.length === 2) configEvents[fromYYMMDD(p[0].trim())] = p[1].trim(); }); AppStorage.saveAll(); refreshMainUI(); }
 function saveHolidays() { customHolidays = {}; document.getElementById('holiday-text-ui').value.split('\n').forEach(line => { const p = line.split(':'); if(p.length === 2) customHolidays[fromYYMMDD(p[0].trim())] = p[1].trim(); }); AppStorage.saveAll(); refreshMainUI(); }
-function exportData() { const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, countSettings, countDateRange, daySlotConfig } }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'})); a.download = `teacher_v70_backup.json`; a.click(); }
+function exportData() { const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, countSettings, countDateRange, daySlotConfig } }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'})); a.download = `teacher_v71_backup.json`; a.click(); }
 
 function importData(e) {
   const reader = new FileReader();
