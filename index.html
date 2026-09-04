@@ -191,26 +191,31 @@
   .count-sortable-chosen { box-shadow:0 2px 8px rgba(49,130,206,.25); }
 
   /* --- 日付一括設定カレンダー --- */
-  .calendar-modal-box { width: min(1180px, 95vw); height: min(90vh, 900px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:16px 20px; box-sizing:border-box; }
-  .calendar-modal-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-shrink:0; }
+  .calendar-modal-box { width:calc(100vw - 16px); height:calc(100vh - 16px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:10px 12px; box-sizing:border-box; }
+  .calendar-modal-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:6px; flex-shrink:0; }
   .calendar-modal-header h2 { margin:0; font-size:20px; color:var(--text); }
   .calendar-modal-body { display:flex; gap:14px; flex:1; min-height:0; overflow:hidden; }
-  .calendar-workspace { flex:1; min-width:0; overflow-y:auto; padding-right:4px; }
-  .calendar-selection-bar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; padding:8px; background:#f7fafc; border:1px solid #e2e8f0; border-radius:6px; position:sticky; top:0; z-index:2; }
+  .calendar-workspace { flex:1; min-width:0; min-height:0; overflow:hidden; padding-right:0; display:flex; flex-direction:column; }
+  .calendar-selection-bar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; padding:5px 7px; background:#f7fafc; border:1px solid #e2e8f0; border-radius:6px; flex-shrink:0; }
   .calendar-selection-actions { display:flex; gap:5px; flex-wrap:wrap; }
-  .calendar-year-grid { display:grid; grid-template-columns:repeat(3, minmax(190px, 1fr)); gap:10px; padding-bottom:6px; }
-  .calendar-month { border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; }
+  .calendar-selection-mode { display:flex; align-items:center; gap:2px; padding-right:4px; border-right:1px solid #cbd5e0; }
+  .calendar-selection-mode-label { font-size:11px; color:#4a5568; white-space:nowrap; margin-right:2px; }
+  .calendar-selection-mode-btn { padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; background:#fff; color:#4a5568; cursor:pointer; font:inherit; font-size:11px; white-space:nowrap; }
+  .calendar-selection-mode-btn.is-active { background:#3182ce; color:#fff; border-color:#2b6cb0; }
+  .calendar-year-grid { flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, minmax(0, 1fr)); gap:6px; }
+  .calendar-month { min-width:0; min-height:0; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:auto auto minmax(0, 1fr); }
   .calendar-month-head { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:5px 7px; background:#edf2f7; font-weight:bold; font-size:13px; }
   .calendar-month-head .btn-s { font-size:10px; padding:2px 5px; }
-  .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, 1fr); }
+  .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); }
+  .calendar-days { min-height:0; grid-template-rows:repeat(6, minmax(0, 1fr)); }
   .calendar-weekday-btn { min-height:24px; padding:3px 0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:10px; }
   .calendar-weekday-btn:hover { background:#ebf8ff; }
   .calendar-weekday-btn:focus-visible { outline:2px solid #3182ce; outline-offset:-2px; z-index:1; }
   .calendar-weekday-btn.is-all-selected { background:#bee3f8; color:#1e3a8a; font-weight:bold; }
   .calendar-weekday-btn:nth-child(6) { color:#3182ce; }
   .calendar-weekday-btn:last-child { color:#e53e3e; }
-  .calendar-day-spacer { min-height:35px; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
-  .calendar-date-cell { min-height:35px; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:2px 1px; text-align:center; font:inherit; font-size:12px; position:relative; }
+  .calendar-day-spacer { min-height:0; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
+  .calendar-date-cell { min-height:0; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:1px; text-align:center; font:inherit; font-size:12px; position:relative; }
   .calendar-date-cell.bg-sat { background-color:#e6f2ff; }
   .calendar-date-cell.bg-sun-hol { background-color:#ffe6e6; }
   .calendar-date-cell.bg-short { background-color:var(--bg-short); }
@@ -220,7 +225,7 @@
   .calendar-date-cell.is-selected { outline:3px solid #3182ce; outline-offset:-3px; z-index:1; font-weight:bold; }
   .calendar-date-cell .calendar-state-mark { display:block; font-size:8px; line-height:1; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .calendar-date-cell .calendar-today-mark { position:absolute; top:1px; right:2px; width:4px; height:4px; background:#3182ce; border-radius:50%; }
-  .calendar-control-panel { width:270px; flex:0 0 270px; overflow-y:auto; border:1px solid #cbd5e0; border-radius:6px; padding:12px; box-sizing:border-box; background:#f8fafc; }
+  .calendar-control-panel { width:245px; flex:0 0 245px; overflow-y:auto; border:1px solid #cbd5e0; border-radius:6px; padding:8px; box-sizing:border-box; background:#f8fafc; }
   .calendar-control-panel h3 { margin:0 0 8px; font-size:15px; }
   .calendar-state-option { display:block; width:100%; padding:7px; margin:4px 0; background:#fff; border:1px solid #cbd5e0; border-radius:4px; cursor:pointer; font:inherit; font-size:12px; color:var(--text); text-align:left; transition:.15s; }
   .calendar-state-option:hover:not(:disabled) { filter:brightness(.97); box-shadow:0 1px 3px rgba(0,0,0,.12); }
@@ -233,21 +238,39 @@
   .calendar-state-option.state-noclass { background:var(--bg-noclass); border-color:#9ae6b4; }
   .calendar-state-option small { display:block; color:#718096; margin-top:2px; }
   .calendar-action-status { min-height:18px; margin:8px 0 0; color:#2d3748; font-size:12px; line-height:1.4; }
-  .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; flex-shrink:0; }
+  .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:6px; flex-shrink:0; }
   .calendar-legend { display:flex; gap:8px; flex-wrap:wrap; font-size:11px; color:#4a5568; }
   .calendar-legend span { padding:2px 5px; border-radius:3px; border:1px solid #cbd5e0; }
   .calendar-context-menu { position:fixed; z-index:1900; min-width:190px; padding:4px; background:#fff; border:1px solid #a0aec0; border-radius:6px; box-shadow:0 5px 16px rgba(0,0,0,.22); }
   .calendar-context-menu button { width:100%; padding:7px 9px; border:0; border-radius:4px; background:#fff; color:var(--text); cursor:pointer; font:inherit; font-size:13px; text-align:left; }
   .calendar-context-menu button:hover:not(:disabled), .calendar-context-menu button:focus-visible { background:#ebf8ff; outline:none; }
   .calendar-context-menu button:disabled { color:#a0aec0; cursor:not-allowed; }
-  @media (max-width: 900px) {
-    .calendar-modal-box { height:92vh; }
+  .date-list-context-menu { position:fixed; z-index:2200; width:278px; padding:8px; background:#fff; border:1px solid #a0aec0; border-radius:7px; box-shadow:0 5px 18px rgba(0,0,0,.24); }
+  .date-list-context-title { margin:0 0 6px; font-size:13px; font-weight:bold; color:#2d3748; }
+  .date-list-context-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; }
+  .date-list-context-actions button { min-height:30px; padding:4px; border:1px solid #cbd5e0; border-radius:4px; background:#fff; color:#2d3748; cursor:pointer; font:inherit; font-size:11px; text-align:center; }
+  .date-list-context-actions button:hover, .date-list-context-actions button:focus-visible { filter:brightness(.96); outline:2px solid #3182ce; outline-offset:1px; }
+  .date-list-context-actions .ctx-short { background:var(--bg-short); border-color:#f6e05e; }
+  .date-list-context-actions .ctx-exam { background:var(--bg-exam); border-color:#d6bcfa; }
+  .date-list-context-actions .ctx-noclass { background:var(--bg-noclass); border-color:#9ae6b4; }
+  .date-list-context-actions .is-active { box-shadow:inset 0 0 0 2px #3182ce; font-weight:bold; }
+  .date-list-context-holiday { display:grid; grid-template-columns:1fr auto auto; gap:4px; align-items:center; margin-top:7px; padding-top:7px; border-top:1px solid #e2e8f0; }
+  .date-list-context-holiday input { min-width:0; padding:5px; border:1px solid #cbd5e0; border-radius:4px; font:inherit; font-size:12px; }
+  .date-list-context-holiday button { padding:5px 7px; border:1px solid #cbd5e0; border-radius:4px; background:#fff; color:#2d3748; cursor:pointer; font:inherit; font-size:11px; }
+  @media (orientation: portrait) {
     .calendar-modal-body { flex-direction:column; }
     .calendar-workspace { flex:1; }
-    .calendar-year-grid { grid-template-columns:repeat(2, minmax(230px, 1fr)); }
-    .calendar-control-panel { width:auto; flex:0 0 auto; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:4px 7px; max-height:220px; }
+    .calendar-year-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); }
+    .calendar-control-panel { width:auto; flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:4px; max-height:175px; overflow-y:auto; }
     .calendar-control-panel h3, .calendar-control-panel > p { grid-column:1 / -1; }
-    .calendar-state-option { margin:0; min-height:48px; }
+    .calendar-state-option { margin:0; min-height:36px; padding:4px; }
+    .calendar-state-option small { font-size:10px; }
+  }
+  @media (max-height: 680px) {
+    .calendar-workspace { overflow-y:auto; }
+    .calendar-year-grid { flex:none; height:auto; grid-template-rows:none; padding-bottom:6px; }
+    .calendar-month { min-height:210px; }
+    .calendar-day-spacer, .calendar-date-cell { min-height:26px; }
   }
 </style>
 </head>
@@ -352,6 +375,25 @@
 
 <div id="custom-tooltip"></div>
 
+<div id="date-list-context-menu" class="date-list-context-menu" role="dialog" aria-label="日付設定" hidden>
+  <p id="date-list-context-title" class="date-list-context-title"></p>
+  <div class="date-list-context-actions">
+    <button type="button" data-date-list-preset="normal" onclick="applyDateListContextPreset('normal')">通常に戻す</button>
+    <button type="button" class="ctx-short" data-date-list-preset="short" onclick="applyDateListContextPreset('short')">短縮時程</button>
+    <button type="button" class="ctx-short" data-date-list-preset="short-am" onclick="applyDateListContextPreset('short-am')">短縮AM</button>
+    <button type="button" class="ctx-short" data-date-list-preset="morning" onclick="applyDateListContextPreset('morning')">午前時程</button>
+    <button type="button" class="ctx-exam" data-date-list-preset="exam" onclick="applyDateListContextPreset('exam')">定期考査</button>
+    <button type="button" class="ctx-exam" data-date-list-preset="mock-exam" onclick="applyDateListContextPreset('mock-exam')">模擬試験</button>
+    <button type="button" class="ctx-noclass" data-date-list-preset="noclass-hide" onclick="applyDateListContextPreset('noclass-hide')">授業なし（枠を隠す）</button>
+    <button type="button" class="ctx-noclass" data-date-list-preset="noclass-show" onclick="applyDateListContextPreset('noclass-show')">授業なし（枠を表示）</button>
+  </div>
+  <div class="date-list-context-holiday">
+    <input id="date-list-context-holiday-name" type="text" placeholder="休日・祝日名">
+    <button type="button" onclick="saveDateListContextHoliday()">休日に設定</button>
+    <button type="button" onclick="clearDateListContextHoliday()">解除</button>
+  </div>
+</div>
+
 <div id="alarm-modal" class="modal-overlay" style="z-index: 3000;">
   <div class="menu-box" style="width: 400px; border: 4px solid #f6ad55; padding: 25px;">
     <h2 style="margin:0 0 15px 0; text-align:center; color:#dd6b20;">⏰ お知らせ</h2>
@@ -436,6 +478,11 @@
         <div class="calendar-selection-bar">
           <div id="bulk-calendar-selection-summary" style="font-size:13px; font-weight:bold; white-space:nowrap;">0日を選択中</div>
           <div class="calendar-selection-actions">
+            <div class="calendar-selection-mode" role="group" aria-label="日付の選択方法">
+              <span class="calendar-selection-mode-label">選択:</span>
+              <button type="button" id="bulk-selection-mode-standard" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('standard')" title="通常クリックは1日選択。Ctrl/⌘で追加、Shiftで範囲選択">標準</button>
+              <button type="button" id="bulk-selection-mode-additive" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('additive')" title="通常クリックで日付を追加・解除">追加</button>
+            </div>
             <button class="btn-s" onclick="selectBulkCalendarWeekdays()">平日を選択</button>
             <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
           </div>
@@ -578,7 +625,7 @@
 // 【カスタマイズ設定】 APP_CONFIG
 // ==========================================
 const APP_CONFIG = {
-  version: 71, // 授業並べ替え・日付一括設定・日付状態表示
+  version: 72, // 日付一括設定の選択方式・一覧右クリック設定
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   
   theme: {
@@ -632,6 +679,9 @@ let bulkCalendarInvoker = null;
 let bulkCalendarUndoSnapshot = null;
 let bulkCalendarStatus = "";
 let bulkCalendarContextMenuInvoker = null;
+let bulkCalendarSelectionMode = 'standard';
+let dateListContextDateId = '';
+let dateListContextInvoker = null;
 
 const AppStorage = {
     init: function() {
@@ -644,7 +694,7 @@ const AppStorage = {
             isWakeLockRequested = d.isWakeLockRequested || false;
             scheduleData = d.scheduleData; configEvents = d.configEvents; configWeekly = d.configWeekly;
             customHolidays = d.customHolidays; noClassData = d.noClassData; shortData = d.shortData;
-            examData = d.examData; timeConfig = d.timeConfig; globalTaskData = d.globalTaskData;
+            examData = d.examData; timeConfig = d.timeConfig; globalTaskData = d.globalTaskData; bulkCalendarSelectionMode = d.bulkCalendarSelectionMode;
             countSettings = d.countSettings; countDateRange = d.countDateRange; daySlotConfig = d.daySlotConfig;
         } else { this.migrateLegacy(); }
         this.fillDefaults(); this.saveAll();
@@ -658,9 +708,10 @@ const AppStorage = {
         isWakeLockRequested = false;
         scheduleData = getJson('teacherSchedule') || {}; configEvents = getJson('configEvents') || {}; configWeekly = getJson('configWeekly') || {};
         customHolidays = getJson('customHolidays') || null; noClassData = getJson('noClassData') || {}; shortData = getJson('shortData') || {}; examData = getJson('examData') || {}; 
-        timeConfig = getJson('timeConfig') || null; globalTaskData = getStr('globalTaskData') || ""; countSettings = getJson('countSettings') || null; countDateRange = getJson('countDateRange') || null; daySlotConfig = getJson('daySlotConfig') || null;
+        timeConfig = getJson('timeConfig') || null; globalTaskData = getStr('globalTaskData') || ""; bulkCalendarSelectionMode = 'standard'; countSettings = getJson('countSettings') || null; countDateRange = getJson('countDateRange') || null; daySlotConfig = getJson('daySlotConfig') || null;
     },
     fillDefaults: function() {
+        if (!['standard', 'additive'].includes(bulkCalendarSelectionMode)) bulkCalendarSelectionMode = 'standard';
         if (!timeConfig) timeConfig = JSON.parse(JSON.stringify(APP_CONFIG.defaultTime));
         if (!timeConfig.exam) timeConfig.exam = JSON.parse(JSON.stringify(APP_CONFIG.defaultTime.exam));
         if (!customHolidays) customHolidays = JSON.parse(JSON.stringify(APP_CONFIG.defaultHolidays));
@@ -678,7 +729,7 @@ const AppStorage = {
         }
     },
     saveAll: function() {
-        const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, countSettings, countDateRange, daySlotConfig } };
+        const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, bulkCalendarSelectionMode, countSettings, countDateRange, daySlotConfig } };
         try { localStorage.setItem(APP_CONFIG.storeKey, JSON.stringify(payload)); } catch (e) { alert("データの保存に失敗しました。"); }
     }
 };
@@ -742,8 +793,8 @@ function getDayBgClass(id) {
 }
 function getDayStateVisual(id) {
     const noClassState = getStateVal(noClassData, id); const examState = getStateVal(examData, id); const shortState = getStateVal(shortData, id);
-    if (noClassState === 1) return { className: 'day-state-noclass', shortLabel: '休', label: '授業なし（授業枠を隠す）' };
-    if (noClassState === 2) return { className: 'day-state-noclass', shortLabel: '休・表', label: '授業なし（授業枠を表示・時数には数えない）' };
+    if (noClassState === 1) return { className: 'day-state-noclass', shortLabel: '無', label: '授業なし（授業枠を隠す）' };
+    if (noClassState === 2) return { className: 'day-state-noclass', shortLabel: '無・表', label: '授業なし（授業枠を表示・時数には数えない）' };
     if (examState === 1) return { className: 'day-state-exam', shortLabel: '考', label: '定期考査' };
     if (examState === 2) return { className: 'day-state-exam', shortLabel: '模試', label: '模擬試験' };
     if (shortState === 1) return { className: 'day-state-short', shortLabel: '短', label: '短縮時程' };
@@ -767,6 +818,13 @@ function getBulkCalendarWeekdayIds(year, month, dayIndex) {
     for (let day = 1; day <= lastDay; day++) { const date = new Date(year, month, day); if (date.getDay() === dayIndex) ids.push(getIsoDateStr(date)); }
     return ids;
 }
+function escapeHtmlAttribute(value) { return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function getBulkCalendarDateTooltip(dateId, state) {
+    const d = new Date(dateId); const values = [`${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${APP_CONFIG.daysStr[d.getDay()]}）`, state.label];
+    const eventText = stripHtml(configEvents[dateId] || '').replace(/\s+/g, ' ').trim(); const holidayText = stripHtml(customHolidays[dateId] || '').replace(/\s+/g, ' ').trim();
+    if (eventText) values.push(eventText); if (holidayText) values.push(holidayText);
+    return values.join('\n');
+}
 function renderBulkCalendar() {
     const container = document.getElementById('bulk-calendar-grid'); if (!container) return;
     const todayId = getIsoDateStr(new Date()); let html = '';
@@ -780,7 +838,8 @@ function renderBulkCalendar() {
             const selected = bulkCalendarSelection.has(dateId); const bgClass = getDayBgClass(dateId);
             const stateHtml = state.shortLabel ? `<span class="calendar-state-mark">${state.shortLabel}</span>` : '<span class="calendar-state-mark">&nbsp;</span>';
             const todayHtml = dateId === todayId ? '<span class="calendar-today-mark" aria-label="今日"></span>' : '';
-            daysHtml += `<button type="button" class="calendar-date-cell ${bgClass} ${selected ? 'is-selected' : ''}" aria-pressed="${selected}" title="${dateId}：${state.label}" onclick="toggleBulkCalendarDate('${dateId}', event)"><span>${day}</span>${stateHtml}${todayHtml}</button>`;
+            const tooltip = escapeHtmlAttribute(getBulkCalendarDateTooltip(dateId, state));
+            daysHtml += `<button type="button" class="calendar-date-cell ${bgClass} ${selected ? 'is-selected' : ''}" aria-pressed="${selected}" aria-label="${tooltip}" title="${tooltip}" onclick="toggleBulkCalendarDate('${dateId}', event)"><span>${day}</span>${stateHtml}${todayHtml}</button>`;
         }
         const allMonthSelected = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1))).every(id => bulkCalendarSelection.has(id));
         const weekHeadHtml = [1, 2, 3, 4, 5, 6, 0].map(dayIndex => { const label = APP_CONFIG.daysStr[dayIndex]; const ids = getBulkCalendarWeekdayIds(year, month, dayIndex); const allSelected = ids.every(id => bulkCalendarSelection.has(id)); const action = allSelected ? '解除' : '選択'; return `<button type="button" class="calendar-weekday-btn ${allSelected ? 'is-all-selected' : ''}" aria-pressed="${allSelected}" title="${year}年${month + 1}月の${label}曜日をすべて${action}" onclick="toggleBulkCalendarWeekday(${year}, ${month}, ${dayIndex})">${label}</button>`; }).join('');
@@ -789,13 +848,28 @@ function renderBulkCalendar() {
     container.innerHTML = html; updateBulkCalendarControls();
 }
 function toggleBulkCalendarDate(dateId, ev) {
-    if (ev && ev.shiftKey && bulkCalendarRangeAnchor && isDateInCurrentAcademicYear(bulkCalendarRangeAnchor)) {
-        const start = bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId;
-        const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
+    const isRange = ev && ev.shiftKey && bulkCalendarRangeAnchor && isDateInCurrentAcademicYear(bulkCalendarRangeAnchor);
+    const isAddModifier = ev && (ev.ctrlKey || ev.metaKey);
+    if (bulkCalendarSelectionMode === 'standard') {
+        if (isRange) {
+            if (!isAddModifier) bulkCalendarSelection.clear();
+            const start = bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId; const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
+            let d = new Date(start); while (getIsoDateStr(d) <= end) { bulkCalendarSelection.add(getIsoDateStr(d)); d.setDate(d.getDate() + 1); }
+        } else if (isAddModifier) {
+            if (bulkCalendarSelection.has(dateId)) bulkCalendarSelection.delete(dateId); else bulkCalendarSelection.add(dateId);
+            bulkCalendarRangeAnchor = dateId;
+        } else {
+            bulkCalendarSelection.clear(); bulkCalendarSelection.add(dateId); bulkCalendarRangeAnchor = dateId;
+        }
+    } else if (isRange) {
+        const start = bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId; const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
         let d = new Date(start); while (getIsoDateStr(d) <= end) { bulkCalendarSelection.add(getIsoDateStr(d)); d.setDate(d.getDate() + 1); }
-    } else if (bulkCalendarSelection.has(dateId)) { bulkCalendarSelection.delete(dateId); }
-    else { bulkCalendarSelection.add(dateId); }
-    bulkCalendarRangeAnchor = dateId; renderBulkCalendar();
+        bulkCalendarRangeAnchor = dateId;
+    } else {
+        if (bulkCalendarSelection.has(dateId)) bulkCalendarSelection.delete(dateId); else bulkCalendarSelection.add(dateId);
+        bulkCalendarRangeAnchor = dateId;
+    }
+    renderBulkCalendar();
 }
 function toggleBulkCalendarMonth(year, month) {
     const lastDay = new Date(year, month + 1, 0).getDate(); const ids = Array.from({length:lastDay}, (_, i) => getIsoDateStr(new Date(year, month, i + 1)));
@@ -813,6 +887,10 @@ function selectBulkCalendarWeekdays() {
     bulkCalendarRangeAnchor = ''; renderBulkCalendar();
 }
 function clearBulkCalendarSelection() { bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; closeBulkCalendarContextMenu(); renderBulkCalendar(); }
+function setBulkCalendarSelectionMode(mode) {
+    if (!['standard', 'additive'].includes(mode) || bulkCalendarSelectionMode === mode) return;
+    bulkCalendarSelectionMode = mode; bulkCalendarRangeAnchor = ''; AppStorage.saveAll(); renderBulkCalendar();
+}
 function updateBulkCalendarControls() {
     const count = bulkCalendarSelection.size;
     const summary = document.getElementById('bulk-calendar-selection-summary'); const status = document.getElementById('bulk-calendar-action-status');
@@ -821,6 +899,7 @@ function updateBulkCalendarControls() {
     document.querySelectorAll('[data-bulk-day-state]').forEach(btn => { btn.disabled = count === 0; });
     const undoBtn = document.getElementById('bulk-calendar-undo-btn'); if (undoBtn) undoBtn.style.display = bulkCalendarUndoSnapshot ? '' : 'none';
     const contextClearBtn = document.getElementById('bulk-calendar-context-clear'); if (contextClearBtn) { contextClearBtn.disabled = count === 0; contextClearBtn.innerText = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
+    ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { const isActive = bulkCalendarSelectionMode === mode; button.classList.toggle('is-active', isActive); button.setAttribute('aria-pressed', String(isActive)); } });
 }
 function openBulkCalendarModal() {
     bulkCalendarInvoker = document.activeElement; bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = '';
@@ -1062,7 +1141,7 @@ function updatePreviewUI(dateId) { const el = document.getElementById(`preview-$
 function showTooltip(e, dateId) {
   const tt = document.getElementById('custom-tooltip'); const d = new Date(dateId); const dayIndex = d.getDay();
   const noClassState = getStateVal(noClassData, dateId); const examState = getStateVal(examData, dateId); const shortState = getStateVal(shortData, dateId);
-  const hideClasses = (noClassState === 1); const hideAfternoon = (examState === 1 || shortState === 2 || shortState === 3);
+  const hideClasses = (noClassState === 1); const isHoliday = !!customHolidays[dateId]; const hideAfternoon = (examState === 1 || shortState === 2 || shortState === 3);
   let content = `<div style="font-weight:bold; border-bottom:1px solid #555; margin-bottom:5px; padding-bottom:3px;">${d.getMonth()+1}月${d.getDate()}日(${APP_CONFIG.daysStr[dayIndex]})</div>`;
   let hasContent = false;
   if (customHolidays[dateId]) { content += `<span style="color:#fc8181;">祝: ${customHolidays[dateId]}</span><br>`; hasContent = true; }
@@ -1070,6 +1149,7 @@ function showTooltip(e, dateId) {
   if (scheduleData[dateId] && scheduleData[dateId].slots) {
     getActiveSlotsForDay(dayIndex).forEach(s => {
       if (hideClasses && s !== '朝' && s !== '放課後') return;
+      if (isHoliday && ['１限','２限','３限','４限','５限','６限','７限'].includes(s)) return;
       if (hideAfternoon && ['昼休み','５限','６限','７限'].includes(s)) return;
       if (scheduleData[dateId].slots[s]) { 
         let text = stripHtml(scheduleData[dateId].slots[s]).replace(/\n/g, ' '); if(text.length > 20) text = text.slice(0, 20) + '...';
@@ -1081,6 +1161,49 @@ function showTooltip(e, dateId) {
   tt.innerHTML = content; tt.style.display = 'block'; tt.style.left = (e.pageX + 15) + 'px'; tt.style.top = (e.pageY + 15) + 'px';
 }
 function hideTooltip() { document.getElementById('custom-tooltip').style.display = 'none'; }
+
+function getDateListContextPreset(dateId) {
+  const noClassState = getStateVal(noClassData, dateId); const examState = getStateVal(examData, dateId); const shortState = getStateVal(shortData, dateId);
+  if (noClassState === 1) return 'noclass-hide'; if (noClassState === 2) return 'noclass-show';
+  if (examState === 1) return 'exam'; if (examState === 2) return 'mock-exam';
+  if (shortState === 1) return 'short'; if (shortState === 2) return 'short-am'; if (shortState === 3) return 'morning';
+  return 'normal';
+}
+function isDateListContextMenuOpen() { const menu = document.getElementById('date-list-context-menu'); return !!menu && !menu.hidden; }
+function openDateListContextMenu(ev, dateId) {
+  ev.preventDefault(); ev.stopPropagation(); hideTooltip();
+  const menu = document.getElementById('date-list-context-menu'); if (!menu) return;
+  dateListContextDateId = dateId; dateListContextInvoker = document.activeElement;
+  const d = new Date(dateId); const state = getDayStateVisual(dateId); const holiday = customHolidays[dateId] || '';
+  document.getElementById('date-list-context-title').innerText = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${APP_CONFIG.daysStr[d.getDay()]}）　${state.label}`;
+  document.getElementById('date-list-context-holiday-name').value = stripHtml(holiday);
+  const activePreset = getDateListContextPreset(dateId);
+  document.querySelectorAll('[data-date-list-preset]').forEach(button => button.classList.toggle('is-active', button.dataset.dateListPreset === activePreset));
+  menu.hidden = false;
+  const width = 300; const height = 270; menu.style.left = `${Math.max(8, Math.min(ev.clientX, window.innerWidth - width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(ev.clientY, window.innerHeight - height - 8))}px`;
+  setTimeout(() => document.getElementById('date-list-context-holiday-name').focus(), 0);
+}
+function closeDateListContextMenu(restoreFocus = false) {
+  const menu = document.getElementById('date-list-context-menu'); if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  if (restoreFocus && dateListContextInvoker && typeof dateListContextInvoker.focus === 'function') dateListContextInvoker.focus();
+  dateListContextDateId = ''; dateListContextInvoker = null;
+}
+function applyDateListContextPreset(preset) {
+  if (!dateListContextDateId) return;
+  DayStateEngine.applyPreset(dateListContextDateId, preset); AppStorage.saveAll(); closeDateListContextMenu(); refreshMainUI();
+}
+function saveDateListContextHoliday() {
+  if (!dateListContextDateId) return;
+  const input = document.getElementById('date-list-context-holiday-name'); customHolidays[dateListContextDateId] = input.value.trim() || '休日';
+  AppStorage.saveAll(); closeDateListContextMenu(); refreshMainUI();
+}
+function clearDateListContextHoliday() {
+  if (!dateListContextDateId) return;
+  delete customHolidays[dateListContextDateId]; AppStorage.saveAll(); closeDateListContextMenu(); refreshMainUI();
+}
+document.addEventListener('pointerdown', ev => { const menu = document.getElementById('date-list-context-menu'); if (menu && !menu.hidden && !menu.contains(ev.target)) closeDateListContextMenu(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && isDateListContextMenuOpen()) { ev.preventDefault(); closeDateListContextMenu(true); } });
 
 function generateDateList() {
   const listDiv = document.getElementById('date-list'); 
@@ -1117,7 +1240,7 @@ function generateDateList() {
           const { id, label } = formatDateInfo(jumpDate);
           const bgClass = getDayBgClass(id);
           htmlParts.push(`
-            <div class="date-item ${bgClass}" style="border: 2px solid #3182ce; background-color: #ebf8ff; padding: 6px 4px;">
+            <div class="date-item ${bgClass}" style="border: 2px solid #3182ce; background-color: #ebf8ff; padding: 6px 4px;" oncontextmenu="openDateListContextMenu(event, '${id}')">
               <div class="date-wrapper" onclick="executeJump('${id}')" style="flex:1; display:flex; align-items:center;">
                 <span style="font-size:14.5px; color:#3182ce; font-weight:bold; margin-left:4px;">🗓️ ${label}</span>
               </div>
@@ -1174,7 +1297,7 @@ function generateDateList() {
             let snippetsHtml = hitSlots.map(hs => `<div style="font-size:11px; color:#4a5568; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><span style="background:#e2e8f0; padding:1px 4px; border-radius:3px; margin-right:4px; font-weight:bold;">${hs.name}</span>${hs.text}</div>`).join('');
 
             htmlParts.push(`
-                <div class="date-item ${bgClass}" style="flex-direction:column; align-items:stretch; padding: 6px 4px;">
+                <div class="date-item ${bgClass}" style="flex-direction:column; align-items:stretch; padding: 6px 4px;" oncontextmenu="openDateListContextMenu(event, '${id}')">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div class="date-wrapper" style="padding:0;" onclick="renderEditor('${id}', 'top')">
                             <span class="${labelClass}" style="color:var(--primary); font-weight:bold;">${label}</span>
@@ -1192,7 +1315,7 @@ function generateDateList() {
         }
     } else {
         htmlParts.push(`
-          <div class="date-item ${bgClass}">
+          <div class="date-item ${bgClass}" oncontextmenu="openDateListContextMenu(event, '${id}')">
             <div class="date-wrapper" onclick="renderEditor('${id}', 'top')" onmousemove="showTooltip(event, '${id}')" onmouseleave="hideTooltip()">
               <span class="${labelClass}">${label}</span>
               <span class="date-preview" id="preview-${id}">${getPreviewText(id)}</span>
@@ -1256,7 +1379,7 @@ function renderEditor(dateId, position) {
   const myEvent = configEvents[dateId] || ""; const holEvent = customHolidays[dateId] ? `祝：${customHolidays[dateId]}` : "";
   
   const isTop = targetPos === 'top';
-  const shortState = getStateVal(shortData, dateId); const examState = getStateVal(examData, dateId); const noClassState = getStateVal(noClassData, dateId);
+  const shortState = getStateVal(shortData, dateId); const examState = getStateVal(examData, dateId); const noClassState = getStateVal(noClassData, dateId); const isHoliday = !!customHolidays[dateId];
   const hideClasses = (noClassState === 1); const isShortChime = (shortState === 1 || shortState === 2);
   const hideAfternoon = (examState === 1 || shortState === 2 || shortState === 3); const isExamChime = (examState === 1);
   const activeForDay = daySlotConfig[dayIndex] || {};
@@ -1267,7 +1390,7 @@ function renderEditor(dateId, position) {
   let html = UIBuilders.createHeaderHtml(dateId, targetPos, displayDate, myEvent, holEvent, placeholderAttr);
   html += `<div style="flex:1; overflow-y:auto; padding-right:5px; display:flex; flex-direction:column;">`;
   
-  const renderSlots = (slotNames) => slotNames.map(s => activeForDay[s] ? UIBuilders.createSlotRowHtml(s, dateId, isShortChime, isExamChime) : "").join('');
+  const renderSlots = (slotNames) => slotNames.map(s => activeForDay[s] && !(isHoliday && ['１限','２限','３限','４限','５限','６限','７限'].includes(s)) ? UIBuilders.createSlotRowHtml(s, dateId, isShortChime, isExamChime) : "").join('');
   const morningHtml = renderSlots(['朝']); const afterSchoolHtml = renderSlots(['放課後']); let mainSlotsHtml = "";
   
   if (!hideClasses) {
@@ -1609,12 +1732,13 @@ function scanSchedulesForCount() {
                             const dayIndex = new Date(dateId).getDay();
                             const isConfigExcluded = !(daySlotConfig[dayIndex] && daySlotConfig[dayIndex][slot]);
                             const isMorningOnly = [2, 3].includes(getStateVal(shortData, dateId)) && ['５限', '６限', '７限'].includes(slot);
-                            const isExcluded = isConfigExcluded || isMorningOnly;
+                            const isHolidayPeriod = !!customHolidays[dateId] && ['１限', '２限', '３限', '４限', '５限', '６限', '７限'].includes(slot);
+                            const isExcluded = isConfigExcluded || isMorningOnly || isHolidayPeriod;
                             const isSkippedDay = (getStateVal(noClassData, dateId) > 0) || (getStateVal(examData, dateId) > 0);
                             hits.push({ 
                                 dateId, slot, plainText: stripHtml(slots[slot]), originalHtml: slots[slot], 
                                 checked: (!isSkippedDay && !isExcluded), trashed: false, excluded: isExcluded,
-                                excludedReason: isMorningOnly ? '午前時程により除外' : (isConfigExcluded ? '設定により除外' : '')
+                                excludedReason: isHolidayPeriod ? '休日・祝日のため除外' : (isMorningOnly ? '午前時程により除外' : (isConfigExcluded ? '設定により除外' : ''))
                             });
                         }
                     }
@@ -2151,7 +2275,7 @@ function applyWeeklyRange(isOverwrite) {
 
 function saveAnnual() { configEvents = {}; document.getElementById('annual-text-ui').value.split('\n').forEach(line => { const p = line.split(':'); if(p.length === 2) configEvents[fromYYMMDD(p[0].trim())] = p[1].trim(); }); AppStorage.saveAll(); refreshMainUI(); }
 function saveHolidays() { customHolidays = {}; document.getElementById('holiday-text-ui').value.split('\n').forEach(line => { const p = line.split(':'); if(p.length === 2) customHolidays[fromYYMMDD(p[0].trim())] = p[1].trim(); }); AppStorage.saveAll(); refreshMainUI(); }
-function exportData() { const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, countSettings, countDateRange, daySlotConfig } }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'})); a.download = `teacher_v71_backup.json`; a.click(); }
+function exportData() { const payload = { meta: { version: APP_CONFIG.version, lastUpdated: new Date().toISOString() }, data: { currentYear, isLandscapeMode, isClockVisible, isWakeLockRequested, scheduleData, configEvents, configWeekly, customHolidays, noClassData, shortData, examData, timeConfig, globalTaskData, bulkCalendarSelectionMode, countSettings, countDateRange, daySlotConfig } }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'})); a.download = `teacher_v72_backup.json`; a.click(); }
 
 function importData(e) {
   const reader = new FileReader();
@@ -2162,9 +2286,9 @@ function importData(e) {
             const d = imported.data; currentYear = d.currentYear; isLandscapeMode = d.isLandscapeMode; 
             isClockVisible = d.isClockVisible !== undefined ? d.isClockVisible : true;
             isWakeLockRequested = d.isWakeLockRequested || false;
-            scheduleData = d.scheduleData; configEvents = d.configEvents; configWeekly = d.configWeekly; customHolidays = d.customHolidays; noClassData = d.noClassData; shortData = d.shortData; examData = d.examData; timeConfig = d.timeConfig; globalTaskData = d.globalTaskData; countSettings = d.countSettings; countDateRange = d.countDateRange; daySlotConfig = d.daySlotConfig;
+            scheduleData = d.scheduleData; configEvents = d.configEvents; configWeekly = d.configWeekly; customHolidays = d.customHolidays; noClassData = d.noClassData; shortData = d.shortData; examData = d.examData; timeConfig = d.timeConfig; globalTaskData = d.globalTaskData; bulkCalendarSelectionMode = d.bulkCalendarSelectionMode; countSettings = d.countSettings; countDateRange = d.countDateRange; daySlotConfig = d.daySlotConfig;
         } else {
-            if(imported.currentYear) currentYear = imported.currentYear; scheduleData = imported.scheduleData || {}; configEvents = imported.configEvents || {}; configWeekly = imported.configWeekly || {}; customHolidays = imported.customHolidays || APP_CONFIG.defaultHolidays; noClassData = imported.noClassData || {}; shortData = imported.shortData || {}; examData = imported.examData || {}; timeConfig = imported.timeConfig || APP_CONFIG.defaultTime; globalTaskData = imported.globalTaskData || ""; if (imported.daySlotConfig) daySlotConfig = imported.daySlotConfig; if (imported.countSettings) countSettings = imported.countSettings;
+            if(imported.currentYear) currentYear = imported.currentYear; scheduleData = imported.scheduleData || {}; configEvents = imported.configEvents || {}; configWeekly = imported.configWeekly || {}; customHolidays = imported.customHolidays || APP_CONFIG.defaultHolidays; noClassData = imported.noClassData || {}; shortData = imported.shortData || {}; examData = imported.examData || {}; timeConfig = imported.timeConfig || APP_CONFIG.defaultTime; globalTaskData = imported.globalTaskData || ""; bulkCalendarSelectionMode = imported.bulkCalendarSelectionMode; if (imported.daySlotConfig) daySlotConfig = imported.daySlotConfig; if (imported.countSettings) countSettings = imported.countSettings;
         }
         AppStorage.fillDefaults(); AppStorage.saveAll(); alert("インポートが完了しました。画面を再読み込みします。"); location.reload();
     } catch(err) { alert("ファイルの読み込みに失敗しました。"); }
