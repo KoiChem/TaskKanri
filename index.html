@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260905-stage2-v2">
+<meta name="taskkanri-build-version" content="20260905-stage2-v3">
 <meta name="taskkanri-schema-version" content="3">
 <title>タスク管理くん</title>
 <style>
@@ -196,16 +196,19 @@
   .count-drag-handle:active { cursor:grabbing; }
   .count-sortable-ghost { opacity:.35; background:#ebf8ff !important; }
   .count-sortable-chosen { box-shadow:0 2px 8px rgba(49,130,206,.25); }
-  .count-tags-panel { margin:0 0 8px; border-bottom:1px dashed #cbd5e0; }
-  .count-tags-panel > summary { cursor:pointer; color:#4a5568; font-size:12px; font-weight:bold; padding:3px 0 7px; }
-  .count-tags-panel[open] > summary { padding-bottom:4px; }
-  .count-tags-panel #count-tags-container { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:24px; padding:0 0 8px; }
+  .count-settings-panel { margin:0; }
+  .count-settings-panel > summary { cursor:pointer; color:#4a5568; font-size:12px; font-weight:bold; padding:3px 0 7px; }
+  .count-settings-panel[open] > summary { padding-bottom:4px; }
+  .count-settings-panel #count-tags-container { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:24px; margin-bottom:8px; padding:0 0 8px; border-bottom:1px dashed #cbd5e0; }
   #count-grid-container { overflow:auto; }
-  .count-grid-table { width:100%; border-collapse:separate; border-spacing:0; font-size:12px; background:#fff; text-align:center; }
+  .count-grid-table { width:100%; min-width:840px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:12px; background:#fff; text-align:center; }
+  .count-grid-date-col { width:96px; }
+  .count-grid-event-col { width:8em; }
   .count-grid-table th, .count-grid-table td { border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; padding:4px; vertical-align:middle; }
   .count-grid-table th:first-child, .count-grid-table td:first-child { border-left:1px solid #e2e8f0; }
   .count-grid-table thead tr:first-child th { border-top:1px solid #e2e8f0; }
   .count-grid-table thead th { position:sticky; top:0; z-index:2; background:#edf2f7; }
+  .count-grid-event { overflow:hidden; text-overflow:clip; white-space:nowrap; }
 
   /* --- 日付一括設定カレンダー --- */
   .calendar-modal-box { width:calc(100vw - 16px); height:calc(100vh - 16px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:10px 12px; box-sizing:border-box; }
@@ -445,20 +448,20 @@
   <div class="menu-box" style="width: 95vw; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; padding: 15px 20px;">
     <h2 style="margin:0 0 10px 0; text-align:center; font-size:20px; color:#2d3748;">🔢 授業時数マネージャー</h2>
     <div style="background:#f7fafc; padding:10px; border-radius:6px; border:1px solid #cbd5e0; margin-bottom:10px; flex-shrink: 0;">
-      <details class="count-tags-panel" open>
-        <summary>抽出タグ</summary>
+      <details class="count-settings-panel" open>
+        <summary>コマを数える授業</summary>
         <div id="count-tags-container"></div>
+        <div style="display:flex; align-items:center; gap:15px; margin-bottom:8px;">
+            <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
+            <div style="font-size:13px; color:#4a5568; display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:2px 6px;">
+                <span style="font-weight:bold; color:#2d3748;">対象期間:</span>
+                <input type="date" id="count-start-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
+                <span>〜</span>
+                <input type="date" id="count-end-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
+            </div>
+        </div>
+        <div id="count-settings-container" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; max-height: 25vh; overflow-y: auto; padding-right:5px;"></div>
       </details>
-      <div style="display:flex; align-items:center; gap:15px; margin-bottom:8px;">
-          <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
-          <div style="font-size:13px; color:#4a5568; display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:2px 6px;">
-              <span style="font-weight:bold; color:#2d3748;">対象期間:</span>
-              <input type="date" id="count-start-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
-              <span>〜</span>
-              <input type="date" id="count-end-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
-          </div>
-      </div>
-      <div id="count-settings-container" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; max-height: 25vh; overflow-y: auto; padding-right:5px;"></div>
     </div>
     
     <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
@@ -647,6 +650,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260905-stage2-v2"></script>
+<script type="module" src="taskkanri-app.js?v=20260905-stage2-v3"></script>
 </body>
 </html>

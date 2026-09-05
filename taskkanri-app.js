@@ -14,7 +14,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage2-v2';
+} from './taskkanri-core.mjs?v=20260905-stage2-v3';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1146,13 +1146,18 @@ function renderCountGrid() {
   const end = document.getElementById('count-end-date')?.value || appState.countDateRange.end;
   if (!start || !end) return;
   const table = el('table'); table.className = 'count-grid-table';
-  const head = el('thead'); const headRow = el('tr'); ['日付(曜)', '行事予定', ...APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot))].forEach(label => headRow.appendChild(el('th', label))); head.appendChild(headRow); table.appendChild(head);
+  const periodSlots = APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot));
+  const colgroup = el('colgroup');
+  const dateCol = el('col'); dateCol.className = 'count-grid-date-col';
+  const eventCol = el('col'); eventCol.className = 'count-grid-event-col';
+  colgroup.append(dateCol, eventCol, ...periodSlots.map(() => el('col'))); table.appendChild(colgroup);
+  const head = el('thead'); const headRow = el('tr'); ['日付(曜)', '行事予定', ...periodSlots].forEach((label, index) => { const cell = el('th', label); if (index === 1) cell.className = 'count-grid-event'; headRow.appendChild(cell); }); head.appendChild(headRow); table.appendChild(head);
   const body = el('tbody'); let date = dateFromIso(start); const last = dateFromIso(end);
   while (date && last && date <= last) {
     const dateId = getIsoDateStr(date); const row = el('tr'); row.className = getDayBgClass(dateId);
     const dateCell = el('td'); dateCell.appendChild(el('span', `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`)); const trashDay = el('button', '🗑️'); trashDay.type = 'button'; trashDay.className = 'btn-s'; trashDay.title = 'この日の授業を全消去/全復活'; trashDay.addEventListener('click', () => trashDayAll(dateId)); dateCell.appendChild(trashDay); row.appendChild(dateCell);
-    const eventCell = el('td', stripHtml(appState.configEvents[dateId] || appState.customHolidays[dateId] || '')); setSafeTitle(eventCell, appState.configEvents[dateId] || appState.customHolidays[dateId] || ''); row.appendChild(eventCell);
-    APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot)).forEach(slot => {
+    const eventText = stripHtml(appState.configEvents[dateId] || appState.customHolidays[dateId] || ''); const eventCell = el('td', eventText); eventCell.className = 'count-grid-event'; if (eventText) { setSafeTitle(eventCell, eventText); eventCell.setAttribute('aria-label', eventText); } row.appendChild(eventCell);
+    periodSlots.forEach(slot => {
       const cell = el('td');
       previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => {
         if (hit.dateId !== dateId || hit.slot !== slot) return;
