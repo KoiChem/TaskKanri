@@ -14,7 +14,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage2-v3';
+} from './taskkanri-core.mjs?v=20260905-stage2-v4';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -709,6 +709,16 @@ function getBulkCalendarWeekdayIds(year, month, dayIndex) {
   }
   return result;
 }
+function getBulkCalendarDateTooltip(dateId, visual) {
+  const date = dateFromIso(dateId);
+  if (!date) return '';
+  const values = [`${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${APP_CONFIG.daysStr[date.getDay()]}）`, visual.label];
+  const eventText = stripHtml(appState.configEvents[dateId] || '').replace(/\s+/g, ' ').trim();
+  const holidayText = stripHtml(appState.customHolidays[dateId] || '').replace(/\s+/g, ' ').trim();
+  if (eventText) values.push(eventText);
+  if (holidayText) values.push(holidayText);
+  return values.join('\n');
+}
 function renderBulkCalendar() {
   const container = document.getElementById('bulk-calendar-grid');
   if (!container) return;
@@ -755,8 +765,9 @@ function renderBulkCalendar() {
       dateButton.className = `calendar-date-cell ${getDayBgClass(dateId)}`;
       const visual = getDayStateVisual(dateId);
       dateButton.setAttribute('aria-pressed', String(bulkCalendarSelection.has(dateId)));
-      dateButton.setAttribute('aria-label', `${year}年${month + 1}月${day}日（${APP_CONFIG.daysStr[new Date(year, month, day).getDay()]}）\n${visual.label}`);
-      dateButton.title = dateButton.getAttribute('aria-label');
+      const tooltip = getBulkCalendarDateTooltip(dateId, visual);
+      dateButton.setAttribute('aria-label', tooltip);
+      dateButton.title = tooltip;
       dateButton.classList.toggle('is-selected', bulkCalendarSelection.has(dateId));
       dateButton.appendChild(el('span', String(day)));
       const stateMark = el('span', visual.shortLabel || '\u00a0'); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark);
