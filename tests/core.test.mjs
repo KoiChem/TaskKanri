@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   APP_CONFIG,
+  HistoryManager,
   academicYearBounds,
   createStorageService,
   defaultState,
@@ -48,6 +49,48 @@ function masterRaw(state = defaultState(2026)) {
 function newService(storage) {
   return createStorageService(storage, { now: fixedNow });
 }
+
+test('HistoryManager keeps session-only undo and redo stacks with no-op suppression', () => {
+  const history = new HistoryManager({ now: () => '2026-09-06T00:00:00.000Z' });
+  const before = { value: 'before' };
+  const after = { value: 'after' };
+  assert.equal(history.push({ label: '変更A', scope: 'test', before, after }), true);
+  assert.equal(history.peekUndo().scope, 'test');
+  assert.equal(history.peekUndo().timestamp, '2026-09-06T00:00:00.000Z');
+  assert.equal(history.push({ label: '変更なし', before: after, after: { value: 'after' } }), false);
+  before.value = 'mutated outside';
+  assert.deepEqual(history.peekUndo().before, { value: 'before' });
+  const entry = history.moveUndoToRedo();
+  assert.equal(entry.label, '変更A');
+  assert.equal(history.canUndo(), false);
+  assert.equal(history.canRedo(), true);
+  assert.equal(history.moveRedoToUndo(), entry);
+  assert.equal(history.canUndo(), true);
+  history.moveUndoToRedo();
+  history.push({ label: '変更B', before: { value: 'after' }, after: { value: 'next' } });
+  assert.equal(history.canRedo(), false);
+});
+
+test('HistoryManager trims oldest entries by count and byte budget but retains newest oversized entry', () => {
+  const byCount = new HistoryManager({ maxEntries: 2, maxBytes: 100000 });
+  for (const label of ['A', 'B', 'C']) byCount.push({ label, before: { label: `${label}0` }, after: { label: `${label}1` } });
+  assert.deepEqual(byCount.undoStack.map(entry => entry.label), ['B', 'C']);
+  const byBytes = new HistoryManager({ maxEntries: 30, maxBytes: 90 });
+  byBytes.push({ label: 'A', before: { value: 'a'.repeat(80) }, after: { value: `A${'a'.repeat(79)}` } });
+  byBytes.push({ label: 'B', before: { value: 'b'.repeat(80) }, after: { value: `B${'b'.repeat(79)}` } });
+  assert.deepEqual(byBytes.undoStack.map(entry => entry.label), ['B']);
+  assert.ok(byBytes.undoBytes() > 90);
+});
+
+test('session history is never part of the canonical export payload', () => {
+  const history = new HistoryManager();
+  const state = defaultState(2026);
+  history.push({ label: '変更', before: state, after: { ...state, globalTaskData: '履歴対象' } });
+  const payload = serializePayload(state, fixedNow());
+  assert.equal(payload.ok, true);
+  assert.equal('history' in payload.value.data, false);
+  assert.equal(JSON.stringify(payload.value).includes('履歴対象'), false);
+});
 
 test('reset removes only explicit TaskKanri keys and keeps another app key', () => {
   const entries = {

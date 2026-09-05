@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260905-stage3-v1',
+  buildVersion: '20260906-undo-v1',
   schemaVersion: 4,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -71,6 +71,56 @@ export function isPlainObject(value) {
 export function clone(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
+}
+
+export class HistoryManager {
+  constructor({ maxEntries = 30, maxBytes = 8 * 1024 * 1024, now = () => new Date().toISOString() } = {}) {
+    this.maxEntries = maxEntries;
+    this.maxBytes = maxBytes;
+    this.now = now;
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
+  static serializedBytes(entry) {
+    try { return new TextEncoder().encode(JSON.stringify(entry)).length; } catch { return Infinity; }
+  }
+
+  static sameState(before, after) { return JSON.stringify(before) === JSON.stringify(after); }
+
+  push({ label, scope = 'general', before, after, timestamp = this.now() }) {
+    if (HistoryManager.sameState(before, after)) return false;
+    const entry = { label: String(label || '変更'), scope: String(scope || 'general'), before: clone(before), after: clone(after), timestamp };
+    entry.bytes = HistoryManager.serializedBytes(entry);
+    this.undoStack.push(entry);
+    this.redoStack = [];
+    this.trim();
+    return true;
+  }
+
+  trim() {
+    while (this.undoStack.length > this.maxEntries) this.undoStack.shift();
+    while (this.undoStack.length > 1 && this.undoBytes() > this.maxBytes) this.undoStack.shift();
+  }
+
+  undoBytes() { return this.undoStack.reduce((total, entry) => total + (entry.bytes || HistoryManager.serializedBytes(entry)), 0); }
+  canUndo() { return this.undoStack.length > 0; }
+  canRedo() { return this.redoStack.length > 0; }
+  peekUndo() { return this.undoStack[this.undoStack.length - 1] || null; }
+  peekRedo() { return this.redoStack[this.redoStack.length - 1] || null; }
+  moveUndoToRedo() { const entry = this.undoStack.pop(); if (entry) this.redoStack.push(entry); return entry || null; }
+  moveRedoToUndo() { const entry = this.redoStack.pop(); if (entry) this.undoStack.push(entry); return entry || null; }
+  restoreUndo(entry) { if (entry) this.undoStack.push(entry); }
+  restoreRedo(entry) { if (entry) this.redoStack.push(entry); }
+  replaceLatestAfter(after) {
+    const entry = this.peekUndo();
+    if (!entry) return false;
+    entry.after = clone(after);
+    entry.bytes = HistoryManager.serializedBytes(entry);
+    this.trim();
+    return true;
+  }
+  clear() { this.undoStack = []; this.redoStack = []; }
 }
 
 export function defaultDaySlotConfig() {

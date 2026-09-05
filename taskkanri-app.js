@@ -10,6 +10,7 @@ import {
   getResolvedSlot,
   getSlotOrigin,
   getWeeklyRuleSlot,
+  HistoryManager,
   formatStateSummary,
   isValidIsoDate,
   normalizeImportedPayload,
@@ -18,7 +19,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage3-v1';
+} from './taskkanri-core.mjs?v=20260906-undo-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -45,6 +46,7 @@ let countDragState = null;
 let wakeLock = null;
 let titleBlinkerId = null;
 let initialized = false;
+const historyManager = new HistoryManager();
 
 function q(selector, root = document) { return root.querySelector(selector); }
 function qa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); }
@@ -164,7 +166,13 @@ function notifySaveFailure(result) {
   showStorageWarning(result?.error || '保存に失敗しました。現在のデータは変更されていません。');
   showAlert(result?.error || '保存に失敗しました。現在のデータは変更されていません。');
 }
-function commitState(mutator, { refresh = false } = {}) {
+function updateHistoryControls() {
+  const undo = document.getElementById('history-undo-btn'); const redo = document.getElementById('history-redo-btn');
+  const nextUndo = historyManager.peekUndo(); const nextRedo = historyManager.peekRedo();
+  if (undo) { undo.disabled = !nextUndo; undo.title = nextUndo ? `${nextUndo.label}を元に戻す` : '元に戻せる変更はありません'; undo.setAttribute('aria-label', undo.title); }
+  if (redo) { redo.disabled = !nextRedo; redo.title = nextRedo ? `${nextRedo.label}をやり直す` : 'やり直せる変更はありません'; redo.setAttribute('aria-label', redo.title); }
+}
+function commitState(mutator, { refresh = false, historyLabel = '変更', historyScope = 'general', skipHistory = false } = {}) {
   if (!storageService) return false;
   if (storageService.isReadOnly()) {
     notifySaveFailure({ error: `読み取り専用相当です: ${storageService.readOnlyReason()}` });
@@ -181,6 +189,8 @@ function commitState(mutator, { refresh = false } = {}) {
       return false;
     }
     appState = result.state;
+    if (!skipHistory) historyManager.push({ label: historyLabel, scope: historyScope, before, after: appState });
+    updateHistoryControls();
     showStorageWarning();
     if (refresh) refreshMainUI();
     return true;
@@ -192,6 +202,67 @@ function commitState(mutator, { refresh = false } = {}) {
   }
 }
 
+function captureCountPreviewSelections() {
+  const byWord = new Map();
+  previewCountData.forEach((group, index) => {
+    const word = appState.countSettings[index]?.word;
+    if (!word) return;
+    const snapshots = byWord.get(word) || [];
+    snapshots.push(new Map(group.hits.map(hit => [`${hit.dateId}\u0000${hit.slot}`, { checked: hit.checked, trashed: hit.trashed }])));
+    byWord.set(word, snapshots);
+  });
+  return byWord;
+}
+function restoreCountPreviewSelections(byWord) {
+  if (!byWord) return;
+  previewCountData.forEach((group, index) => {
+    const word = appState.countSettings[index]?.word;
+    const snapshots = byWord.get(word);
+    const snapshot = snapshots?.shift();
+    if (!snapshot) return;
+    group.hits.forEach(hit => {
+      const previous = snapshot.get(`${hit.dateId}\u0000${hit.slot}`);
+      if (previous) { hit.checked = previous.checked; hit.trashed = previous.trashed; }
+    });
+  });
+}
+function refreshAfterHistoryRestore(countSelections = null) {
+  refreshMainUI();
+  if (document.getElementById('bulk-calendar-modal')?.style.display === 'flex') renderBulkCalendar();
+  if (document.getElementById('count-modal')?.style.display === 'flex') { scanSchedulesForCount(); restoreCountPreviewSelections(countSelections); renderCountSettings(); refreshCountViews(); }
+  updateHistoryControls();
+}
+function hasOpenUnsavedForm() {
+  return document.getElementById('settings-view')?.style.display === 'block'
+    || isDateListContextMenuOpen();
+}
+function isTextEditingTarget(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable || Boolean(target.closest('[contenteditable="true"]'));
+}
+function restoreHistory(direction) {
+  if (hasOpenUnsavedForm()) { showAlert('保存前の入力を保護するため、この画面を閉じてから元に戻す／やり直すを実行してください。'); return false; }
+  if (!storageService || storageService.isReadOnly()) { notifySaveFailure({ error: `読み取り専用相当です: ${storageService?.readOnlyReason?.() || ''}` }); return false; }
+  const entry = direction === 'undo' ? historyManager.moveUndoToRedo() : historyManager.moveRedoToUndo();
+  if (!entry) { updateHistoryControls(); return false; }
+  const target = direction === 'undo' ? entry.before : entry.after;
+  const before = clone(appState);
+  const countSelections = captureCountPreviewSelections();
+  const result = storageService.saveAll(target);
+  if (!result.ok) {
+    appState = before;
+    if (direction === 'undo') { historyManager.redoStack.pop(); historyManager.restoreUndo(entry); } else { historyManager.undoStack.pop(); historyManager.restoreRedo(entry); }
+    notifySaveFailure(result); updateHistoryControls(); return false;
+  }
+  appState = result.state;
+  if (entry.scope === 'bulk-calendar') bulkCalendarUndoSnapshot = null;
+  refreshAfterHistoryRestore(countSelections);
+  showAlert(`${entry.label}を${direction === 'undo' ? '元に戻しました' : 'やり直しました'}。`);
+  return true;
+}
+function undoHistory() { return restoreHistory('undo'); }
+function redoHistory() { return restoreHistory('redo'); }
+
 function applyPresetToState(state, dateId, preset) {
   if (!['normal', 'short', 'short-am', 'morning', 'exam', 'mock-exam', 'noclass-hide', 'noclass-show'].includes(preset) || !isValidIsoDate(dateId)) return false;
   if (!state.dayProfiles) state.dayProfiles = {};
@@ -200,7 +271,7 @@ function applyPresetToState(state, dateId, preset) {
 }
 const DayStateEngine = {
   applyPreset(dateId, preset) {
-    return commitState(state => applyPresetToState(state, dateId, preset), { refresh: true });
+    return commitState(state => applyPresetToState(state, dateId, preset), { refresh: true, historyLabel: '日別状態の変更', historyScope: 'day-profile' });
   },
   toggle(dateId, type) {
     const cycles = { noClass: ['normal', 'noclass-hide', 'noclass-show'], short: ['normal', 'short', 'short-am', 'morning'], exam: ['normal', 'exam', 'mock-exam'] };
@@ -635,7 +706,7 @@ function updateAnnualEvent(dateId, value) {
     const clean = sanitizeHtml(String(value ?? ''));
     if (stripHtml(clean).trim()) state.configEvents[dateId] = clean;
     else delete state.configEvents[dateId];
-  });
+  }, { historyLabel: '行事予定の変更', historyScope: 'event' });
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
@@ -654,13 +725,13 @@ function setUserOverride(state, dateId, slot, htmlValue) {
   if (!Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId];
 }
 function updateSlot(dateId, slot, htmlValue) {
-  const ok = commitState(state => { setUserOverride(state, dateId, slot, htmlValue); });
+  const ok = commitState(state => { setUserOverride(state, dateId, slot, htmlValue); }, { historyLabel: '日別予定の変更', historyScope: 'schedule' });
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
 function restoreBaseSlot(dateId, slot) {
   if (!showConfirm(`${dateId} の${getDisplaySlot(slot)}を基本時間割に戻しますか？`)) return;
-  if (commitState(state => { delete state.dateOverrides?.[dateId]?.slots?.[slot]; if (state.dateOverrides?.[dateId] && !Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId]; }, { refresh: true })) updatePreviewUI(dateId);
+  if (commitState(state => { delete state.dateOverrides?.[dateId]?.slots?.[slot]; if (state.dateOverrides?.[dateId] && !Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId]; }, { refresh: true, historyLabel: '基本時間割に戻す', historyScope: 'schedule' })) updatePreviewUI(dateId);
 }
 function weekdayForDateId(dateId) { return dateFromIso(dateId)?.getDay() ?? 0; }
 function changeFollowingWeekly(dateId, slot, htmlValue) {
@@ -674,10 +745,10 @@ function changeFollowingWeekly(dateId, slot, htmlValue) {
   if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
   const result = replaceWeeklyRuleRange(appState, String(weekday), slot, dateId, end, content);
   if (!result.ok) { showAlert(result.error); return; }
-  if (commitState(state => Object.assign(state, result.value), { refresh: true })) showAlert(`この日以降の毎週${APP_CONFIG.daysStr[weekday]}曜日を基本時間割として変更しました。`);
+  if (commitState(state => Object.assign(state, result.value), { refresh: true, historyLabel: 'この日以降の基本時間割変更', historyScope: 'weekly-rule' })) showAlert(`この日以降の毎週${APP_CONFIG.daysStr[weekday]}曜日を基本時間割として変更しました。`);
 }
 function updateGlobalTask(htmlValue) {
-  return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); });
+  return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); }, { historyLabel: '共通タスクの変更', historyScope: 'task' });
 }
 
 const EditorCmd = {
@@ -884,7 +955,7 @@ function clearBulkCalendarSelection() {
 }
 function setBulkCalendarSelectionMode(mode) {
   if (!['standard', 'additive'].includes(mode) || appState.bulkCalendarSelectionMode === mode) return;
-  commitState(state => { state.bulkCalendarSelectionMode = mode; });
+  commitState(state => { state.bulkCalendarSelectionMode = mode; }, { historyLabel: '年間カレンダー選択方式の変更', historyScope: 'calendar-setting' });
   bulkCalendarRangeAnchor = '';
   renderBulkCalendar();
 }
@@ -893,7 +964,7 @@ function updateBulkCalendarControls() {
   const summary = document.getElementById('bulk-calendar-selection-summary'); if (summary) summary.textContent = `${count}日を選択中`;
   const status = document.getElementById('bulk-calendar-action-status'); if (status) status.textContent = bulkCalendarStatus;
   qa('[data-bulk-day-state]').forEach(button => { button.disabled = count === 0; });
-  const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = bulkCalendarUndoSnapshot ? '' : 'none';
+  const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = historyManager.peekUndo()?.scope === 'bulk-calendar' ? '' : 'none';
   const clear = document.getElementById('bulk-calendar-context-clear'); if (clear) { clear.disabled = count === 0; clear.textContent = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
   ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarSelectionMode === mode); button.setAttribute('aria-pressed', String(appState.bulkCalendarSelectionMode === mode)); } });
 }
@@ -939,17 +1010,14 @@ function applyBulkCalendarPreset(preset) {
   if (!ids.length || !label) return;
   const before = clone(appState);
   bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
-  if (!commitState(state => ids.forEach(id => applyPresetToState(state, id, preset)))) { appState = before; bulkCalendarUndoSnapshot = null; return; }
+  if (!commitState(state => ids.forEach(id => applyPresetToState(state, id, preset)), { historyLabel: '年間カレンダー一括設定', historyScope: 'bulk-calendar' })) { appState = before; bulkCalendarUndoSnapshot = null; return; }
   bulkCalendarStatus = `${ids.length}日を「${label}」に設定しました。`;
   renderBulkCalendar(); refreshMainUI();
 }
 function undoBulkCalendarChange() {
-  if (!bulkCalendarUndoSnapshot) return;
-  const snapshot = bulkCalendarUndoSnapshot;
-  if (!commitState(state => snapshot.forEach(item => applyPresetToState(state, item.id, item.profile)))) return;
-  bulkCalendarUndoSnapshot = null;
-  bulkCalendarStatus = `${snapshot.length}日の直前の変更を元に戻しました。`;
-  renderBulkCalendar(); refreshMainUI();
+  if (historyManager.peekUndo()?.scope !== 'bulk-calendar') { bulkCalendarUndoSnapshot = null; bulkCalendarStatus = '別の変更があるため、上部の「元に戻す」を使ってください。'; updateBulkCalendarControls(); return; }
+  const count = bulkCalendarUndoSnapshot?.length || 0;
+  if (undoHistory()) { bulkCalendarUndoSnapshot = null; bulkCalendarStatus = `${count}日の直前の変更を元に戻しました。`; renderBulkCalendar(); }
 }
 
 function updateBadgeElement(badge, state) {
@@ -1032,7 +1100,7 @@ function checkAlarms(now) {
   APP_CONFIG.slotsAll.forEach(slot => { const current = resolvedSlot(dateId, slot); if (!current?.includes('🔔')) return; const next = processAlarmHtml(current, getDisplaySlot(slot), now.getHours(), now.getMinutes(), notifications); if (next !== current) { setUserOverride(appState, dateId, slot, next); changed = true; } });
   if (changed) {
     const result = storageService.saveAll(appState);
-    if (result.ok) appState = result.state; else { appState = before; notifySaveFailure(result); }
+    if (result.ok) { appState = result.state; updateHistoryControls(); } else { appState = before; notifySaveFailure(result); }
     refreshMainUI();
   }
   if (notifications.length) showAlarmModal(notifications);
@@ -1166,7 +1234,7 @@ function endCountDrag(event) {
 }
 function moveCountCondition(fromIndex, toIndex) {
   if (fromIndex < 0 || toIndex < 0 || fromIndex >= appState.countSettings.length || toIndex >= appState.countSettings.length || fromIndex === toIndex) return;
-  const ok = commitState(state => { const [item] = state.countSettings.splice(fromIndex, 1); state.countSettings.splice(toIndex, 0, item); });
+  const ok = commitState(state => { const [item] = state.countSettings.splice(fromIndex, 1); state.countSettings.splice(toIndex, 0, item); }, { historyLabel: '時数条件の並べ替え', historyScope: 'count' });
   if (ok) { const [preview] = previewCountData.splice(fromIndex, 1); previewCountData.splice(toIndex, 0, preview); renderCountSettings(); refreshCountViews(); }
 }
 function renderCountPreview() {
@@ -1237,14 +1305,14 @@ function refreshCountViews() { renderCountPreview(); renderCountGrid(); }
 function persistCountUiState() {
   const start = document.getElementById('count-start-date')?.value || '';
   const end = document.getElementById('count-end-date')?.value || '';
-  return commitState(state => { state.countDateRange = { start, end }; });
+  return commitState(state => { state.countDateRange = { start, end }; }, { historyLabel: '時数集計期間の変更', historyScope: 'count' });
 }
 function updateCountDateRange() { if (persistCountUiState()) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
 function toggleTrash(groupIndex, hitIndex) {
   const hit = previewCountData[groupIndex]?.hits[hitIndex]; if (!hit || hit.excluded) return;
   const nextTrashed = !hit.trashed;
   const delta = appState.countSettings[groupIndex].mode === 'down' && hit.checked ? (nextTrashed ? -1 : 1) : 0;
-  if (commitState(state => { state.countSettings[groupIndex].start += delta; })) {
+  if (commitState(state => { state.countSettings[groupIndex].start += delta; }, { historyLabel: '時数対象の変更', historyScope: 'count' })) {
     hit.trashed = nextTrashed;
     renderCountSettings(); refreshCountViews();
   }
@@ -1252,7 +1320,7 @@ function toggleTrash(groupIndex, hitIndex) {
 function togglePreviewCheck(groupIndex, hitIndex, checked) {
   const hit = previewCountData[groupIndex]?.hits[hitIndex]; if (!hit || hit.excluded || hit.trashed) return;
   const delta = appState.countSettings[groupIndex].mode === 'down' ? (checked ? 1 : -1) : 0;
-  if (commitState(state => { state.countSettings[groupIndex].start += delta; })) {
+  if (commitState(state => { state.countSettings[groupIndex].start += delta; }, { historyLabel: '時数対象の変更', historyScope: 'count' })) {
     hit.checked = checked;
     renderCountSettings(); refreshCountViews();
   }
@@ -1268,7 +1336,7 @@ function applyCountColumn(groupIndex) {
       else setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml));
       changed = true;
     });
-  });
+  }, { historyLabel: '時数連番の反映', historyScope: 'count' });
   if (ok && changed) { scanSchedulesForCount(); refreshCountViews(); refreshMainUI(); }
   return ok && changed;
 }
@@ -1284,7 +1352,7 @@ function applyCountAll() {
       else setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml));
       applied = true;
     });
-  }))) return;
+  }), { historyLabel: '時数連番の一括反映', historyScope: 'count' })) return;
   if (applied) { scanSchedulesForCount(); refreshCountViews(); refreshMainUI(); showAlert('連番を振ってカレンダーに反映しました。'); }
 }
 function applyGridCleaning() {
@@ -1292,7 +1360,7 @@ function applyGridCleaning() {
   if (!commitState(state => appState.countSettings.forEach((condition, index) => {
     const group = previewCountData[index]; if (!condition.word.trim() || !group) return;
     group.hits.forEach(hit => { if (hit.excluded) return; if (hit.trashed) setUserOverride(state, hit.dateId, hit.slot, deleteCountWord(hit.originalHtml, condition.word)); else if (!hit.checked) setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml)); applied = true; });
-  }))) applied = false;
+  }), { historyLabel: '時数連番の整理', historyScope: 'count' })) applied = false;
   if (applied) { showAlert('お掃除内容（消去・番号除去）をカレンダーに反映しました。'); refreshMainUI(); }
   else showAlert('反映する変更（ゴミ箱行き、またはスキップ）がありません。');
 }
@@ -1324,24 +1392,26 @@ function openCountModal() {
   scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); switchCountMode(currentCountMode); document.getElementById('count-modal').style.display = 'flex';
 }
 function closeCountModal() { document.getElementById('count-modal').style.display = 'none'; refreshMainUI(); }
-function addCountConditionRow(initialWord = '') { if (commitState(state => state.countSettings.push({ word: initialWord, mode: 'down', start: 1 }))) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
-function removeCountConditionRow(index) { if (appState.countSettings.length <= 1) return; if (commitState(state => state.countSettings.splice(index, 1))) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
+function addCountConditionRow(initialWord = '') { if (commitState(state => state.countSettings.push({ word: initialWord, mode: 'down', start: 1 }), { historyLabel: '時数条件の追加', historyScope: 'count' })) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
+function removeCountConditionRow(index) { if (appState.countSettings.length <= 1) return; if (commitState(state => state.countSettings.splice(index, 1), { historyLabel: '時数条件の削除', historyScope: 'count' })) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
 function updateCondWord(index, value) {
   const nextWord = String(value ?? '');
   if (!appState.countSettings[index]) return;
   if (appState.countSettings[index]?.word === nextWord) return;
-  if (!commitState(state => { state.countSettings[index].word = nextWord; })) return;
+  if (!commitState(state => { state.countSettings[index].word = nextWord; }, { historyLabel: '時数条件名の変更', historyScope: 'count' })) return;
   scanSchedulesForCount();
   if (appState.countSettings[index].mode === 'down') {
     const nextStart = previewCountData[index].hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length;
-    if (!commitState(state => { state.countSettings[index].start = nextStart; })) return;
+    if (!commitState(state => { state.countSettings[index].start = nextStart; }, { skipHistory: true })) return;
+    historyManager.replaceLatestAfter(appState);
+    updateHistoryControls();
   }
   const startInput = document.querySelector(`.count-setting-row[data-index="${index}"] input[type="number"]`);
   if (startInput) startInput.value = String(appState.countSettings[index].start);
   renderCountTags(); refreshCountViews();
 }
-function updateCondMode(index, value) { if (!['up', 'down'].includes(value)) return; if (commitState(state => { state.countSettings[index].mode = value; state.countSettings[index].start = value === 'up' ? 1 : (previewCountData[index]?.hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length || 1); })) { renderCountSettings(); refreshCountViews(); } }
-function updateCondStart(index, value) { const number = Number(value); if (!Number.isInteger(number) || number < 0) return; if (commitState(state => { state.countSettings[index].start = number; })) refreshCountViews(); }
+function updateCondMode(index, value) { if (!['up', 'down'].includes(value)) return; if (commitState(state => { state.countSettings[index].mode = value; state.countSettings[index].start = value === 'up' ? 1 : (previewCountData[index]?.hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length || 1); }, { historyLabel: '時数条件の方式変更', historyScope: 'count' })) { renderCountSettings(); refreshCountViews(); } }
+function updateCondStart(index, value) { const number = Number(value); if (!Number.isInteger(number) || number < 0) return; if (commitState(state => { state.countSettings[index].start = number; }, { historyLabel: '時数開始番号の変更', historyScope: 'count' })) refreshCountViews(); }
 function trashDayAll(dateId) {
   const hits = []; previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => { if (hit.dateId === dateId && !hit.excluded) hits.push({ groupIndex, hitIndex, hit }); }));
   const activate = hits.some(item => !item.hit.trashed);
@@ -1351,7 +1421,7 @@ function trashDayAll(dateId) {
       const condition = state.countSettings[item.groupIndex];
       if (condition?.mode === 'down' && item.hit.checked && item.hit.trashed !== activate) condition.start += activate ? -1 : 1;
     });
-  })) {
+  }, { historyLabel: '時数対象日の変更', historyScope: 'count' })) {
     hits.forEach(item => { item.hit.trashed = activate; });
     renderCountSettings(); refreshCountViews();
   }
@@ -1439,18 +1509,18 @@ function saveBasicSettings() {
     ].join('\n');
     if (!showConfirm(message)) return;
   }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
 }
 function saveTimeConfig() {
   const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig);
   qa('input[data-time-group]').forEach(input => { next[input.dataset.timeGroup][input.dataset.slot] = input.value; });
   qa('#day-slot-tbody input[type="checkbox"]').forEach(input => { slots[input.dataset.day][input.dataset.slot] = input.checked; });
-  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; })) { closeSettingsView(); showAlert('時程設定を保存しました。'); }
+  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; }, { historyLabel: '時程・使用時限の変更', historyScope: 'settings' })) { closeSettingsView(); showAlert('時程設定を保存しました。'); }
 }
 function saveWeekly() {
   const weekly = {};
   qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; const clean = sanitizeHtml(input.value); if (stripHtml(clean)) weekly[input.dataset.day][input.dataset.slot] = clean; });
-  if (commitState(state => { state.weeklyTemplate = weekly; })) showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。');
+  if (commitState(state => { state.weeklyTemplate = weekly; }, { historyLabel: '基本時間割の下書き保存', historyScope: 'weekly-template' })) showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。');
 }
 function applyWeeklyRange() {
   const start = document.getElementById('tmpl-start')?.value; const end = document.getElementById('tmpl-end')?.value;
@@ -1465,13 +1535,13 @@ function applyWeeklyRange() {
   if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
   let next = clone(appState); next.weeklyTemplate = weekly;
   for (const rule of rules) { const result = replaceWeeklyRuleRange(next, rule.day, rule.slot, start, end, rule.content); if (!result.ok) { showAlert(result.error); return; } next = result.value; }
-  if (commitState(state => Object.assign(state, next))) { showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
+  if (commitState(state => Object.assign(state, next), { historyLabel: '基本時間割の適用', historyScope: 'weekly-rule' })) { showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
 }
 function saveAnnual() {
-  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; })) { showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 function saveHolidays() {
-  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; })) { showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; }, { historyLabel: '祝日設定の保存', historyScope: 'holiday' })) { showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 
 function exportData() {
@@ -1490,7 +1560,7 @@ function importData(event) {
       if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
       const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧snapshotを作成します。`) });
       if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
-      appState = result.state; showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
+      appState = result.state; historyManager.clear(); updateHistoryControls(); showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
     } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
     finally { input.value = ''; }
   };
@@ -1503,7 +1573,7 @@ function executeReset() {
   if (!showConfirm('TaskKanriの保存データ、復旧snapshot、隔離データを初期化しますか？')) return;
   const result = storageService.reset();
   if (!result.ok) { showAlert(`${result.error}\n削除失敗: ${result.failed.map(item => item.key).join(', ')}`); showStorageWarning(result.error); return; }
-  appState = result.state || defaultState(); closeResetModal(); showAlert(`TaskKanriのデータを初期化しました（${result.removed.length}キー削除）。他アプリのデータは削除していません。`); location.reload();
+  appState = result.state || defaultState(); historyManager.clear(); updateHistoryControls(); closeResetModal(); showAlert(`TaskKanriのデータを初期化しました（${result.removed.length}キー削除）。他アプリのデータは削除していません。`); location.reload();
 }
 function getQuarantineDownloadPayload() { return { app: 'TaskKanri', buildVersion: APP_CONFIG.buildVersion, exportedAt: new Date().toISOString(), records: storageService.getQuarantineRecords() }; }
 function downloadQuarantinedData() {
@@ -1530,8 +1600,8 @@ async function requestWakeLock() {
   try { if (!('wakeLock' in navigator)) throw new Error('Wake Lock APIは未対応です'); wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener?.('release', () => { wakeLock = null; updateWakeBtnUI(false); }); updateWakeBtnUI(true); } catch { updateWakeBtnUI(false); }
 }
 async function releaseWakeLock() { if (wakeLock) { try { await wakeLock.release(); } catch { /* already released */ } wakeLock = null; } updateWakeBtnUI(false); }
-function toggleWakeLock() { const requested = !appState.isWakeLockRequested; if (commitState(state => { state.isWakeLockRequested = requested; })) { if (requested) requestWakeLock(); else releaseWakeLock(); } }
-function toggleClock() { if (commitState(state => { state.isClockVisible = !state.isClockVisible; })) { document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateToolbarState(); } }
+function toggleWakeLock() { const requested = !appState.isWakeLockRequested; if (commitState(state => { state.isWakeLockRequested = requested; }, { skipHistory: true })) { if (requested) requestWakeLock(); else releaseWakeLock(); } }
+function toggleClock() { if (commitState(state => { state.isClockVisible = !state.isClockVisible; }, { skipHistory: true })) { document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateToolbarState(); } }
 
 function initializeStorage() {
   try { storageLike = window.localStorage; storageService = createStorageService(storageLike); }
@@ -1571,12 +1641,19 @@ function initApp() {
   document.getElementById('search-input')?.addEventListener('input', event => { event.currentTarget.style.height = '28px'; event.currentTarget.style.height = `${Math.min(70, event.currentTarget.scrollHeight)}px`; executeSearch(); });
   document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
   document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && isDateListContextMenuOpen()) { event.preventDefault(); closeDateListContextMenu(true); } });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && isDateListContextMenuOpen()) { event.preventDefault(); closeDateListContextMenu(true); return; }
+    if (event.isComposing || event.keyCode === 229 || isTextEditingTarget(event.target) || hasOpenUnsavedForm()) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'z') { event.preventDefault(); if (event.shiftKey) redoHistory(); else undoHistory(); }
+    else if (key === 'y' && event.ctrlKey) { event.preventDefault(); redoHistory(); }
+  });
   document.addEventListener('scroll', () => closeBulkCalendarContextMenu(), true); window.addEventListener('resize', () => closeBulkCalendarContextMenu());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
   document.body.className = appState.isLandscapeMode ? 'layout-landscape' : 'layout-portrait'; document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
-  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToStartupRow(startupDateId)); renderQuarantineUI(); showStorageWarning();
+  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToStartupRow(startupDateId)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
 }
 
@@ -1589,8 +1666,8 @@ function openDateListContextMenu(event, dateId) {
 }
 function closeDateListContextMenu(restoreFocus = false) { const menu = document.getElementById('date-list-context-menu'); if (!menu || menu.hidden) return; menu.hidden = true; if (restoreFocus) dateListContextInvoker?.focus?.(); dateListContextDateId = ''; dateListContextInvoker = null; }
 function applyDateListContextPreset(preset) { if (dateListContextDateId && DayStateEngine.applyPreset(dateListContextDateId, preset)) closeDateListContextMenu(); }
-function saveDateListContextHoliday() { if (!dateListContextDateId) return; const value = document.getElementById('date-list-context-holiday-name')?.value || ''; if (commitState(state => { const clean = sanitizeHtml(value); if (stripHtml(clean)) state.customHolidays[dateListContextDateId] = clean; else delete state.customHolidays[dateListContextDateId]; })) { closeDateListContextMenu(); refreshMainUI(); } }
-function clearDateListContextHoliday() { if (!dateListContextDateId) return; if (commitState(state => { delete state.customHolidays[dateListContextDateId]; })) { closeDateListContextMenu(); refreshMainUI(); } }
+function saveDateListContextHoliday() { if (!dateListContextDateId) return; const value = document.getElementById('date-list-context-holiday-name')?.value || ''; if (commitState(state => { const clean = sanitizeHtml(value); if (stripHtml(clean)) state.customHolidays[dateListContextDateId] = clean; else delete state.customHolidays[dateListContextDateId]; }, { historyLabel: '日別祝日の変更', historyScope: 'holiday' })) { closeDateListContextMenu(); refreshMainUI(); } }
+function clearDateListContextHoliday() { if (!dateListContextDateId) return; if (commitState(state => { delete state.customHolidays[dateListContextDateId]; }, { historyLabel: '日別祝日の削除', historyScope: 'holiday' })) { closeDateListContextMenu(); refreshMainUI(); } }
 
 Object.assign(window, {
   APP_CONFIG, AppStorage: { init: initializeStorage, saveAll: () => storageService.saveAll(appState) }, DayStateEngine, EditorCmd,
@@ -1604,7 +1681,7 @@ Object.assign(window, {
   openSettingsView, closeSettingsView, toggleAllTmplCb, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
-  updateAnnualEvent, updateSlot, updateGlobalTask, showTooltip, hideTooltip, checkAlarms
+  updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip, checkAlarms
 });
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initApp, { once: true });
