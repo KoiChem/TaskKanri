@@ -1,0 +1,1528 @@
+import {
+  APP_CONFIG as CORE_CONFIG,
+  clone,
+  createStorageService,
+  defaultState,
+  escapeHtmlAttribute,
+  escapeHtmlText,
+  extractTodoItems,
+  formatStateSummary,
+  isValidIsoDate,
+  normalizeImportedPayload,
+  sanitizeHtml,
+  serializePayload,
+  stripHtml
+} from './taskkanri-core.mjs?v=20260905-stage1-v1';
+
+const APP_CONFIG = CORE_CONFIG;
+const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
+const WEEKDAYS = [1, 2, 3, 4, 5];
+let appState = defaultState();
+let storageService;
+let storageLike;
+let currentMainDateId = '';
+let activePanels = { top: '', 'bottom-left': '', 'bottom-right': '' };
+let currentSearchKeywords = [];
+let currentSearchMode = 'day';
+let savedScrollPosition = 0;
+let bulkCalendarSelection = new Set();
+let bulkCalendarRangeAnchor = '';
+let bulkCalendarInvoker = null;
+let bulkCalendarUndoSnapshot = null;
+let bulkCalendarStatus = '';
+let bulkCalendarContextMenuInvoker = null;
+let dateListContextDateId = '';
+let dateListContextInvoker = null;
+let previewCountData = [];
+let currentCountMode = 'list';
+let countDragState = null;
+let wakeLock = null;
+let titleBlinkerId = null;
+let initialized = false;
+
+function q(selector, root = document) { return root.querySelector(selector); }
+function qa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); }
+function el(tag, text = undefined) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = String(text);
+  return node;
+}
+function setStyle(node, style) { Object.assign(node.style, style); return node; }
+function getStateVal(map, dateId) { return Number.isInteger(map?.[dateId]) ? map[dateId] : 0; }
+function getIsoDateStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+function dateFromIso(dateId) {
+  if (!isValidIsoDate(dateId)) return null;
+  const date = new Date(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10)));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function formatDateInfo(date) {
+  return {
+    id: getIsoDateStr(date),
+    label: `${String(date.getFullYear()).slice(-2)}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}${APP_CONFIG.daysStr[date.getDay()]}`
+  };
+}
+function toYYMMDD(dateId) { return dateId.replace(/-/g, '').slice(2); }
+function fromYYMMDD(value) {
+  const digits = String(value ?? '').replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
+  if (!/^\d{6}$/.test(digits)) return null;
+  const dateId = `20${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 6)}`;
+  return isValidIsoDate(dateId) ? dateId : null;
+}
+function getDisplaySlot(slot) {
+  if (slot === '昼休み') return '昼';
+  if (slot === '放課後') return '放課';
+  return slot;
+}
+function getActiveSlotsForDay(dayIndex) {
+  return APP_CONFIG.slotsAll.filter(slot => Boolean(appState.daySlotConfig?.[dayIndex]?.[slot]));
+}
+function scheduleSlots(dateId) { return appState.scheduleData?.[dateId]?.slots || {}; }
+function isAcademicDate(dateId) { return dateId >= `${appState.currentYear}-04-01` && dateId <= `${appState.currentYear + 1}-03-31`; }
+function getDayStateVisual(dateId) {
+  const noClass = getStateVal(appState.noClassData, dateId);
+  const exam = getStateVal(appState.examData, dateId);
+  const short = getStateVal(appState.shortData, dateId);
+  if (noClass === 1) return { className: 'day-state-noclass', shortLabel: '無', label: '授業なし（授業枠を隠す）' };
+  if (noClass === 2) return { className: 'day-state-noclass', shortLabel: '無・表', label: '授業なし（授業枠を表示・時数には数えない）' };
+  if (exam === 1) return { className: 'day-state-exam', shortLabel: '考', label: '定期考査' };
+  if (exam === 2) return { className: 'day-state-exam', shortLabel: '模試', label: '模擬試験' };
+  if (short === 1) return { className: 'day-state-short', shortLabel: '短', label: '短縮時程' };
+  if (short === 2) return { className: 'day-state-short', shortLabel: '短AM', label: '短縮AM' };
+  if (short === 3) return { className: 'day-state-short', shortLabel: '午前', label: '午前時程' };
+  return { className: '', shortLabel: '', label: '通常授業' };
+}
+function getDayBgClass(dateId) {
+  const date = dateFromIso(dateId);
+  if (!date) return '';
+  if (getStateVal(appState.noClassData, dateId) > 0) return 'bg-no-class';
+  if (getStateVal(appState.examData, dateId) > 0) return 'bg-exam';
+  if (getStateVal(appState.shortData, dateId) > 0) return 'bg-short';
+  if (appState.customHolidays[dateId] || date.getDay() === 0) return 'bg-sun-hol';
+  if (date.getDay() === 6) return 'bg-sat';
+  return '';
+}
+function getSmartDateRange() {
+  const today = new Date();
+  let end = new Date(today.getFullYear(), today.getMonth() + 3, today.getDate());
+  const expectedMonth = (today.getMonth() + 3) % 12;
+  if (end.getMonth() !== expectedMonth) end = new Date(today.getFullYear(), today.getMonth() + 4, 0);
+  const academicEnd = new Date(appState.currentYear + 1, 2, 31);
+  if (end > academicEnd) end = academicEnd;
+  return { start: getIsoDateStr(today), end: getIsoDateStr(end) };
+}
+function getPreviewText(dateId) {
+  const raw = appState.configEvents[dateId] || appState.customHolidays[dateId] || '';
+  const text = stripHtml(raw).replace(/\s+/g, '');
+  const length = appState.isLandscapeMode ? 10 : 5;
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) return Array.from(new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)).slice(0, length).map(item => item.segment).join('');
+  return Array.from(text).slice(0, length).join('');
+}
+function appendSafeRich(parent, html) {
+  const holder = el('div');
+  holder.innerHTML = sanitizeHtml(html);
+  while (holder.firstChild) parent.appendChild(holder.firstChild);
+  return parent;
+}
+function setSafeTitle(node, value) {
+  node.setAttribute('title', stripHtml(value));
+  return node;
+}
+function showAlert(message) {
+  if (typeof window.alert === 'function') window.alert(message);
+}
+function showConfirm(message) {
+  return typeof window.confirm !== 'function' || window.confirm(message);
+}
+function showStorageWarning(message = '') {
+  const warning = document.getElementById('storage-warning');
+  if (!warning) return;
+  const reason = storageService?.isReadOnly() ? storageService.readOnlyReason() : '';
+  const records = storageService?.getQuarantineRecords?.() || [];
+  if (!message && !reason && records.length === 0) {
+    warning.hidden = true;
+    warning.replaceChildren();
+    return;
+  }
+  warning.hidden = false;
+  warning.replaceChildren();
+  const text = message || (reason ? `保存を停止しています（読み取り専用相当）。${reason} 明示的な全データ初期化でのみ解除できます。` : `破損データを${records.length}件隔離しています。設定画面からrawデータをダウンロードできます。`);
+  warning.textContent = text;
+}
+function notifySaveFailure(result) {
+  showStorageWarning(result?.error || '保存に失敗しました。現在のデータは変更されていません。');
+  showAlert(result?.error || '保存に失敗しました。現在のデータは変更されていません。');
+}
+function commitState(mutator, { refresh = false } = {}) {
+  if (!storageService) return false;
+  if (storageService.isReadOnly()) {
+    notifySaveFailure({ error: `読み取り専用相当です: ${storageService.readOnlyReason()}` });
+    return false;
+  }
+  const before = clone(appState);
+  try {
+    mutator(appState);
+    const result = storageService.saveAll(appState);
+    if (!result.ok) {
+      appState = before;
+      notifySaveFailure(result);
+      if (refresh) refreshMainUI();
+      return false;
+    }
+    appState = result.state;
+    showStorageWarning();
+    if (refresh) refreshMainUI();
+    return true;
+  } catch (error) {
+    appState = before;
+    notifySaveFailure({ error: `変更を保存できませんでした: ${String(error?.message || error)}` });
+    if (refresh) refreshMainUI();
+    return false;
+  }
+}
+
+function setStateValue(state, dateId, type, value) {
+  const valueMap = { noClass: state.noClassData, short: state.shortData, exam: state.examData }[type];
+  if (!valueMap) return;
+  const max = type === 'short' ? 3 : 2;
+  const bounded = Math.max(0, Math.min(max, Number(value) || 0));
+  if (bounded === 0) delete valueMap[dateId]; else valueMap[dateId] = bounded;
+  if (bounded > 0) {
+    if (type !== 'noClass') delete state.noClassData[dateId];
+    if (type !== 'short') delete state.shortData[dateId];
+    if (type !== 'exam') delete state.examData[dateId];
+  }
+}
+function applyPresetToState(state, dateId, preset) {
+  const presets = {
+    normal: ['normal', 0], short: ['short', 1], 'short-am': ['short', 2], morning: ['short', 3],
+    exam: ['exam', 1], 'mock-exam': ['exam', 2], 'noclass-hide': ['noClass', 1], 'noclass-show': ['noClass', 2]
+  };
+  const setting = presets[preset];
+  if (!setting) return false;
+  if (setting[0] === 'normal') {
+    delete state.noClassData[dateId];
+    delete state.shortData[dateId];
+    delete state.examData[dateId];
+  } else setStateValue(state, dateId, setting[0], setting[1]);
+  return true;
+}
+const DayStateEngine = {
+  set(dateId, type, value) {
+    return commitState(state => setStateValue(state, dateId, type, value), { refresh: true });
+  },
+  applyPreset(dateId, preset) {
+    return commitState(state => applyPresetToState(state, dateId, preset), { refresh: true });
+  },
+  toggle(dateId, type) {
+    const limits = { noClass: 3, short: 4, exam: 3 };
+    const map = { noClass: appState.noClassData, short: appState.shortData, exam: appState.examData }[type];
+    if (!map || !limits[type]) return false;
+    return this.set(dateId, type, (getStateVal(map, dateId) + 1) % limits[type]);
+  }
+};
+
+function renderHighlightedText(parent, text, keywords = currentSearchKeywords) {
+  const value = String(text ?? '');
+  if (!keywords.length) {
+    parent.appendChild(document.createTextNode(value));
+    return;
+  }
+  const normalized = value.toLocaleLowerCase();
+  const matches = [];
+  keywords.forEach(keyword => {
+    const needle = keyword.toLocaleLowerCase();
+    if (!needle) return;
+    let start = normalized.indexOf(needle);
+    while (start >= 0) {
+      matches.push({ start, end: start + keyword.length });
+      start = normalized.indexOf(needle, start + Math.max(1, needle.length));
+    }
+  });
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+  let cursor = 0;
+  matches.forEach(match => {
+    if (match.start < cursor) return;
+    if (match.start > cursor) parent.appendChild(document.createTextNode(value.slice(cursor, match.start)));
+    const mark = el('span');
+    mark.className = 'search-highlight';
+    mark.textContent = value.slice(match.start, match.end);
+    parent.appendChild(mark);
+    cursor = match.end;
+  });
+  if (cursor < value.length) parent.appendChild(document.createTextNode(value.slice(cursor)));
+}
+function generateSnippet(text, keyword) {
+  const value = String(text ?? '');
+  const needle = String(keyword ?? '');
+  if (!value || !needle) return '';
+  const index = value.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase());
+  if (index < 0) return value.slice(0, 18);
+  const start = Math.max(0, index - 6);
+  const end = Math.min(value.length, index + needle.length + 12);
+  return `${start ? '...' : ''}${value.slice(start, end)}${end < value.length ? '...' : ''}`;
+}
+function getSearchJumpDate(raw) {
+  const digits = String(raw ?? '').replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, '');
+  let dateId = null;
+  if (digits.length === 4) {
+    const month = Number(digits.slice(0, 2));
+    const day = Number(digits.slice(2, 4));
+    const year = month >= 4 ? appState.currentYear : appState.currentYear + 1;
+    dateId = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  } else if (digits.length === 6) dateId = `20${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 6)}`;
+  return dateId && isValidIsoDate(dateId) && isAcademicDate(dateId) ? dateId : null;
+}
+function createDateButton(dateId, position) {
+  const button = el('button', position === 'left' ? (appState.isLandscapeMode ? '上' : '左') : (appState.isLandscapeMode ? '下' : '右'));
+  button.type = 'button';
+  button.className = 'btn-s';
+  button.addEventListener('click', event => { event.stopPropagation(); renderEditor(dateId, position === 'left' ? 'bottom-left' : 'bottom-right'); });
+  return button;
+}
+function createDateItem(dateId, searching = false) {
+  const date = dateFromIso(dateId);
+  if (!date) return null;
+  const item = el('div');
+  item.className = `date-item ${getDayBgClass(dateId)}`;
+  item.addEventListener('contextmenu', event => openDateListContextMenu(event, dateId));
+  const line = el('div');
+  line.style.display = 'flex';
+  line.style.justifyContent = 'space-between';
+  line.style.alignItems = 'center';
+  const wrapper = el('div');
+  wrapper.className = 'date-wrapper';
+  wrapper.addEventListener('click', () => renderEditor(dateId, 'top'));
+  const label = el('span', formatDateInfo(date).label);
+  label.className = dateId === getIsoDateStr(new Date()) ? 'date-label today-text' : 'date-label';
+  wrapper.appendChild(label);
+  if (!searching) {
+    const preview = el('span', getPreviewText(dateId));
+    preview.className = 'date-preview';
+    preview.id = `preview-${dateId}`;
+    wrapper.appendChild(preview);
+    wrapper.addEventListener('mousemove', event => showTooltip(event, dateId));
+    wrapper.addEventListener('mouseleave', hideTooltip);
+  }
+  line.appendChild(wrapper);
+  const actions = el('div');
+  actions.className = 'btn-group';
+  actions.appendChild(createDateButton(dateId, 'left'));
+  actions.appendChild(createDateButton(dateId, 'right'));
+  line.appendChild(actions);
+  item.appendChild(line);
+  if (searching) {
+    const snippets = el('div');
+    snippets.style.cursor = 'pointer';
+    snippets.style.paddingTop = '2px';
+    snippets.addEventListener('click', () => renderEditor(dateId, 'top'));
+    const eventText = stripHtml(appState.configEvents[dateId] || '');
+    const holidayText = stripHtml(appState.customHolidays[dateId] || '');
+    const slots = scheduleSlots(dateId);
+    const dayText = [eventText, holidayText, ...APP_CONFIG.slotsAll.map(slot => stripHtml(slots[slot] || ''))].filter(Boolean).join(' ');
+    const found = [];
+    if (currentSearchMode === 'day' && currentSearchKeywords.every(keyword => dayText.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()))) found.push({ name: 'Hit', text: generateSnippet(dayText, currentSearchKeywords[0]) });
+    if (currentSearchMode === 'slot') {
+      const eventAndHoliday = `${eventText} ${holidayText}`;
+      if (currentSearchKeywords.every(keyword => eventAndHoliday.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()))) found.push({ name: '行事', text: generateSnippet(eventAndHoliday, currentSearchKeywords[0]) });
+      APP_CONFIG.slotsAll.forEach(slot => {
+        const text = stripHtml(slots[slot] || '');
+        if (currentSearchKeywords.every(keyword => text.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()))) found.push({ name: getDisplaySlot(slot), text: generateSnippet(text, currentSearchKeywords[0]) });
+      });
+    }
+    found.forEach(hit => {
+      const snippet = el('div');
+      snippet.style.fontSize = '11px';
+      snippet.style.color = '#4a5568';
+      snippet.style.marginTop = '3px';
+      snippet.style.whiteSpace = 'nowrap';
+      snippet.style.overflow = 'hidden';
+      snippet.style.textOverflow = 'ellipsis';
+      const name = el('span', hit.name);
+      name.style.background = '#e2e8f0';
+      name.style.padding = '1px 4px';
+      name.style.borderRadius = '3px';
+      name.style.marginRight = '4px';
+      name.style.fontWeight = 'bold';
+      snippet.appendChild(name);
+      renderHighlightedText(snippet, hit.text);
+      snippets.appendChild(snippet);
+    });
+    item.style.flexDirection = 'column';
+    item.style.alignItems = 'stretch';
+    item.style.padding = '6px 4px';
+    item.appendChild(snippets);
+  }
+  return item;
+}
+function generateDateList() {
+  const list = document.getElementById('date-list');
+  if (!list) return;
+  list.replaceChildren();
+  let date = new Date(appState.currentYear, 3, 1);
+  const end = new Date(appState.currentYear + 1, 2, 31);
+  const searching = currentSearchKeywords.length > 0;
+  const jumpDateId = searching && currentSearchKeywords.length === 1 ? getSearchJumpDate(currentSearchKeywords[0]) : null;
+  if (jumpDateId) {
+    const jumpItem = createDateItem(jumpDateId, false);
+    if (jumpItem) {
+      jumpItem.style.border = '2px solid #3182ce';
+      jumpItem.style.backgroundColor = '#ebf8ff';
+      list.appendChild(jumpItem);
+    }
+  }
+  let count = 0;
+  while (date <= end) {
+    const dateId = getIsoDateStr(date);
+    if (!searching || (() => {
+      const text = [appState.configEvents[dateId], appState.customHolidays[dateId], ...APP_CONFIG.slotsAll.map(slot => scheduleSlots(dateId)[slot])].map(stripHtml).join(' ').toLocaleLowerCase();
+      if (currentSearchMode === 'day') return currentSearchKeywords.every(keyword => text.includes(keyword.toLocaleLowerCase()));
+      const eventText = `${stripHtml(appState.configEvents[dateId] || '')} ${stripHtml(appState.customHolidays[dateId] || '')}`;
+      if (currentSearchKeywords.every(keyword => eventText.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()))) return true;
+      return APP_CONFIG.slotsAll.some(slot => {
+        const slotText = stripHtml(scheduleSlots(dateId)[slot] || '').toLocaleLowerCase();
+        return currentSearchKeywords.every(keyword => slotText.includes(keyword.toLocaleLowerCase()));
+      });
+    })()) {
+      const item = createDateItem(dateId, searching);
+      if (item) { list.appendChild(item); count += 1; }
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  if (searching && count === 0 && !jumpDateId) list.appendChild(el('div', '一致する日がありません'));
+}
+function executeSearch() {
+  const input = document.getElementById('search-input');
+  const raw = input?.value || '';
+  currentSearchKeywords = raw.split(/[\s　]+/).filter(Boolean);
+  currentSearchMode = document.querySelector('input[name="search-mode"]:checked')?.value || 'day';
+  if (currentSearchKeywords.length && !savedScrollPosition) savedScrollPosition = document.getElementById('date-list')?.scrollTop || 0;
+  generateDateList();
+  Object.entries(activePanels).forEach(([position, dateId]) => { if (dateId) renderEditor(dateId, position); });
+}
+function clearSearch(preventScrollRestore = false) {
+  const input = document.getElementById('search-input');
+  if (input) { input.value = ''; input.style.height = '28px'; }
+  currentSearchKeywords = [];
+  generateDateList();
+  Object.entries(activePanels).forEach(([position, dateId]) => { if (dateId) renderEditor(dateId, position); });
+  if (!preventScrollRestore) setTimeout(() => { const list = document.getElementById('date-list'); if (list) list.scrollTop = savedScrollPosition; }, 0);
+  savedScrollPosition = 0;
+}
+function executeJump(dateId) {
+  if (!dateFromIso(dateId)) return;
+  renderEditor(dateId, 'top');
+  clearSearch(true);
+  setTimeout(() => {
+    const item = document.getElementById('date-list')?.querySelector(`#preview-${dateId}`)?.closest('.date-item');
+    if (item) document.getElementById('date-list').scrollTop = item.offsetTop;
+  }, 0);
+}
+
+function showTooltip(event, dateId) {
+  const tooltip = document.getElementById('custom-tooltip');
+  const date = dateFromIso(dateId);
+  if (!tooltip || !date) return;
+  tooltip.replaceChildren();
+  const heading = el('div', `${date.getMonth() + 1}月${date.getDate()}日(${APP_CONFIG.daysStr[date.getDay()]})`);
+  setStyle(heading, { fontWeight: 'bold', borderBottom: '1px solid #555', marginBottom: '5px', paddingBottom: '3px' });
+  tooltip.appendChild(heading);
+  let hasContent = false;
+  const addLine = (label, value, color = '#fff') => {
+    const text = stripHtml(value).replace(/\n/g, ' ').trim();
+    if (!text) return;
+    const line = el('div');
+    const prefix = el('span', label);
+    prefix.style.color = color;
+    line.appendChild(prefix);
+    if (label) line.appendChild(document.createTextNode(' '));
+    line.appendChild(document.createTextNode(text));
+    tooltip.appendChild(line);
+    hasContent = true;
+  };
+  addLine('祝:', appState.customHolidays[dateId] || '', '#fc8181');
+  addLine('', appState.configEvents[dateId] || '', '#f6ad55');
+  const noClass = getStateVal(appState.noClassData, dateId) === 1;
+  const hideAfternoon = getStateVal(appState.examData, dateId) === 1 || [2, 3].includes(getStateVal(appState.shortData, dateId));
+  getActiveSlotsForDay(date.getDay()).forEach(slot => {
+    if (noClass && slot !== '朝' && slot !== '放課後') return;
+    if (appState.customHolidays[dateId] && PERIOD_SLOTS.has(slot)) return;
+    if (hideAfternoon && ['昼休み', '５限', '６限', '７限'].includes(slot)) return;
+    addLine(`[${getDisplaySlot(slot)}]`, scheduleSlots(dateId)[slot] || '', '#90cdf4');
+  });
+  if (!hasContent) tooltip.appendChild(document.createTextNode('予定なし'));
+  tooltip.style.display = 'block';
+  tooltip.style.left = `${event.pageX + 15}px`;
+  tooltip.style.top = `${event.pageY + 15}px`;
+}
+function hideTooltip() {
+  const tooltip = document.getElementById('custom-tooltip');
+  if (tooltip) tooltip.style.display = 'none';
+}
+
+function buildStateButton(type, dateId) {
+  const button = el('button');
+  button.className = 'state-btn';
+  button.addEventListener('click', () => toggleMainState(type));
+  return button;
+}
+function updateToolbarState() {
+  if (!currentMainDateId) return;
+  const shortButton = document.getElementById('toolbar-short-btn');
+  const examButton = document.getElementById('toolbar-exam-btn');
+  const noClassButton = document.getElementById('toolbar-noclass-btn');
+  const short = getStateVal(appState.shortData, currentMainDateId);
+  const exam = getStateVal(appState.examData, currentMainDateId);
+  const noClass = getStateVal(appState.noClassData, currentMainDateId);
+  if (shortButton) { shortButton.className = short ? 'state-btn short-active' : 'state-btn'; shortButton.textContent = APP_CONFIG.labels.short[short] || APP_CONFIG.labels.short[0]; }
+  if (examButton) { examButton.className = exam ? 'state-btn exam-active' : 'state-btn'; examButton.textContent = APP_CONFIG.labels.exam[exam] || APP_CONFIG.labels.exam[0]; }
+  if (noClassButton) { noClassButton.className = noClass === 1 ? 'state-btn noclass-active' : noClass === 2 ? 'state-btn noclass-active inset' : 'state-btn'; noClassButton.textContent = APP_CONFIG.labels.noClass[noClass] || APP_CONFIG.labels.noClass[0]; }
+}
+function buildPanelHeader(dateId, position) {
+  const top = position === 'top';
+  const date = dateFromIso(dateId);
+  const header = el('div');
+  header.className = 'panel-header';
+  header.style.flexDirection = top ? 'row' : 'column';
+  header.style.alignItems = top ? 'center' : 'flex-start';
+  header.style.flexWrap = 'wrap';
+  const firstLine = el('div');
+  firstLine.style.display = 'flex';
+  firstLine.style.alignItems = 'center';
+  firstLine.style.width = '100%';
+  if (top) firstLine.style.width = 'auto';
+  const previous = el('button', '◀');
+  previous.className = 'nav-btn';
+  previous.type = 'button';
+  previous.addEventListener('click', () => shiftDate(dateId, -1, position));
+  const next = el('button', '▶');
+  next.className = 'nav-btn';
+  next.type = 'button';
+  next.style.marginRight = '6px';
+  next.addEventListener('click', () => shiftDate(dateId, 1, position));
+  firstLine.append(previous, next);
+  const visual = getDayStateVisual(dateId);
+  const dateLabel = el('span', `${date.getFullYear()}年(令和${date.getFullYear() - 2018}年)${date.getMonth() + 1}月${date.getDate()}日(${APP_CONFIG.daysStr[date.getDay()]})`);
+  dateLabel.className = `display-date ${visual.className}`;
+  dateLabel.title = visual.label;
+  firstLine.appendChild(dateLabel);
+  if (top) firstLine.appendChild(el('span'));
+  if (top) {
+    firstLine.lastChild.className = 'digital-clock-display';
+    firstLine.lastChild.style.marginLeft = '8px';
+  }
+  header.appendChild(firstLine);
+  const secondLine = top ? header : el('div');
+  if (!top) {
+    secondLine.style.display = 'flex';
+    secondLine.style.alignItems = 'center';
+    secondLine.style.width = '100%';
+    secondLine.style.gap = '5px';
+    header.appendChild(secondLine);
+  }
+  const eventInput = el('input');
+  eventInput.type = 'text';
+  eventInput.className = 'event-inline-input';
+  eventInput.value = stripHtml(appState.configEvents[dateId] || '');
+  eventInput.placeholder = appState.customHolidays[dateId] ? '行事予定' : '';
+  if (top) eventInput.style.marginLeft = '15px';
+  eventInput.addEventListener('input', () => updateAnnualEvent(dateId, eventInput.value));
+  secondLine.appendChild(eventInput);
+  if (appState.customHolidays[dateId]) secondLine.appendChild(el('span', `祝：${stripHtml(appState.customHolidays[dateId])}`));
+  if (!top) header.appendChild(secondLine);
+  return header;
+}
+function createSlotEditor(dateId, slot, isShortChime, isExamChime) {
+  const row = el('div');
+  row.className = 'slot-row';
+  const label = el('div', getDisplaySlot(slot));
+  label.className = 'slot-label';
+  const time = isExamChime ? appState.timeConfig.exam[slot] : isShortChime ? appState.timeConfig.short[slot] : appState.timeConfig.normal[slot];
+  if (time) label.appendChild(el('span', time)).className = 'time-disp';
+  const input = el('div');
+  input.className = 'slot-input';
+  input.contentEditable = 'true';
+  appendSafeRich(input, scheduleSlots(dateId)[slot] || '');
+  input.addEventListener('blur', () => updateSlot(dateId, slot, input.innerHTML));
+  input.addEventListener('paste', handlePaste);
+  row.append(label, input);
+  return row;
+}
+function renderEditor(dateId, position) {
+  const targetPosition = position === 'bottom' ? (activePanels['bottom-left'] ? 'bottom-right' : 'bottom-left') : position;
+  const targetId = targetPosition === 'top' ? 'top-panel' : targetPosition === 'bottom-left' ? 'bottom-left-panel' : 'bottom-right-panel';
+  const target = document.getElementById(targetId);
+  const date = dateFromIso(dateId);
+  if (!target || !date) return;
+  activePanels[targetPosition] = dateId;
+  if (targetPosition === 'top') currentMainDateId = dateId;
+  target.replaceChildren();
+  target.appendChild(buildPanelHeader(dateId, targetPosition));
+  const content = el('div');
+  setStyle(content, { flex: '1', overflowY: 'auto', paddingRight: '5px', display: 'flex', flexDirection: 'column' });
+  const day = date.getDay();
+  const short = getStateVal(appState.shortData, dateId);
+  const exam = getStateVal(appState.examData, dateId);
+  const noClass = getStateVal(appState.noClassData, dateId);
+  const holiday = Boolean(appState.customHolidays[dateId]);
+  const hideClasses = noClass === 1;
+  const hideAfternoon = exam === 1 || short === 2 || short === 3;
+  const isShortChime = short === 1 || short === 2;
+  const isExamChime = exam === 1;
+  const canRender = slot => Boolean(appState.daySlotConfig?.[day]?.[slot]) && !(holiday && PERIOD_SLOTS.has(slot));
+  const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)); });
+  addSlots(['朝']);
+  if (!hideClasses) {
+    const first = ['１限', '２限', '３限', '４限'].filter(canRender);
+    const second = hideAfternoon ? [] : ['昼休み', '５限', '６限', '７限'].filter(canRender);
+    const useColumns = targetPosition === 'top' ? !appState.isLandscapeMode : appState.isLandscapeMode;
+    if (useColumns) {
+      const columns = el('div');
+      columns.className = 'cols-wrapper';
+      const left = el('div'); left.className = 'col-half';
+      const right = el('div'); right.className = 'col-half';
+      first.forEach(slot => left.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)));
+      second.forEach(slot => right.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)));
+      columns.append(left, right);
+      content.appendChild(columns);
+    } else {
+      addSlots(first);
+      addSlots(second);
+    }
+  }
+  addSlots(['放課後']);
+  if (targetPosition === 'top') {
+    const globalArea = el('div');
+    setStyle(globalArea, { marginTop: '10px', paddingTop: '8px', flexShrink: '0' });
+    const title = el('div', 'タスク');
+    setStyle(title, { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', marginBottom: '4px' });
+    const globalInput = el('div');
+    globalInput.className = 'slot-input';
+    globalInput.contentEditable = 'true';
+    globalInput.style.minHeight = '60px';
+    globalInput.style.fontSize = '14px';
+    appendSafeRich(globalInput, appState.globalTaskData);
+    globalInput.addEventListener('blur', () => updateGlobalTask(globalInput.innerHTML));
+    globalInput.addEventListener('paste', handlePaste);
+    globalArea.append(title, globalInput);
+    content.appendChild(globalArea);
+  }
+  target.appendChild(content);
+  if (targetPosition === 'top') updateToolbarState();
+}
+function refreshMainUI() {
+  const list = document.getElementById('date-list');
+  const scroll = list?.scrollTop || 0;
+  generateDateList();
+  if (!currentSearchKeywords.length && list) list.scrollTop = scroll;
+  Object.entries(activePanels).forEach(([position, dateId]) => { if (dateId) renderEditor(dateId, position); });
+  updateToolbarState();
+}
+function updatePreviewUI(dateId) {
+  const preview = document.getElementById(`preview-${dateId}`);
+  if (preview) preview.textContent = getPreviewText(dateId);
+}
+function updateAnnualEvent(dateId, value) {
+  const ok = commitState(state => {
+    const clean = sanitizeHtml(String(value ?? ''));
+    if (stripHtml(clean).trim()) state.configEvents[dateId] = clean;
+    else delete state.configEvents[dateId];
+  });
+  if (ok) updatePreviewUI(dateId);
+  return ok;
+}
+function ensureScheduleDay(state, dateId) {
+  if (!state.scheduleData[dateId]) state.scheduleData[dateId] = { slots: {} };
+  if (!state.scheduleData[dateId].slots) state.scheduleData[dateId].slots = {};
+  return state.scheduleData[dateId].slots;
+}
+function updateSlot(dateId, slot, htmlValue) {
+  const ok = commitState(state => { ensureScheduleDay(state, dateId)[slot] = sanitizeHtml(htmlValue); });
+  if (ok) updatePreviewUI(dateId);
+  return ok;
+}
+function updateGlobalTask(htmlValue) {
+  return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); });
+}
+
+const EditorCmd = {
+  exec(command, value = null) { document.execCommand(command, false, value); },
+  insertHTML(html) { document.execCommand('insertHTML', false, sanitizeHtml(html)); },
+  insertBadge(initialState) {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    let container = range.commonAncestorContainer;
+    if (container.nodeType === 3) container = container.parentNode;
+    if (!container?.closest?.('.slot-input')) {
+      showAlert('予定の入力枠をクリックして、カーソルを合わせてからボタンを押してください。');
+      return;
+    }
+    range.deleteContents();
+    const badge = el('span', initialState === '3' ? '急' : '未');
+    badge.className = `todo-badge state-${initialState === '3' ? '3' : '0'}`;
+    badge.dataset.state = initialState === '3' ? '3' : '0';
+    badge.contentEditable = 'false';
+    const space = document.createTextNode('\u200b');
+    const fragment = document.createDocumentFragment();
+    fragment.append(badge, space);
+    range.insertNode(fragment);
+    range.setStartAfter(space);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+};
+function handlePaste(event) {
+  event.preventDefault();
+  const transfer = event.clipboardData || event.originalEvent?.clipboardData;
+  const html = transfer?.getData('text/html') || '';
+  const text = transfer?.getData('text/plain') || '';
+  const clean = html ? sanitizeHtml(html) : escapeHtmlText(text).replace(/\r?\n/g, '<br>');
+  document.execCommand('insertHTML', false, clean);
+}
+function copySelection(event, isCut = false) {
+  const active = document.activeElement;
+  if (!active?.classList?.contains('slot-input')) return;
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const holder = el('div');
+  holder.appendChild(selection.getRangeAt(0).cloneContents());
+  const safeHtml = sanitizeHtml(holder.innerHTML);
+  event.clipboardData?.setData('text/html', safeHtml);
+  event.clipboardData?.setData('text/plain', stripHtml(safeHtml));
+  event.preventDefault();
+  if (isCut) {
+    selection.getRangeAt(0).deleteContents();
+    active.dispatchEvent(new Event('blur'));
+  }
+}
+
+function toggleMainState(type) {
+  DayStateEngine.toggle(currentMainDateId, type);
+}
+function shiftDate(dateId, offset, position) {
+  const date = dateFromIso(dateId);
+  if (!date) return;
+  date.setDate(date.getDate() + offset);
+  const nextId = getIsoDateStr(date);
+  renderEditor(nextId, position);
+  if (position === 'top') setTimeout(() => executeJump(nextId), 0);
+}
+
+function getBulkCalendarStateLabel(value) {
+  return {
+    normal: '通常に戻す', short: '短縮時程', 'short-am': '短縮AM', morning: '午前時程', exam: '定期考査', 'mock-exam': '模擬試験',
+    'noclass-hide': '授業なし（授業枠を隠す）', 'noclass-show': '授業なし（授業枠を表示・時数には数えない）'
+  }[value] || '';
+}
+function getBulkCalendarWeekdayIds(year, month, dayIndex) {
+  const result = [];
+  const last = new Date(year, month + 1, 0).getDate();
+  for (let day = 1; day <= last; day += 1) {
+    const date = new Date(year, month, day);
+    if (date.getDay() === dayIndex) result.push(getIsoDateStr(date));
+  }
+  return result;
+}
+function renderBulkCalendar() {
+  const container = document.getElementById('bulk-calendar-grid');
+  if (!container) return;
+  container.replaceChildren();
+  const todayId = getIsoDateStr(new Date());
+  for (let offset = 0; offset < 12; offset += 1) {
+    const first = new Date(appState.currentYear, 3 + offset, 1);
+    const year = first.getFullYear();
+    const month = first.getMonth();
+    const monthBox = el('section');
+    monthBox.className = 'calendar-month';
+    monthBox.setAttribute('aria-label', `${year}年${month + 1}月`);
+    const header = el('div'); header.className = 'calendar-month-head';
+    header.appendChild(el('span', `${year}年${month + 1}月`));
+    const monthButton = el('button');
+    monthButton.type = 'button'; monthButton.className = 'btn-s';
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const monthIds = Array.from({ length: lastDay }, (_, index) => getIsoDateStr(new Date(year, month, index + 1)));
+    const allSelected = monthIds.every(id => bulkCalendarSelection.has(id));
+    monthButton.textContent = allSelected ? '月を解除' : '月を選択';
+    monthButton.addEventListener('click', () => toggleBulkCalendarMonth(year, month));
+    header.appendChild(monthButton);
+    monthBox.appendChild(header);
+    const weekHeader = el('div'); weekHeader.className = 'calendar-week-head';
+    [1, 2, 3, 4, 5, 6, 0].forEach(dayIndex => {
+      const dayButton = el('button', APP_CONFIG.daysStr[dayIndex]);
+      dayButton.type = 'button'; dayButton.className = 'calendar-weekday-btn';
+      const ids = getBulkCalendarWeekdayIds(year, month, dayIndex);
+      const weekdaySelected = ids.length > 0 && ids.every(id => bulkCalendarSelection.has(id));
+      dayButton.classList.toggle('is-all-selected', weekdaySelected);
+      dayButton.setAttribute('aria-pressed', String(weekdaySelected));
+      dayButton.title = `${year}年${month + 1}月の${APP_CONFIG.daysStr[dayIndex]}曜日をすべて${weekdaySelected ? '解除' : '選択'}`;
+      dayButton.addEventListener('click', () => toggleBulkCalendarWeekday(year, month, dayIndex));
+      weekHeader.appendChild(dayButton);
+    });
+    monthBox.appendChild(weekHeader);
+    const days = el('div'); days.className = 'calendar-days';
+    const firstDay = (first.getDay() + 6) % 7;
+    for (let blank = 0; blank < firstDay; blank += 1) days.appendChild(el('span')).className = 'calendar-day-spacer';
+    for (let day = 1; day <= lastDay; day += 1) {
+      const dateId = getIsoDateStr(new Date(year, month, day));
+      const dateButton = el('button');
+      dateButton.type = 'button';
+      dateButton.className = `calendar-date-cell ${getDayBgClass(dateId)}`;
+      const visual = getDayStateVisual(dateId);
+      dateButton.setAttribute('aria-pressed', String(bulkCalendarSelection.has(dateId)));
+      dateButton.setAttribute('aria-label', `${year}年${month + 1}月${day}日（${APP_CONFIG.daysStr[new Date(year, month, day).getDay()]}）\n${visual.label}`);
+      dateButton.title = dateButton.getAttribute('aria-label');
+      dateButton.classList.toggle('is-selected', bulkCalendarSelection.has(dateId));
+      dateButton.appendChild(el('span', String(day)));
+      const stateMark = el('span', visual.shortLabel || '\u00a0'); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark);
+      if (dateId === todayId) { const todayMark = el('span'); todayMark.className = 'calendar-today-mark'; todayMark.setAttribute('aria-label', '今日'); dateButton.appendChild(todayMark); }
+      dateButton.addEventListener('click', event => toggleBulkCalendarDate(dateId, event));
+      days.appendChild(dateButton);
+    }
+    monthBox.appendChild(days);
+    container.appendChild(monthBox);
+  }
+  updateBulkCalendarControls();
+}
+function toggleBulkCalendarDate(dateId, event = {}) {
+  const range = event.shiftKey && bulkCalendarRangeAnchor && isAcademicDate(bulkCalendarRangeAnchor);
+  const modifier = event.ctrlKey || event.metaKey;
+  if (appState.bulkCalendarSelectionMode === 'standard') {
+    if (range) {
+      if (!modifier) bulkCalendarSelection.clear();
+      let date = dateFromIso(bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId);
+      const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
+      while (date && getIsoDateStr(date) <= end) { bulkCalendarSelection.add(getIsoDateStr(date)); date.setDate(date.getDate() + 1); }
+    } else if (modifier) {
+      if (bulkCalendarSelection.has(dateId)) bulkCalendarSelection.delete(dateId); else bulkCalendarSelection.add(dateId);
+      bulkCalendarRangeAnchor = dateId;
+    } else {
+      bulkCalendarSelection.clear(); bulkCalendarSelection.add(dateId); bulkCalendarRangeAnchor = dateId;
+    }
+  } else if (range) {
+    let date = dateFromIso(bulkCalendarRangeAnchor < dateId ? bulkCalendarRangeAnchor : dateId);
+    const end = bulkCalendarRangeAnchor < dateId ? dateId : bulkCalendarRangeAnchor;
+    while (date && getIsoDateStr(date) <= end) { bulkCalendarSelection.add(getIsoDateStr(date)); date.setDate(date.getDate() + 1); }
+    bulkCalendarRangeAnchor = dateId;
+  } else {
+    if (bulkCalendarSelection.has(dateId)) bulkCalendarSelection.delete(dateId); else bulkCalendarSelection.add(dateId);
+    bulkCalendarRangeAnchor = dateId;
+  }
+  renderBulkCalendar();
+}
+function toggleBulkCalendarMonth(year, month) {
+  const last = new Date(year, month + 1, 0).getDate();
+  const ids = Array.from({ length: last }, (_, index) => getIsoDateStr(new Date(year, month, index + 1)));
+  const allSelected = ids.every(id => bulkCalendarSelection.has(id));
+  ids.forEach(id => allSelected ? bulkCalendarSelection.delete(id) : bulkCalendarSelection.add(id));
+  bulkCalendarRangeAnchor = '';
+  renderBulkCalendar();
+}
+function toggleBulkCalendarWeekday(year, month, dayIndex) {
+  const ids = getBulkCalendarWeekdayIds(year, month, dayIndex);
+  const allSelected = ids.length > 0 && ids.every(id => bulkCalendarSelection.has(id));
+  ids.forEach(id => allSelected ? bulkCalendarSelection.delete(id) : bulkCalendarSelection.add(id));
+  bulkCalendarRangeAnchor = '';
+  renderBulkCalendar();
+}
+function selectBulkCalendarWeekdays() {
+  let date = new Date(appState.currentYear, 3, 1);
+  const end = new Date(appState.currentYear + 1, 2, 31);
+  while (date <= end) { if (WEEKDAYS.includes(date.getDay())) bulkCalendarSelection.add(getIsoDateStr(date)); date.setDate(date.getDate() + 1); }
+  bulkCalendarRangeAnchor = '';
+  renderBulkCalendar();
+}
+function clearBulkCalendarSelection() {
+  bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; closeBulkCalendarContextMenu(); renderBulkCalendar();
+}
+function setBulkCalendarSelectionMode(mode) {
+  if (!['standard', 'additive'].includes(mode) || appState.bulkCalendarSelectionMode === mode) return;
+  commitState(state => { state.bulkCalendarSelectionMode = mode; });
+  bulkCalendarRangeAnchor = '';
+  renderBulkCalendar();
+}
+function updateBulkCalendarControls() {
+  const count = bulkCalendarSelection.size;
+  const summary = document.getElementById('bulk-calendar-selection-summary'); if (summary) summary.textContent = `${count}日を選択中`;
+  const status = document.getElementById('bulk-calendar-action-status'); if (status) status.textContent = bulkCalendarStatus;
+  qa('[data-bulk-day-state]').forEach(button => { button.disabled = count === 0; });
+  const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = bulkCalendarUndoSnapshot ? '' : 'none';
+  const clear = document.getElementById('bulk-calendar-context-clear'); if (clear) { clear.disabled = count === 0; clear.textContent = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
+  ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarSelectionMode === mode); button.setAttribute('aria-pressed', String(appState.bulkCalendarSelectionMode === mode)); } });
+}
+function openBulkCalendarModal() {
+  bulkCalendarInvoker = document.activeElement; bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; bulkCalendarUndoSnapshot = null; bulkCalendarStatus = '';
+  const modal = document.getElementById('bulk-calendar-modal'); if (!modal) return;
+  modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); renderBulkCalendar();
+  setTimeout(() => document.getElementById('bulk-calendar-title')?.focus(), 0);
+}
+function closeBulkCalendarModal() {
+  closeBulkCalendarContextMenu();
+  const modal = document.getElementById('bulk-calendar-modal'); if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+  bulkCalendarInvoker?.focus?.();
+}
+function handleBulkCalendarModalKeydown(event) {
+  if (event.key === 'Escape') { event.preventDefault(); if (isBulkCalendarContextMenuOpen()) closeBulkCalendarContextMenu(true); else closeBulkCalendarModal(); return; }
+  if (event.key !== 'Tab') return;
+  const dialog = document.querySelector('#bulk-calendar-modal [role="dialog"]');
+  const focusables = qa('button:not([disabled]), input:not([disabled])', dialog).filter(node => node.offsetParent !== null);
+  if (!focusables.length) return;
+  if (event.shiftKey && document.activeElement === focusables[0]) { event.preventDefault(); focusables.at(-1).focus(); }
+  else if (!event.shiftKey && document.activeElement === focusables.at(-1)) { event.preventDefault(); focusables[0].focus(); }
+}
+function isBulkCalendarContextMenuOpen() { const menu = document.getElementById('bulk-calendar-context-menu'); return Boolean(menu && !menu.hidden); }
+function openBulkCalendarContextMenu(event) {
+  event.preventDefault();
+  const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu) return;
+  bulkCalendarContextMenuInvoker = document.activeElement; menu.hidden = false; updateBulkCalendarControls();
+  const width = 210; const height = 46;
+  menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))}px`;
+  document.getElementById('bulk-calendar-context-clear')?.focus();
+}
+function closeBulkCalendarContextMenu(restoreFocus = false) {
+  const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  if (restoreFocus) bulkCalendarContextMenuInvoker?.focus?.();
+  bulkCalendarContextMenuInvoker = null;
+}
+function applyBulkCalendarPreset(preset) {
+  const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
+  const label = getBulkCalendarStateLabel(preset);
+  if (!ids.length || !label) return;
+  const before = clone(appState);
+  bulkCalendarUndoSnapshot = ids.map(id => ({ id, noClass: getStateVal(appState.noClassData, id), short: getStateVal(appState.shortData, id), exam: getStateVal(appState.examData, id) }));
+  if (!commitState(state => ids.forEach(id => applyPresetToState(state, id, preset)))) { appState = before; bulkCalendarUndoSnapshot = null; return; }
+  bulkCalendarStatus = `${ids.length}日を「${label}」に設定しました。`;
+  renderBulkCalendar(); refreshMainUI();
+}
+function undoBulkCalendarChange() {
+  if (!bulkCalendarUndoSnapshot) return;
+  const snapshot = bulkCalendarUndoSnapshot;
+  if (!commitState(state => snapshot.forEach(item => { setStateValue(state, item.id, 'noClass', item.noClass); setStateValue(state, item.id, 'short', item.short); setStateValue(state, item.id, 'exam', item.exam); }))) return;
+  bulkCalendarUndoSnapshot = null;
+  bulkCalendarStatus = `${snapshot.length}日の直前の変更を元に戻しました。`;
+  renderBulkCalendar(); refreshMainUI();
+}
+
+function updateBadgeElement(badge, state) {
+  badge.dataset.state = String(state);
+  badge.className = `todo-badge state-${state}`;
+  badge.textContent = ({ 0: '未', 1: '途', 2: '済', 3: '急' })[state] || '未';
+}
+function bindEditorEvents() {
+  const right = document.getElementById('right-panel');
+  if (!right || right.dataset.taskkanriBound) return;
+  right.dataset.taskkanriBound = 'true';
+  right.addEventListener('click', event => {
+    const badge = event.target.closest?.('.todo-badge');
+    if (!badge || !right.contains(badge)) return;
+    const next = (Number(badge.dataset.state) + 1) % 4;
+    updateBadgeElement(badge, next);
+    const input = badge.closest('.slot-input');
+    if (input) input.dispatchEvent(new Event('blur'));
+  });
+}
+function extractTasksForDisplay(html, dateId, slotName) {
+  return extractTodoItems(html).map(item => ({ ...item, dateId, slotName }));
+}
+function openTodoModal() {
+  const tbody = document.getElementById('todo-list-tbody'); if (!tbody) return;
+  tbody.replaceChildren();
+  const tasks = extractTasksForDisplay(appState.globalTaskData, 'GLOBAL', '共通タスク');
+  Object.keys(appState.scheduleData).sort().forEach(dateId => APP_CONFIG.slotsAll.forEach(slot => tasks.push(...extractTasksForDisplay(scheduleSlots(dateId)[slot] || '', dateId, slot))));
+  if (!tasks.length) {
+    const row = el('tr'); const cell = el('td', '未完了のタスクはありません。\nお疲れ様です🍡🍡🍡'); cell.colSpan = 3; cell.style.whiteSpace = 'pre-line'; cell.style.textAlign = 'center'; cell.style.padding = '40px'; row.appendChild(cell); tbody.appendChild(row);
+  } else tasks.forEach(task => {
+    const row = el('tr'); row.className = 'todo-row';
+    row.addEventListener('click', () => task.dateId === 'GLOBAL' ? closeTodoModal() : jumpToDateFromTodo(task.dateId));
+    const dateCell = el('td', task.dateId === 'GLOBAL' ? '共通' : (() => { const date = dateFromIso(task.dateId); return `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`; })());
+    const slotCell = el('td', task.slotName);
+    const taskCell = el('td');
+    const badge = el('span', ({ 0: '未', 1: '途', 3: '急' })[task.state] || '未'); badge.className = `todo-badge state-${task.state}`; badge.style.cursor = 'default'; badge.style.marginRight = '8px';
+    taskCell.append(badge, document.createTextNode(task.text));
+    [dateCell, slotCell, taskCell].forEach(cell => { cell.style.border = '1px solid #cbd5e0'; cell.style.padding = '8px'; });
+    tbody.appendChild(row).append(dateCell, slotCell, taskCell);
+  });
+  document.getElementById('todo-modal').style.display = 'flex';
+}
+function closeTodoModal() { const modal = document.getElementById('todo-modal'); if (modal) modal.style.display = 'none'; }
+function jumpToDateFromTodo(dateId) { closeTodoModal(); renderEditor(dateId, 'top'); executeJump(dateId); }
+
+function startTitleBlink(text) {
+  stopTitleBlink();
+  let on = false; const base = String(text).slice(0, 12);
+  titleBlinkerId = setInterval(() => { on = !on; document.title = on ? `【🔔】${base}...` : `【　】${base}...`; }, 1000);
+}
+function stopTitleBlink() { if (titleBlinkerId) clearInterval(titleBlinkerId); titleBlinkerId = null; document.title = 'タスク管理くん'; }
+function processAlarmHtml(html, sourceName, hour, minute, notifications) {
+  const safe = sanitizeHtml(html);
+  const pattern = /🔔\s*([0-9０-９]{1,2}[:：]?[0-9０-９]{2})([^<]*)/g;
+  return safe.replace(pattern, (match, time, trailing) => {
+    const digits = time.replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, '');
+    const h = digits.length === 3 ? Number(digits.slice(0, 1)) : Number(digits.slice(0, 2));
+    const m = Number(digits.slice(-2));
+    if (h !== hour || m !== minute) return match;
+    notifications.push(`【${sourceName}】 ${time}${trailing}`.trim());
+    return `🔕<span style="color:#a0aec0;text-decoration:line-through double #a0aec0">${escapeHtmlText(`${time}${trailing}`)}</span>`;
+  });
+}
+function showAlarmModal(messages) {
+  const container = document.getElementById('alarm-msg-container'); if (!container) return;
+  const open = document.getElementById('alarm-modal')?.style.display === 'flex';
+  if (open) container.appendChild(el('hr'));
+  messages.forEach((message, index) => { if (index) container.appendChild(el('br')); container.appendChild(el('div', message)); });
+  const modal = document.getElementById('alarm-modal'); if (modal) modal.style.display = 'flex';
+  startTitleBlink(messages[0] || 'アラーム');
+}
+function closeAlarmModal() { const modal = document.getElementById('alarm-modal'); if (modal) modal.style.display = 'none'; document.getElementById('alarm-msg-container')?.replaceChildren(); stopTitleBlink(); }
+function checkAlarms(now) {
+  const dateId = getIsoDateStr(now); const notifications = []; const before = clone(appState); let changed = false;
+  if (appState.globalTaskData.includes('🔔')) {
+    const next = processAlarmHtml(appState.globalTaskData, '共通タスク', now.getHours(), now.getMinutes(), notifications);
+    if (next !== appState.globalTaskData) { appState.globalTaskData = next; changed = true; }
+  }
+  const slots = appState.scheduleData[dateId]?.slots;
+  if (slots) APP_CONFIG.slotsAll.forEach(slot => { if (!slots[slot]?.includes('🔔')) return; const next = processAlarmHtml(slots[slot], getDisplaySlot(slot), now.getHours(), now.getMinutes(), notifications); if (next !== slots[slot]) { slots[slot] = next; changed = true; } });
+  if (changed) {
+    const result = storageService.saveAll(appState);
+    if (result.ok) appState = result.state; else { appState = before; notifySaveFailure(result); }
+    refreshMainUI();
+  }
+  if (notifications.length) showAlarmModal(notifications);
+}
+
+function getFirstWord(html) {
+  return stripHtml(html).replace(/^\s*(?:[①-⑳㉑-㉟㊱-㊿]|\(\d+\))\s*/, '').trim().split(/[\s\u00a0　]+/)[0] || '';
+}
+function getCircleNumber(value) {
+  if (value >= 1 && value <= 20) return String.fromCharCode(0x245f + value);
+  if (value >= 21 && value <= 35) return String.fromCharCode(0x3251 + value - 21);
+  if (value >= 36 && value <= 50) return String.fromCharCode(0x32b1 + value - 36);
+  return `(${value})`;
+}
+function removeLeadingCount(html) {
+  const holder = el('div'); appendSafeRich(holder, html);
+  const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    if (node.nodeValue.trim()) {
+      node.nodeValue = node.nodeValue.replace(/^\s*(?:[①-⑳㉑-㉟㊱-㊿]|\(\d+\))\s*/, '');
+      break;
+    }
+    node = walker.nextNode();
+  }
+  qa('span', holder).forEach(span => { if (!span.textContent.trim() && !span.classList.contains('todo-badge')) span.remove(); });
+  return sanitizeHtml(holder.innerHTML);
+}
+function addCountPrefix(html, number) {
+  const holder = el('div'); appendSafeRich(holder, removeLeadingCount(html));
+  const prefix = el('span', getCircleNumber(number)); prefix.style.fontWeight = 'bold'; prefix.style.color = '#1e3a8a';
+  holder.insertBefore(prefix, holder.firstChild); holder.insertBefore(document.createTextNode(' '), prefix.nextSibling);
+  return sanitizeHtml(holder.innerHTML);
+}
+function deleteCountWord(html, word) {
+  const holder = el('div'); appendSafeRich(holder, html);
+  const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+  const escaped = String(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let node = walker.nextNode();
+  while (node) {
+    const match = node.nodeValue.match(new RegExp(escaped, 'i'));
+    if (match) { node.nodeValue = `${node.nodeValue.slice(0, match.index)}${node.nodeValue.slice(match.index + match[0].length)}`; break; }
+    node = walker.nextNode();
+  }
+  return sanitizeHtml(holder.innerHTML);
+}
+function scanSchedulesForCount() {
+  const start = document.getElementById('count-start-date')?.value || appState.countDateRange.start;
+  const end = document.getElementById('count-end-date')?.value || appState.countDateRange.end;
+  const targetSlots = APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot));
+  previewCountData = appState.countSettings.map(condition => {
+    const hits = [];
+    if (condition.word.trim()) Object.keys(appState.scheduleData).sort().forEach(dateId => {
+      if (start && dateId < start || end && dateId > end) return;
+      const date = dateFromIso(dateId); if (!date) return;
+      targetSlots.forEach(slot => {
+        const html = scheduleSlots(dateId)[slot]; if (!html || getFirstWord(html) !== condition.word.trim()) return;
+        const isExcludedByConfig = !appState.daySlotConfig?.[date.getDay()]?.[slot];
+        const isMorningOnly = [2, 3].includes(getStateVal(appState.shortData, dateId)) && ['５限', '６限', '７限'].includes(slot);
+        const isHolidayPeriod = Boolean(appState.customHolidays[dateId]);
+        const excluded = isExcludedByConfig || isMorningOnly || isHolidayPeriod;
+        const skippedDay = getStateVal(appState.noClassData, dateId) > 0 || getStateVal(appState.examData, dateId) > 0;
+        hits.push({ dateId, slot, plainText: stripHtml(html), originalHtml: html, checked: !excluded && !skippedDay, trashed: false, excluded, excludedReason: isHolidayPeriod ? '休日・祝日のため除外' : isMorningOnly ? '午前時程により除外' : isExcludedByConfig ? '設定により除外' : '' });
+      });
+    });
+    return { hits };
+  });
+}
+function renderCountTags() {
+  const container = document.getElementById('count-tags-container'); if (!container) return;
+  container.replaceChildren();
+  const tags = new Set();
+  Object.values(appState.configWeekly).forEach(slots => Object.values(slots).forEach(value => { const word = getFirstWord(value); if (word) tags.add(word); }));
+  if (!tags.size) { container.appendChild(el('span', '※設定画面の「週間時間割」に入力すると、ここに自動抽出されます')); return; }
+  container.appendChild(el('span', '抽出タグ:'));
+  Array.from(tags).sort().forEach(tag => {
+    const button = el('button', `${appState.countSettings.some(condition => condition.word.trim() === tag) ? '✓ ' : '＋ '}${tag}`);
+    button.type = 'button'; button.className = 'btn-s'; button.disabled = appState.countSettings.some(condition => condition.word.trim() === tag);
+    button.addEventListener('click', () => insertCountTag(tag));
+    container.appendChild(button);
+  });
+}
+function insertCountTag(tag) {
+  const active = document.activeElement;
+  if (active?.classList.contains('cond-word-input')) { active.value = tag; updateCondWord(Number(active.dataset.idx), tag); return; }
+  const empty = appState.countSettings.findIndex(condition => !condition.word.trim());
+  if (empty >= 0) updateCondWord(empty, tag); else addCountConditionRow(tag);
+}
+function makeCountSettingRow(condition, index) {
+  const row = el('div'); row.className = 'count-setting-row'; row.dataset.index = String(index);
+  const handle = el('span', '⠿'); handle.className = 'count-drag-handle'; handle.title = 'ドラッグして並べ替え'; handle.setAttribute('aria-label', `${condition.word || '授業'}をドラッグして並べ替え`); handle.addEventListener('pointerdown', event => startCountDrag(event, index));
+  const up = el('button', '↑'); up.type = 'button'; up.className = 'btn-s'; up.disabled = index === 0; up.title = '上へ移動'; up.addEventListener('click', () => moveCountCondition(index, index - 1));
+  const down = el('button', '↓'); down.type = 'button'; down.className = 'btn-s'; down.disabled = index === appState.countSettings.length - 1; down.title = '下へ移動'; down.addEventListener('click', () => moveCountCondition(index, index + 1));
+  const remove = el('button', '🗑️'); remove.type = 'button'; remove.className = 'btn-s'; remove.title = 'この設定を削除'; remove.addEventListener('click', () => removeCountConditionRow(index));
+  const word = el('input'); word.type = 'text'; word.className = 'cond-word-input'; word.dataset.idx = String(index); word.value = condition.word; word.placeholder = '検索ワード';
+  word.addEventListener('input', () => updateCondWord(index, word.value));
+  word.addEventListener('change', () => updateCondWord(index, word.value));
+  const mode = el('select'); mode.appendChild(el('option', 'DOWN⑩⑨〜')).value = 'down'; mode.appendChild(el('option', 'UP①②〜')).value = 'up'; mode.value = condition.mode; mode.addEventListener('change', () => updateCondMode(index, mode.value));
+  const startLabel = el('label', '開始:'); const start = el('input'); start.type = 'number'; start.min = '0'; start.value = String(condition.start); start.addEventListener('change', () => updateCondStart(index, start.value));
+  const count = el('span', `(${previewCountData[index]?.hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length || 0}ｺﾏ)`); count.id = `hit-count-${index}`;
+  row.append(handle, up, down, remove, word, mode, startLabel, start, count);
+  return row;
+}
+function renderCountSettings() {
+  const container = document.getElementById('count-settings-container'); if (!container) return;
+  container.replaceChildren();
+  appState.countSettings.forEach((condition, index) => container.appendChild(makeCountSettingRow(condition, index)));
+  renderCountTags();
+}
+function startCountDrag(event, fromIndex) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const row = event.currentTarget.closest('.count-setting-row'); const container = document.getElementById('count-settings-container'); if (!row || !container) return;
+  countDragState = { pointerId: event.pointerId, fromIndex, row, container, startY: event.clientY, started: false };
+  row.setPointerCapture?.(event.pointerId); event.preventDefault();
+  document.addEventListener('pointermove', moveCountDrag); document.addEventListener('pointerup', endCountDrag); document.addEventListener('pointercancel', endCountDrag);
+}
+function moveCountDrag(event) {
+  const drag = countDragState; if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.started && Math.abs(event.clientY - drag.startY) >= 5) { drag.started = true; drag.row.classList.add('count-sortable-chosen'); }
+  if (!drag.started) return;
+  const target = qa('.count-setting-row', drag.container).find(row => row !== drag.row && event.clientY >= row.getBoundingClientRect().top && event.clientY <= row.getBoundingClientRect().bottom);
+  if (target) drag.container.insertBefore(drag.row, event.clientY < target.getBoundingClientRect().top + target.offsetHeight / 2 ? target : target.nextSibling);
+}
+function endCountDrag(event) {
+  const drag = countDragState; if (!drag || event.pointerId !== drag.pointerId) return;
+  document.removeEventListener('pointermove', moveCountDrag); document.removeEventListener('pointerup', endCountDrag); document.removeEventListener('pointercancel', endCountDrag);
+  const toIndex = qa('.count-setting-row', drag.container).indexOf(drag.row); const moved = drag.started && toIndex !== drag.fromIndex;
+  drag.row.classList.remove('count-sortable-chosen'); countDragState = null;
+  if (moved) moveCountCondition(drag.fromIndex, toIndex);
+}
+function moveCountCondition(fromIndex, toIndex) {
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= appState.countSettings.length || toIndex >= appState.countSettings.length || fromIndex === toIndex) return;
+  const ok = commitState(state => { const [item] = state.countSettings.splice(fromIndex, 1); state.countSettings.splice(toIndex, 0, item); });
+  if (ok) { const [preview] = previewCountData.splice(fromIndex, 1); previewCountData.splice(toIndex, 0, preview); renderCountSettings(); refreshCountViews(); }
+}
+function renderCountPreview() {
+  const container = document.getElementById('count-preview-container'); if (!container) return;
+  container.replaceChildren();
+  let displayed = false;
+  appState.countSettings.forEach((condition, groupIndex) => {
+    const group = previewCountData[groupIndex]; if (!condition.word.trim() || !group?.hits.length) return;
+    displayed = true;
+    const countLabel = document.getElementById(`hit-count-${groupIndex}`);
+    if (countLabel) countLabel.textContent = `(${group.hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length}ｺﾏ)`;
+    const column = el('div'); setStyle(column, { minWidth: '380px', maxWidth: '400px', flex: '1', flexShrink: '0', background: '#fff', border: '1px solid #cbd5e0', borderRadius: '6px', display: 'flex', flexDirection: 'column' });
+    const heading = el('div', condition.word); setStyle(heading, { background: '#edf2f7', padding: '6px', fontSize: '13px', fontWeight: 'bold', textAlign: 'center', color: '#2d3748' });
+    const rows = el('div'); rows.id = `count-col-scroll-${groupIndex}`; setStyle(rows, { flex: '1', overflowY: 'auto', paddingBottom: '5px' });
+    let number = condition.start;
+    group.hits.forEach((hit, hitIndex) => {
+      const row = el('div'); row.className = `preview-row${hit.excluded ? ' excluded' : hit.trashed ? ' trashed' : !hit.checked ? ' skipped' : ''}`;
+      const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = hit.checked; checkbox.disabled = hit.excluded || hit.trashed; checkbox.addEventListener('change', () => togglePreviewCheck(groupIndex, hitIndex, checkbox.checked));
+      const date = dateFromIso(hit.dateId); const dateLabel = el('span', `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]}${hit.slot})`); dateLabel.style.width = '85px';
+      const original = el('span', hit.plainText); original.style.width = '105px'; original.style.overflow = 'hidden'; original.style.textOverflow = 'ellipsis'; original.style.whiteSpace = 'nowrap'; setSafeTitle(original, hit.plainText);
+      const after = el('span'); after.style.flex = '1';
+      if (hit.excluded) after.textContent = `(${hit.excludedReason})`;
+      else if (hit.trashed) after.textContent = '(消去)';
+      else if (!hit.checked) after.textContent = '(スキップ)';
+      else { after.textContent = `${getCircleNumber(number)} ${stripHtml(removeLeadingCount(hit.originalHtml))}`; if (condition.mode === 'up') number += 1; else number -= 1; }
+      const trash = el('button', '🗑️'); trash.type = 'button'; trash.className = 'btn-s'; trash.disabled = hit.excluded; trash.title = '対象文字列を消去'; trash.addEventListener('click', () => toggleTrash(groupIndex, hitIndex));
+      row.append(checkbox, dateLabel, original, el('span', '→'), after, trash); rows.appendChild(row);
+    });
+    const footer = el('div'); setStyle(footer, { padding: '6px', borderTop: '1px solid #cbd5e0' });
+    const apply = el('button', 'この列を反映'); apply.type = 'button'; apply.className = 'menu-btn'; apply.style.width = '100%'; apply.addEventListener('click', () => applyCountColumn(groupIndex)); footer.appendChild(apply);
+    column.append(heading, rows, footer); container.appendChild(column);
+  });
+  if (!displayed) container.appendChild(el('div', '検索ワードを入力すると、指定期間内のプレビューが表示されます。'));
+}
+function renderCountGrid() {
+  const container = document.getElementById('count-grid-container'); if (!container) return;
+  container.replaceChildren();
+  const start = document.getElementById('count-start-date')?.value || appState.countDateRange.start;
+  const end = document.getElementById('count-end-date')?.value || appState.countDateRange.end;
+  if (!start || !end) return;
+  const table = el('table'); setStyle(table, { width: '100%', borderCollapse: 'collapse', fontSize: '12px', background: '#fff', textAlign: 'center' });
+  const head = el('thead'); const headRow = el('tr'); ['日付(曜)', '行事予定', ...APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot))].forEach(label => headRow.appendChild(el('th', label))); head.appendChild(headRow); table.appendChild(head);
+  const body = el('tbody'); let date = dateFromIso(start); const last = dateFromIso(end);
+  while (date && last && date <= last) {
+    const dateId = getIsoDateStr(date); const row = el('tr'); row.className = getDayBgClass(dateId);
+    const dateCell = el('td'); dateCell.appendChild(el('span', `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`)); const trashDay = el('button', '🗑️'); trashDay.type = 'button'; trashDay.className = 'btn-s'; trashDay.title = 'この日の授業を全消去/全復活'; trashDay.addEventListener('click', () => trashDayAll(dateId)); dateCell.appendChild(trashDay); row.appendChild(dateCell);
+    const eventCell = el('td', stripHtml(appState.configEvents[dateId] || appState.customHolidays[dateId] || '')); setSafeTitle(eventCell, appState.configEvents[dateId] || appState.customHolidays[dateId] || ''); row.appendChild(eventCell);
+    APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot)).forEach(slot => {
+      const cell = el('td');
+      previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => {
+        if (hit.dateId !== dateId || hit.slot !== slot) return;
+        const wrapper = el('div'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = hit.checked; checkbox.disabled = hit.excluded || hit.trashed; checkbox.addEventListener('change', () => togglePreviewCheck(groupIndex, hitIndex, checkbox.checked));
+        const word = el('span', appState.countSettings[groupIndex].word); word.title = hit.plainText; word.setAttribute('aria-label', `${hit.plainText} ${appState.countSettings[groupIndex].word}`); const trash = el('button', '🗑️'); trash.type = 'button'; trash.className = 'btn-s'; trash.disabled = hit.excluded; trash.title = '消去/復元'; trash.addEventListener('click', () => toggleTrash(groupIndex, hitIndex)); wrapper.append(checkbox, word, trash); cell.appendChild(wrapper);
+      }));
+      row.appendChild(cell);
+    });
+    body.appendChild(row); date.setDate(date.getDate() + 1);
+  }
+  table.appendChild(body); container.appendChild(table);
+  if (!body.childElementCount) container.appendChild(el('div', '検索ワードにヒットする授業がありません。'));
+}
+function refreshCountViews() { renderCountPreview(); renderCountGrid(); }
+function persistCountUiState() {
+  const start = document.getElementById('count-start-date')?.value || '';
+  const end = document.getElementById('count-end-date')?.value || '';
+  return commitState(state => { state.countDateRange = { start, end }; });
+}
+function updateCountDateRange() { if (persistCountUiState()) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
+function toggleTrash(groupIndex, hitIndex) {
+  const hit = previewCountData[groupIndex]?.hits[hitIndex]; if (!hit || hit.excluded) return;
+  const nextTrashed = !hit.trashed;
+  const delta = appState.countSettings[groupIndex].mode === 'down' && hit.checked ? (nextTrashed ? -1 : 1) : 0;
+  if (commitState(state => { state.countSettings[groupIndex].start += delta; })) {
+    hit.trashed = nextTrashed;
+    renderCountSettings(); refreshCountViews();
+  }
+}
+function togglePreviewCheck(groupIndex, hitIndex, checked) {
+  const hit = previewCountData[groupIndex]?.hits[hitIndex]; if (!hit || hit.excluded || hit.trashed) return;
+  const delta = appState.countSettings[groupIndex].mode === 'down' ? (checked ? 1 : -1) : 0;
+  if (commitState(state => { state.countSettings[groupIndex].start += delta; })) {
+    hit.checked = checked;
+    renderCountSettings(); refreshCountViews();
+  }
+}
+function applyCountColumn(groupIndex) {
+  const group = previewCountData[groupIndex]; const condition = appState.countSettings[groupIndex]; if (!group || !condition?.word.trim()) return false;
+  let number = condition.start; let changed = false;
+  const ok = commitState(state => {
+    group.hits.forEach(hit => {
+      if (hit.excluded) return;
+      const slots = ensureScheduleDay(state, hit.dateId);
+      if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word);
+      else if (hit.checked) { slots[hit.slot] = addCountPrefix(hit.originalHtml, number); number += condition.mode === 'up' ? 1 : -1; }
+      else slots[hit.slot] = removeLeadingCount(hit.originalHtml);
+      changed = true;
+    });
+  });
+  if (ok && changed) { scanSchedulesForCount(); refreshCountViews(); refreshMainUI(); }
+  return ok && changed;
+}
+function applyCountAll() {
+  let applied = false;
+  if (!commitState(state => appState.countSettings.forEach((condition, index) => {
+    const group = previewCountData[index]; if (!condition.word.trim() || !group) return;
+    let number = condition.start;
+    group.hits.forEach(hit => {
+      if (hit.excluded) return;
+      const slots = ensureScheduleDay(state, hit.dateId);
+      if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word);
+      else if (hit.checked) { slots[hit.slot] = addCountPrefix(hit.originalHtml, number); number += condition.mode === 'up' ? 1 : -1; }
+      else slots[hit.slot] = removeLeadingCount(hit.originalHtml);
+      applied = true;
+    });
+  }))) return;
+  if (applied) { scanSchedulesForCount(); refreshCountViews(); refreshMainUI(); showAlert('連番を振ってカレンダーに反映しました。'); }
+}
+function applyGridCleaning() {
+  let applied = false;
+  if (!commitState(state => appState.countSettings.forEach((condition, index) => {
+    const group = previewCountData[index]; if (!condition.word.trim() || !group) return;
+    group.hits.forEach(hit => { if (hit.excluded) return; const slots = ensureScheduleDay(state, hit.dateId); if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word); else if (!hit.checked) slots[hit.slot] = removeLeadingCount(hit.originalHtml); applied = true; });
+  }))) applied = false;
+  if (applied) { showAlert('お掃除内容（消去・番号除去）をカレンダーに反映しました。'); refreshMainUI(); }
+  else showAlert('反映する変更（ゴミ箱行き、またはスキップ）がありません。');
+}
+function csvCell(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
+function exportCountToCSV() {
+  let csv = '\ufeff日付,曜日,時限,授業名,回数(番号)\n'; let hasData = false;
+  appState.countSettings.forEach((condition, groupIndex) => {
+    if (!condition.word.trim() || !previewCountData[groupIndex]) return;
+    let number = condition.start;
+    previewCountData[groupIndex].hits.forEach(hit => {
+      if (hit.trashed || !hit.checked || hit.excluded) return;
+      const date = dateFromIso(hit.dateId); hasData = true;
+      csv += [hit.dateId, APP_CONFIG.daysStr[date.getDay()], hit.slot, condition.word, getCircleNumber(number)].map(csvCell).join(',') + '\n';
+      number += condition.mode === 'up' ? 1 : -1;
+    });
+  });
+  if (!hasData) { showAlert('指定期間内に出力する予定データがありません。'); return; }
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const link = el('a'); link.href = url; link.download = `授業予定一覧_${toYYMMDD(getIsoDateStr(new Date()))}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+function switchCountMode(mode) {
+  currentCountMode = mode;
+  const list = document.getElementById('count-preview-container'); const grid = document.getElementById('count-grid-container'); const listTab = document.getElementById('tab-list'); const gridTab = document.getElementById('tab-grid'); const listButton = document.getElementById('btn-apply-list'); const gridButton = document.getElementById('btn-apply-grid');
+  const isList = mode === 'list';
+  if (list) list.style.display = isList ? 'flex' : 'none'; if (grid) grid.style.display = isList ? 'none' : 'block'; if (listTab) listTab.classList.toggle('active', isList); if (gridTab) gridTab.classList.toggle('active', !isList); if (listButton) listButton.style.display = isList ? 'block' : 'none'; if (gridButton) gridButton.style.display = isList ? 'none' : 'block';
+}
+function openCountModal() {
+  const range = appState.countDateRange.start && appState.countDateRange.end ? appState.countDateRange : getSmartDateRange();
+  const start = document.getElementById('count-start-date'); const end = document.getElementById('count-end-date'); if (start) start.value = range.start; if (end) end.value = range.end;
+  scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); switchCountMode(currentCountMode); document.getElementById('count-modal').style.display = 'flex';
+}
+function closeCountModal() { document.getElementById('count-modal').style.display = 'none'; refreshMainUI(); }
+function addCountConditionRow(initialWord = '') { if (commitState(state => state.countSettings.push({ word: initialWord, mode: 'down', start: 1 }))) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
+function removeCountConditionRow(index) { if (appState.countSettings.length <= 1) return; if (commitState(state => state.countSettings.splice(index, 1))) { scanSchedulesForCount(); renderCountSettings(); refreshCountViews(); } }
+function updateCondWord(index, value) {
+  const nextWord = String(value ?? '');
+  if (!appState.countSettings[index]) return;
+  if (appState.countSettings[index]?.word === nextWord) return;
+  if (!commitState(state => { state.countSettings[index].word = nextWord; })) return;
+  scanSchedulesForCount();
+  if (appState.countSettings[index].mode === 'down') {
+    const nextStart = previewCountData[index].hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length;
+    if (!commitState(state => { state.countSettings[index].start = nextStart; })) return;
+  }
+  const startInput = document.querySelector(`.count-setting-row[data-index="${index}"] input[type="number"]`);
+  if (startInput) startInput.value = String(appState.countSettings[index].start);
+  renderCountTags(); refreshCountViews();
+}
+function updateCondMode(index, value) { if (!['up', 'down'].includes(value)) return; if (commitState(state => { state.countSettings[index].mode = value; state.countSettings[index].start = value === 'up' ? 1 : (previewCountData[index]?.hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length || 1); })) { renderCountSettings(); refreshCountViews(); } }
+function updateCondStart(index, value) { const number = Number(value); if (!Number.isInteger(number) || number < 0) return; if (commitState(state => { state.countSettings[index].start = number; })) refreshCountViews(); }
+function trashDayAll(dateId) {
+  const hits = []; previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => { if (hit.dateId === dateId && !hit.excluded) hits.push({ groupIndex, hitIndex, hit }); }));
+  const activate = hits.some(item => !item.hit.trashed);
+  if (!hits.length) return;
+  if (commitState(state => {
+    hits.forEach(item => {
+      const condition = state.countSettings[item.groupIndex];
+      if (condition?.mode === 'down' && item.hit.checked && item.hit.trashed !== activate) condition.start += activate ? -1 : 1;
+    });
+  })) {
+    hits.forEach(item => { item.hit.trashed = activate; });
+    renderCountSettings(); refreshCountViews();
+  }
+}
+
+function toggleDayRow(dayIndex) {
+  const checkboxes = qa(`#day-slot-tbody input[data-day="${dayIndex}"][data-slot]`); const all = checkboxes.length && checkboxes.every(input => input.checked);
+  checkboxes.forEach(input => { input.checked = !all; input.dispatchEvent(new Event('change')); });
+}
+function syncTmplState(day, slot, checked) {
+  qa('#weekly-tbody input[data-day][data-slot]').filter(input => input.dataset.day === String(day) && input.dataset.slot === slot && input.type === 'text').forEach(input => { input.disabled = !checked; input.classList.toggle('tmpl-disabled', !checked); });
+}
+function renderSettingsTables() {
+  const dayBody = document.getElementById('day-slot-tbody'); if (dayBody) {
+    dayBody.replaceChildren();
+    [1, 2, 3, 4, 5, 6, 0].forEach(day => {
+      const row = el('tr'); const label = el('td', APP_CONFIG.daysStr[day]); label.addEventListener('click', () => toggleDayRow(day)); row.appendChild(label);
+      APP_CONFIG.slotsAll.forEach(slot => { const cell = el('td'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.dataset.day = String(day); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[day][slot]); checkbox.title = slot; checkbox.addEventListener('change', () => syncTmplState(day, slot, checkbox.checked)); cell.appendChild(checkbox); row.appendChild(cell); });
+      dayBody.appendChild(row);
+    });
+  }
+  const timeBody = document.getElementById('time-config-tbody'); if (timeBody) {
+    timeBody.replaceChildren();
+    APP_CONFIG.timeKeys.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); ['normal', 'short', 'exam'].forEach(group => { const cell = el('td'); const input = el('input'); input.type = 'time'; input.dataset.timeGroup = group; input.dataset.slot = slot; input.value = appState.timeConfig[group][slot] || ''; if (group === 'exam' && !['朝', '１限', '２限', '３限', '４限', '放課後'].includes(slot)) input.disabled = true; cell.appendChild(input); row.appendChild(cell); }); timeBody.appendChild(row); });
+  }
+  const weeklyBody = document.getElementById('weekly-tbody'); if (weeklyBody) {
+    weeklyBody.replaceChildren();
+    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const box = el('div'); box.style.display = 'flex'; box.style.alignItems = 'center'; const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.className = 'tmpl-cb'; checkbox.dataset.day = String(dayIndex); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[dayIndex][slot]); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.configWeekly[dayIndex]?.[slot] || ''); input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); checkbox.addEventListener('change', () => { input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); }); box.append(checkbox, input); cell.appendChild(box); row.appendChild(cell); } weeklyBody.appendChild(row); });
+    qa('#weekly-tbody input[type="text"]').forEach(input => input.addEventListener('keydown', handleTableNav));
+  }
+}
+function openSettingsView() {
+  const year = document.getElementById('academic-year-input'); if (year) year.value = String(appState.currentYear);
+  const range = getSmartDateRange(); const start = document.getElementById('tmpl-start'); const end = document.getElementById('tmpl-end'); if (start) start.value = range.start; if (end) end.value = range.end;
+  const layout = document.querySelector(`input[name="layout-mode"][value="${appState.isLandscapeMode ? 'landscape' : 'portrait'}"]`); if (layout) layout.checked = true;
+  renderSettingsTables();
+  const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
+  const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
+  const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
+  renderQuarantineUI(); document.getElementById('settings-view').style.display = 'block';
+}
+function closeSettingsView() { document.getElementById('settings-view').style.display = 'none'; refreshMainUI(); }
+function toggleAllTmplCb() { const boxes = qa('.tmpl-cb:not(:disabled)'); const all = boxes.length && boxes.every(box => box.checked); boxes.forEach(box => { box.checked = !all; box.dispatchEvent(new Event('change')); }); }
+function handleTableNav(event) {
+  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)) return;
+  event.preventDefault();
+  const inputs = qa('#weekly-tbody input[type="text"]:not(:disabled)'); const index = inputs.indexOf(event.currentTarget); let next = index;
+  if (event.key === 'ArrowDown' || event.key === 'Enter' && !event.shiftKey) next += 1;
+  else if (event.key === 'ArrowUp' || event.key === 'Enter') next -= 1;
+  else if (event.key === 'ArrowRight' || event.key === 'Tab') next += 1;
+  else next -= 1;
+  inputs[Math.max(0, Math.min(inputs.length - 1, next))]?.focus();
+}
+function parseTextareaMap(value, fieldLabel) {
+  const result = {};
+  for (const line of String(value ?? '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const colon = line.indexOf(':'); if (colon < 0) throw new Error(`${fieldLabel}: YYMMDD:内容の形式が必要です`);
+    const dateId = fromYYMMDD(line.slice(0, colon).trim()); if (!dateId) throw new Error(`${fieldLabel}: 実在する日付が必要です (${line.slice(0, colon).trim()})`);
+    const text = sanitizeHtml(line.slice(colon + 1).trim()); if (stripHtml(text)) result[dateId] = text;
+  }
+  return result;
+}
+function saveBasicSettings() {
+  const year = Number(document.getElementById('academic-year-input')?.value); const layout = document.querySelector('input[name="layout-mode"]:checked')?.value;
+  if (!Number.isInteger(year) || year < 2000 || year > 2100 || !['portrait', 'landscape'].includes(layout)) { showAlert('年度または画面レイアウトが不正です。'); return; }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
+}
+function saveTimeConfig() {
+  const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig);
+  qa('input[data-time-group]').forEach(input => { next[input.dataset.timeGroup][input.dataset.slot] = input.value; });
+  qa('#day-slot-tbody input[type="checkbox"]').forEach(input => { slots[input.dataset.day][input.dataset.slot] = input.checked; });
+  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; })) { closeSettingsView(); showAlert('時程設定を保存しました。'); }
+}
+function saveWeekly() {
+  const weekly = {};
+  qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; const clean = sanitizeHtml(input.value); if (stripHtml(clean)) weekly[input.dataset.day][input.dataset.slot] = clean; });
+  if (commitState(state => { state.configWeekly = weekly; })) showAlert('時間割を保存しました。');
+}
+function applyWeeklyRange(overwrite) {
+  const start = document.getElementById('tmpl-start')?.value; const end = document.getElementById('tmpl-end')?.value;
+  if (!isValidIsoDate(start) || !isValidIsoDate(end) || start > end) { showAlert('適用期間の日付が不正です。'); return; }
+  if (!showConfirm(`${start} ～ ${end} の予定を${overwrite ? '完全に上書き' : '未入力枠のみ反映'}しますか？`)) return;
+  const weekly = {}; qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; weekly[input.dataset.day][input.dataset.slot] = sanitizeHtml(input.value); });
+  if (commitState(state => {
+    state.configWeekly = weekly;
+    let date = dateFromIso(start); const last = dateFromIso(end);
+    while (date && last && date <= last) {
+      const dateId = getIsoDateStr(date); const day = String(date.getDay()); const template = state.configWeekly[day] || {}; const target = ensureScheduleDay(state, dateId);
+      APP_CONFIG.slotsAll.forEach(slot => { const enabledInTemplate = qa('#weekly-tbody input[type="text"][data-day][data-slot]').some(input => input.dataset.day === day && input.dataset.slot === slot && !input.disabled); if (!state.daySlotConfig[date.getDay()][slot] || !enabledInTemplate) return; const value = template[slot] || ''; if (overwrite || !stripHtml(target[slot] || '').trim()) target[slot] = value ? `<span style="font-weight:bold;color:#1e3a8a">${escapeHtmlText(stripHtml(value))}</span> ` : ''; });
+      date.setDate(date.getDate() + 1);
+    }
+  })) { showAlert('指定期間へ反映しました。'); refreshMainUI(); }
+}
+function saveAnnual() {
+  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; })) { showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+}
+function saveHolidays() {
+  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; })) { showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+}
+
+function exportData() {
+  const serialized = serializePayload(appState); if (!serialized.ok) { showAlert(serialized.error); return; }
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  const filename = `TaskKanri_build-${APP_CONFIG.buildVersion}_schema-${APP_CONFIG.schemaVersion}_${stamp}.json`;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(serialized.value, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+function importData(event) {
+  const input = event?.target; const file = input?.files?.[0];
+  if (!file) { if (input) input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = loadEvent => {
+    try {
+      const prepared = normalizeImportedPayload(loadEvent.target.result);
+      if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
+      const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧snapshotを作成します。`) });
+      if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
+      appState = result.state; showStorageWarning(); refreshQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
+    } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
+    finally { input.value = ''; }
+  };
+  reader.onerror = () => { input.value = ''; showAlert('ファイルの読み込みに失敗しました。'); };
+  reader.readAsText(file);
+}
+function openResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'flex'; document.getElementById('btn-reset-cancel')?.focus(); }
+function closeResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'none'; }
+function executeReset() {
+  if (!showConfirm('TaskKanriの保存データ、復旧snapshot、隔離データを初期化しますか？')) return;
+  const result = storageService.reset();
+  if (!result.ok) { showAlert(`${result.error}\n削除失敗: ${result.failed.map(item => item.key).join(', ')}`); showStorageWarning(result.error); return; }
+  appState = result.state || defaultState(); closeResetModal(); showAlert(`TaskKanriのデータを初期化しました（${result.removed.length}キー削除）。他アプリのデータは削除していません。`); location.reload();
+}
+function getQuarantineDownloadPayload() { return { app: 'TaskKanri', buildVersion: APP_CONFIG.buildVersion, exportedAt: new Date().toISOString(), records: storageService.getQuarantineRecords() }; }
+function downloadQuarantinedData() {
+  const records = storageService.getQuarantineRecords(); if (!records.length) { showAlert('ダウンロードする隔離データはありません。'); return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(getQuarantineDownloadPayload(), null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `TaskKanri_quarantine_${APP_CONFIG.buildVersion}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+function deleteAllQuarantinedData() {
+  const records = storageService.getQuarantineRecords(); if (!records.length) return;
+  if (!showConfirm(`隔離データ${records.length}件を削除しますか？ダウンロード済みか確認してください。`)) return;
+  const failures = records.map(item => storageService.deleteQuarantine(item.key)).filter(result => !result.ok);
+  if (failures.length) showAlert('隔離データの一部を削除できませんでした。');
+  renderQuarantineUI(); showStorageWarning();
+}
+function renderQuarantineUI() {
+  const list = document.getElementById('quarantine-list'); const status = document.getElementById('storage-guard-status'); if (!list || !status || !storageService) return;
+  const records = storageService.getQuarantineRecords(); list.replaceChildren();
+  const reason = storageService.isReadOnly() ? `読み取り専用相当: ${storageService.readOnlyReason()}` : '';
+  status.textContent = reason || (records.length ? `隔離データ ${records.length}件` : '隔離データはありません。');
+  records.forEach(item => { const row = el('div'); row.className = 'quarantine-item'; const text = item.record || {}; const summary = el('span', `${text.quarantinedAt || '時刻不明'} / ${text.reason || '理由不明'} / ${text.sourceKey || item.key}`); const button = el('button', '削除'); button.type = 'button'; button.className = 'btn-s'; button.addEventListener('click', () => { if (showConfirm('この隔離データを削除しますか？')) { const result = storageService.deleteQuarantine(item.key); if (!result.ok) showAlert(result.error); renderQuarantineUI(); showStorageWarning(); } }); row.append(summary, button); list.appendChild(row); });
+}
+
+function updateWakeBtnUI(active) { const button = document.getElementById('wake-lock-btn'); if (button) { button.classList.toggle('sys-active', active); button.textContent = active ? '👀' : '😪'; } }
+async function requestWakeLock() {
+  try { if (!('wakeLock' in navigator)) throw new Error('Wake Lock APIは未対応です'); wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener?.('release', () => { wakeLock = null; updateWakeBtnUI(false); }); updateWakeBtnUI(true); } catch { updateWakeBtnUI(false); }
+}
+async function releaseWakeLock() { if (wakeLock) { try { await wakeLock.release(); } catch { /* already released */ } wakeLock = null; } updateWakeBtnUI(false); }
+function toggleWakeLock() { const requested = !appState.isWakeLockRequested; if (commitState(state => { state.isWakeLockRequested = requested; })) { if (requested) requestWakeLock(); else releaseWakeLock(); } }
+function toggleClock() { if (commitState(state => { state.isClockVisible = !state.isClockVisible; })) { document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateToolbarState(); } }
+
+function initializeStorage() {
+  try { storageLike = window.localStorage; storageService = createStorageService(storageLike); }
+  catch { storageLike = { data: new Map(), get length() { return this.data.size; }, key(index) { return Array.from(this.data.keys())[index] || null; }, getItem(key) { return this.data.has(key) ? this.data.get(key) : null; }, setItem(key, value) { this.data.set(key, String(value)); }, removeItem(key) { this.data.delete(key); } }; storageService = createStorageService(storageLike); }
+  const loaded = storageService.load();
+  if (loaded.ok) appState = loaded.state;
+  if (loaded.readOnly) showStorageWarning();
+}
+function initStartupDates() {
+  const today = new Date(); let base = getIsoDateStr(today);
+  if (today < new Date(appState.currentYear, 3, 1) || today > new Date(appState.currentYear + 1, 2, 31)) base = `${appState.currentYear}-04-01`;
+  renderEditor(base, 'top');
+  const next = dateFromIso(base); next.setDate(next.getDate() + 1);
+  while (next.getDay() === 0 || next.getDay() === 6 || appState.customHolidays[getIsoDateStr(next)]) next.setDate(next.getDate() + 1);
+  renderEditor(getIsoDateStr(next), 'bottom-left');
+  const week = dateFromIso(base); week.setDate(week.getDate() + 7); renderEditor(getIsoDateStr(week), 'bottom-right');
+}
+function initApp() {
+  if (initialized) return; initialized = true;
+  document.documentElement.style.setProperty('--bg-exam', APP_CONFIG.theme.exam); document.documentElement.style.setProperty('--bg-short', APP_CONFIG.theme.short); document.documentElement.style.setProperty('--bg-noclass', APP_CONFIG.theme.noclass);
+  document.documentElement.dataset.taskkanriBuild = APP_CONFIG.buildVersion; document.documentElement.dataset.taskkanriSchema = String(APP_CONFIG.schemaVersion);
+  initializeStorage(); bindEditorEvents();
+  document.getElementById('search-input')?.addEventListener('input', event => { event.currentTarget.style.height = '28px'; event.currentTarget.style.height = `${Math.min(70, event.currentTarget.scrollHeight)}px`; executeSearch(); });
+  document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
+  document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && isDateListContextMenuOpen()) { event.preventDefault(); closeDateListContextMenu(true); } });
+  document.addEventListener('scroll', () => closeBulkCalendarContextMenu(), true); window.addEventListener('resize', () => closeBulkCalendarContextMenu());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
+  window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
+  document.body.className = appState.isLandscapeMode ? 'layout-landscape' : 'layout-portrait'; document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
+  generateDateList(); initStartupDates(); renderQuarantineUI(); showStorageWarning();
+  setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
+}
+
+function getDateListContextPreset(dateId) { const noClass = getStateVal(appState.noClassData, dateId); const exam = getStateVal(appState.examData, dateId); const short = getStateVal(appState.shortData, dateId); if (noClass === 1) return 'noclass-hide'; if (noClass === 2) return 'noclass-show'; if (exam === 1) return 'exam'; if (exam === 2) return 'mock-exam'; if (short === 1) return 'short'; if (short === 2) return 'short-am'; if (short === 3) return 'morning'; return 'normal'; }
+function isDateListContextMenuOpen() { const menu = document.getElementById('date-list-context-menu'); return Boolean(menu && !menu.hidden); }
+function openDateListContextMenu(event, dateId) {
+  event.preventDefault(); event.stopPropagation(); hideTooltip(); dateListContextDateId = dateId; dateListContextInvoker = document.activeElement;
+  const menu = document.getElementById('date-list-context-menu'); if (!menu) return; const date = dateFromIso(dateId); const title = document.getElementById('date-list-context-title'); if (title) title.textContent = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${APP_CONFIG.daysStr[date.getDay()]}）　${getDayStateVisual(dateId).label}`;
+  const input = document.getElementById('date-list-context-holiday-name'); if (input) input.value = stripHtml(appState.customHolidays[dateId] || ''); qa('[data-date-list-preset]').forEach(button => button.classList.toggle('is-active', button.dataset.dateListPreset === getDateListContextPreset(dateId))); menu.hidden = false; menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - 308))}px`; menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - 278))}px`; input?.focus();
+}
+function closeDateListContextMenu(restoreFocus = false) { const menu = document.getElementById('date-list-context-menu'); if (!menu || menu.hidden) return; menu.hidden = true; if (restoreFocus) dateListContextInvoker?.focus?.(); dateListContextDateId = ''; dateListContextInvoker = null; }
+function applyDateListContextPreset(preset) { if (dateListContextDateId && DayStateEngine.applyPreset(dateListContextDateId, preset)) closeDateListContextMenu(); }
+function saveDateListContextHoliday() { if (!dateListContextDateId) return; const value = document.getElementById('date-list-context-holiday-name')?.value || ''; if (commitState(state => { const clean = sanitizeHtml(value); if (stripHtml(clean)) state.customHolidays[dateListContextDateId] = clean; else delete state.customHolidays[dateListContextDateId]; })) { closeDateListContextMenu(); refreshMainUI(); } }
+function clearDateListContextHoliday() { if (!dateListContextDateId) return; if (commitState(state => { delete state.customHolidays[dateListContextDateId]; })) { closeDateListContextMenu(); refreshMainUI(); } }
+
+Object.assign(window, {
+  APP_CONFIG, AppStorage: { init: initializeStorage, saveAll: () => storageService.saveAll(appState) }, DayStateEngine, EditorCmd,
+  clearSearch, executeJump, executeSearch, renderEditor, shiftDate, toggleClock, toggleWakeLock, handlePaste,
+  toggleMainState, closeAlarmModal,
+  openTodoModal, closeTodoModal, jumpToDateFromTodo, openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
+  updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
+  applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
+  openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, selectBulkCalendarWeekdays, setBulkCalendarSelectionMode,
+  toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, undoBulkCalendarChange,
+  openSettingsView, closeSettingsView, toggleAllTmplCb, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
+  saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
+  openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
+  updateAnnualEvent, updateSlot, updateGlobalTask, showTooltip, hideTooltip, checkAlarms
+});
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initApp, { once: true });
+else initApp();

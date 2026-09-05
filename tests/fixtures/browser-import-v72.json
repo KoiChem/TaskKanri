@@ -1,0 +1,14 @@
+{
+  "meta": { "version": 72, "lastUpdated": "2026-09-05T00:00:00.000Z" },
+  "data": {
+    "currentYear": 2026,
+    "scheduleData": {
+      "2026-09-07": {
+        "slots": {
+          "１限": "<strong>化学</strong>"
+        }
+      }
+    },
+    "globalTaskData": "<span class=\"todo-badge state-0\" data-state=\"0\">未</span>&lt;img src=x onerror=alert(1)&gt;"
+  }
+}

@@ -15,7 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify syntax and behavior
+        run: |
+          node --check taskkanri-app.js
+          node --check taskkanri-core.mjs
+          node --test tests/core.test.mjs
+          git diff --check
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages
