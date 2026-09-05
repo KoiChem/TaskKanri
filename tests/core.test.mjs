@@ -84,6 +84,10 @@ test('invalid and unknown imports are rejected without changing the master', () 
     JSON.stringify({ countSettings: [{ word: '化学', mode: 'sideways', start: 1 }] }),
     JSON.stringify({ countDateRange: { start: '2026-09-08', end: '2026-09-07' } }),
     JSON.stringify({ countDateRange: { start: null, end: '' } }),
+    JSON.stringify({ meta: { version: 0 }, data: { currentYear: 2026 } }),
+    JSON.stringify({ meta: { version: 73 }, data: { currentYear: 2026 } }),
+    JSON.stringify({ meta: { version: '71' }, data: { currentYear: 2026 } }),
+    JSON.stringify({ meta: { lastUpdated: '2026-09-05T00:00:00.000Z' }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { schemaVersion: 999 }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { schemaVersion: 2, lastUpdated: 'not-a-date' }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { schemaVersion: 2, appVersion: 72 }, data: { currentYear: 2026 } }),
@@ -111,30 +115,35 @@ test('cancelled imports leave master and memory unchanged', () => {
   assert.equal(taskKanriOwnedKeys(storage).some(key => key.startsWith(APP_CONFIG.recoveryPrefix)), false);
 });
 
-test('wrapped v72 and legacy flat imports complete defaults and survive reload', () => {
+test('wrapped legacy versions and flat imports complete defaults and survive reload', () => {
   const storage = new FakeStorage({ [APP_CONFIG.storeKey]: masterRaw() });
   const service = newService(storage);
   service.load();
   const serialized = serializePayload(defaultState(2026), fixedNow());
   assert.equal(serialized.value.meta.buildVersion, APP_CONFIG.buildVersion);
   assert.equal(serialized.value.meta.schemaVersion, APP_CONFIG.schemaVersion);
-  const wrappedV72 = {
-    meta: { version: 72, lastUpdated: '2026-09-05T00:00:00.000Z' },
-    data: {
-      currentYear: 2026,
-      isLandscapeMode: true,
-      scheduleData: { '2026-04-06': { slots: { '１限': '<strong>化学</strong>' } } },
-      configEvents: { '2026-04-06': '始業式' }
-    }
-  };
-  let result = service.importRaw(JSON.stringify(wrappedV72), { confirm: () => true });
-  assert.equal(result.ok, true);
-  assert.equal(result.state.daySlotConfig[1]['１限'], true);
-  assert.equal(result.state.timeConfig.normal['１限'], '08:50');
+  for (const version of [1, 46, 70, 71, 72]) {
+    const wrappedLegacy = {
+      meta: { version, lastUpdated: '2026-09-05T00:00:00.000Z' },
+      data: {
+        currentYear: 2026,
+        isLandscapeMode: true,
+        scheduleData: { '2026-04-06': { slots: { '１限': `<strong>化学 v${version}</strong>` } } },
+        configEvents: { '2026-04-06': '始業式' }
+      }
+    };
+    const prepared = normalizeImportedPayload(JSON.stringify(wrappedLegacy));
+    assert.equal(prepared.ok, true, `v${version}`);
+    assert.equal(prepared.schemaVersion, 1, `v${version}`);
+    const imported = service.importRaw(JSON.stringify(wrappedLegacy), { confirm: () => true });
+    assert.equal(imported.ok, true, `v${version}`);
+    assert.equal(imported.state.daySlotConfig[1]['１限'], true, `v${version}`);
+    assert.equal(imported.state.timeConfig.normal['１限'], '08:50', `v${version}`);
+  }
   const reloaded = newService(storage);
   const loaded = reloaded.load();
   assert.equal(loaded.ok, true);
-  assert.equal(loaded.state.scheduleData['2026-04-06'].slots['１限'], '<strong>化学</strong>');
+  assert.equal(loaded.state.scheduleData['2026-04-06'].slots['１限'], '<strong>化学 v72</strong>');
   assert.equal(loaded.state.daySlotConfig[1]['１限'], true);
   const flat = {
     academicYear: 2026,
@@ -142,7 +151,7 @@ test('wrapped v72 and legacy flat imports complete defaults and survive reload',
     customHolidays: { '2026-05-03': '休日' },
     noClassData: {}, shortData: {}, examData: {}
   };
-  result = reloaded.importRaw(JSON.stringify(flat), { confirm: summary => summary.currentYear === 2026 });
+  const result = reloaded.importRaw(JSON.stringify(flat), { confirm: summary => summary.currentYear === 2026 });
   assert.equal(result.ok, true);
   const afterFlat = newService(storage).load();
   assert.equal(afterFlat.state.scheduleData['2026-04-07'].slots['２限'], '数学');

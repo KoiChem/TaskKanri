@@ -1,0 +1,20 @@
+{
+  "meta": { "version": 70, "lastUpdated": "2026-08-01T00:00:00.000Z" },
+  "data": {
+    "currentYear": 2026,
+    "isLandscapeMode": false,
+    "isClockVisible": true,
+    "isWakeLockRequested": false,
+    "scheduleData": {
+      "2026-09-07": {
+        "slots": {
+          "１限": "<strong>旧データ化学</strong>"
+        }
+      }
+    },
+    "configEvents": {
+      "2026-09-07": "旧データ行事"
+    },
+    "globalTaskData": "<span class=\"todo-badge state-0\" data-state=\"0\">未</span>旧データの課題"
+  }
+}

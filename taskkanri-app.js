@@ -12,7 +12,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage1-v1';
+} from './taskkanri-core.mjs?v=20260905-stage1-v2';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1421,7 +1421,7 @@ function importData(event) {
       if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
       const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧snapshotを作成します。`) });
       if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
-      appState = result.state; showStorageWarning(); refreshQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
+      appState = result.state; showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
     } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
     finally { input.value = ''; }
   };

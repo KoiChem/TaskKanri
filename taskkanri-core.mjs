@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260905-stage1-v1',
+  buildVersion: '20260905-stage1-v2',
   schemaVersion: 2,
   supportedSchemaVersions: Object.freeze([1, 2]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -557,13 +557,19 @@ export function normalizeState(input) {
 
 function validateMeta(meta) {
   if (!isPlainObject(meta)) return fail('metaオブジェクトが必要です', 'meta');
+  const maximumLegacyVersion = Number(APP_CONFIG.compatibilityVersion);
+  const hasLegacyVersion = own(meta, 'version');
+  const legacyVersionIsSupported = hasLegacyVersion
+    && Number.isInteger(meta.version)
+    && meta.version >= 1
+    && meta.version <= maximumLegacyVersion;
+  if (hasLegacyVersion && !legacyVersionIsSupported) return fail(`互換用versionは1〜${maximumLegacyVersion}の整数が必要です`, 'meta.version');
   let schemaVersion = meta.schemaVersion;
   if (schemaVersion === undefined) {
-    if (meta.version === 72) schemaVersion = 1;
+    if (hasLegacyVersion) schemaVersion = 1;
     else return fail('schemaVersionが必要です', 'meta.schemaVersion');
   }
   if (!Number.isInteger(schemaVersion) || !APP_CONFIG.supportedSchemaVersions.includes(schemaVersion)) return fail('未対応のschemaVersionです', 'meta.schemaVersion');
-  if (own(meta, 'version') && meta.version !== 72) return fail('互換用versionが不正です', 'meta.version');
   for (const field of ['appVersion', 'compatibilityVersion', 'buildVersion', 'format']) {
     if (own(meta, field) && typeof meta[field] !== 'string') return fail('文字列が必要です', `meta.${field}`);
   }
