@@ -7,10 +7,14 @@ import {
   defaultState,
   escapeHtmlAttribute,
   extractTodoItems,
+  getResolvedSlot,
+  getSlotOrigin,
+  getWeeklyRuleSlot,
   isValidIsoDate,
   migrateToCurrent,
   normalizeImportedPayload,
   planAcademicYearChange,
+  replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
   taskKanriOwnedKeys
@@ -156,7 +160,7 @@ test('wrapped legacy versions and flat imports complete defaults and survive rel
   const reloaded = newService(storage);
   const loaded = reloaded.load();
   assert.equal(loaded.ok, true);
-  assert.equal(loaded.state.scheduleData['2026-04-06'].slots['１限'], '<strong>化学 v72</strong>');
+  assert.deepEqual(loaded.state.dateOverrides['2026-04-06'].slots['１限'], { action: 'replace', content: '<strong>化学 v72</strong>', source: 'legacy' });
   assert.equal(loaded.state.daySlotConfig[1]['１限'], true);
   const flat = {
     academicYear: 2026,
@@ -167,7 +171,7 @@ test('wrapped legacy versions and flat imports complete defaults and survive rel
   const result = reloaded.importRaw(JSON.stringify(flat), { confirm: summary => summary.currentYear === 2026 });
   assert.equal(result.ok, true);
   const afterFlat = newService(storage).load();
-  assert.equal(afterFlat.state.scheduleData['2026-04-07'].slots['２限'], '数学');
+  assert.deepEqual(afterFlat.state.dateOverrides['2026-04-07'].slots['２限'], { action: 'replace', content: '数学', source: 'legacy' });
   assert.equal(afterFlat.state.daySlotConfig[1]['２限'], true);
 });
 
@@ -246,7 +250,7 @@ test('import sanitizes hostile rich text before commit and preserves data-state 
   assert.equal(normalizeImportedPayload(JSON.stringify(payload)).ok, true);
 });
 
-test('v1 and v2 states migrate through the explicit registry to sparse v3 dayProfiles', () => {
+test('v1 through v3 states migrate through the explicit registry to sparse schema 4 data', () => {
   const legacy = {
     currentYear: 2026,
     noClassData: { '2026-04-01': 1, '2026-04-02': 2, '2026-04-03': 0 },
@@ -267,21 +271,21 @@ test('v1 and v2 states migrate through the explicit registry to sparse v3 dayPro
   assert.deepEqual(v1.value.dayProfiles, { '2026-04-01': 'short' });
   const current = normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 3 }, data: migrated.value }));
   assert.equal(current.ok, true);
-  assert.deepEqual(current.value, normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 3 }, data: current.value })).value, 'v3 reload is idempotent');
+  assert.deepEqual(current.value, normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 4 }, data: current.value })).value, 'schema 4 reload is idempotent');
   const serialized = serializePayload(current.value, fixedNow());
-  assert.equal(serialized.value.meta.schemaVersion, 3);
+  assert.equal(serialized.value.meta.schemaVersion, 4);
   assert.equal('noClassData' in serialized.value.data, false);
   assert.deepEqual(serialized.value.data.dayProfiles, migrated.value.dayProfiles);
 });
 
-test('v3 rejects unknown profiles, future schemas, legacy maps, and conflicting migration without mutation', () => {
+test('schema 4 rejects unknown profiles, future schemas, legacy maps, and conflicting migration without mutation', () => {
   const storage = new FakeStorage({ [APP_CONFIG.storeKey]: masterRaw() });
   const service = newService(storage); service.load();
   const before = storage.getItem(APP_CONFIG.storeKey);
   const rejected = [
     { meta: { schemaVersion: 3 }, data: { currentYear: 2026, dayProfiles: { '2026-04-01': 'unknown' } } },
-    { meta: { schemaVersion: 4 }, data: { currentYear: 2026 } },
-    { meta: { schemaVersion: 3 }, data: { currentYear: 2026, noClassData: {} } },
+    { meta: { schemaVersion: 5 }, data: { currentYear: 2026 } },
+    { meta: { schemaVersion: 4 }, data: { currentYear: 2026, scheduleData: {} } },
     { meta: { schemaVersion: 2 }, data: { currentYear: 2026, noClassData: { '2026-04-01': 1 }, examData: { '2026-04-01': 1 } } }
   ];
   for (const payload of rejected) {
@@ -304,12 +308,12 @@ test('canonical dates and academic-year plans reject impossible ranges and retai
   assert.equal(isValidIsoDate('2028-02-29'), true);
   assert.equal(normalizeImportedPayload({ currentYear: 2026, countDateRange: { start: '2026-09-08', end: '2026-09-07' } }).ok, false);
   const state = defaultState(2026);
-  state.scheduleData['2026-04-01'] = { slots: {} }; state.scheduleData['2027-04-01'] = { slots: {} };
+  state.dateOverrides['2026-04-01'] = { slots: { '１限': { action: 'cancel', source: 'user' } } }; state.dateOverrides['2027-04-01'] = { slots: { '１限': { action: 'cancel', source: 'user' } } };
   state.configEvents['2026-04-02'] = '年度外'; state.dayProfiles['2027-04-03'] = 'exam'; state.customHolidays['2026-04-04'] = '休日';
   const automatic = planAcademicYearChange(state, 2027);
   assert.equal(automatic.ok, true);
   assert.deepEqual(automatic.value.nextCountDateRange, academicYearBounds(2027));
-  assert.equal(automatic.value.counts.scheduleData, 1);
+  assert.equal(automatic.value.counts.dateOverrides, 1);
   assert.equal(automatic.value.counts.configEvents, 1);
   assert.equal(automatic.value.counts.dayProfiles, 0);
   assert.equal(automatic.value.counts.customHolidays > 0, true);
@@ -319,4 +323,101 @@ test('canonical dates and academic-year plans reject impossible ranges and retai
   assert.deepEqual(explicit.value.nextCountDateRange, state.countDateRange);
   assert.equal(explicit.value.rangeOutside, true);
   assert.equal(state.dayProfiles['2027-04-03'], 'exam', 'planning is non-mutating, so cancel is safe');
+});
+
+test('schema 3 schedules become sparse legacy overrides without inferred weekly rules', () => {
+  const legacy = {
+    currentYear: 2026,
+    scheduleData: {
+      '2026-04-06': { slots: { '１限': '<strong>化学</strong>', '２限': '' } },
+      '2026-04-07': { slots: {} }
+    },
+    configWeekly: { 1: { '１限': '化学' } }
+  };
+  const migrated = normalizeImportedPayload({ meta: { schemaVersion: 3 }, data: legacy });
+  assert.equal(migrated.ok, true);
+  assert.deepEqual(migrated.value.weeklyTemplate, { 1: { '１限': '化学' } });
+  assert.deepEqual(migrated.value.weeklyRules, {});
+  assert.deepEqual(migrated.value.dateOverrides, {
+    '2026-04-06': { slots: {
+      '１限': { action: 'replace', content: '<strong>化学</strong>', source: 'legacy' },
+      '２限': { action: 'cancel', source: 'legacy' }
+    } }
+  });
+  assert.equal('scheduleData' in migrated.value, false);
+  assert.equal('configWeekly' in migrated.value, false);
+});
+
+test('schema 4 export never dual-writes legacy schedule fields', () => {
+  const state = defaultState(2026);
+  state.weeklyTemplate = { 1: { '１限': '化学' } };
+  state.weeklyRules = { 1: { '１限': [{ from: '2026-04-01', to: '2027-03-31', content: '化学' }] } };
+  state.dateOverrides = { '2026-04-06': { slots: { '１限': { action: 'replace', content: '実験', source: 'user' } } } };
+  const payload = serializePayload(state, fixedNow());
+  assert.equal(payload.ok, true);
+  for (const field of ['scheduleData', 'teacherSchedule', 'configWeekly']) assert.equal(field in payload.value.data, false);
+  assert.equal(payload.value.data.dateOverrides['2026-04-06'].slots['１限'].content, '実験');
+});
+
+test('loading a schema 3 master snapshots before atomic schema 4 migration', () => {
+  const raw = JSON.stringify({ meta: { schemaVersion: 3 }, data: { currentYear: 2026, scheduleData: { '2026-04-06': { slots: { '１限': '化学' } } }, configWeekly: { 1: { '１限': '化学' } } } });
+  const storage = new FakeStorage({ [APP_CONFIG.storeKey]: raw });
+  const loaded = newService(storage).load();
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.source, 'master-migrated');
+  assert.equal(loaded.state.dateOverrides['2026-04-06'].slots['１限'].source, 'legacy');
+  assert.equal(JSON.parse(storage.getItem(APP_CONFIG.storeKey)).meta.schemaVersion, 4);
+  const snapshotKey = Array.from(storage.data.keys()).find(key => key.startsWith(APP_CONFIG.recoveryPrefix));
+  assert.equal(JSON.parse(storage.getItem(snapshotKey)).raw, raw);
+  const blockedStorage = new FakeStorage({ [APP_CONFIG.storeKey]: raw });
+  blockedStorage.failSet = key => key.startsWith(APP_CONFIG.recoveryPrefix);
+  const blocked = newService(blockedStorage).load();
+  assert.equal(blocked.readOnly, true);
+  assert.equal(blockedStorage.getItem(APP_CONFIG.storeKey), raw);
+});
+
+test('schema 4 validates rules and overrides, canonicalizes empty maps, and rejects bad payloads', () => {
+  const good = defaultState(2026);
+  good.weeklyRules = { 1: { '１限': [{ from: '2026-04-01', to: '2027-03-31', content: '<b>化学</b>' }] } };
+  good.dateOverrides = { '2026-04-06': { slots: { '１限': { action: 'replace', content: '実験', source: 'user' } } }, '2026-04-07': { slots: {} } };
+  const normalized = normalizeImportedPayload({ meta: { schemaVersion: 4 }, data: good });
+  assert.equal(normalized.ok, true);
+  assert.equal(normalized.value.dateOverrides['2026-04-07'], undefined);
+  assert.equal(normalized.value.weeklyRules[1]['１限'][0].content, '<b>化学</b>');
+  const bad = [
+    { weeklyRules: { 1: { '１限': [{ from: '2026-04-02', to: '2026-04-01', content: 'x' }] } } },
+    { weeklyRules: { 1: { '１限': [{ from: '2026-04-01', to: '2026-04-10', content: 'x' }, { from: '2026-04-10', to: '2026-04-12', content: 'y' }] } } },
+    { weeklyRules: { 1: { '１限': [{ from: '2026-02-31', to: '2026-04-10', content: 'x' }] } } },
+    { dateOverrides: { '2026-04-01': { slots: { '１限': { action: 'replace', content: '', source: 'user' } } } } },
+    { dateOverrides: { '2026-04-01': { slots: { '１限': { action: 'cancel', content: '', source: 'user' } } } } },
+    { dateOverrides: { '2026-04-01': { slots: { '１限': { action: 'replace', content: 'x', source: 'other' } } } } }
+  ];
+  for (const partial of bad) assert.equal(normalizeImportedPayload({ meta: { schemaVersion: 4 }, data: { currentYear: 2026, ...partial } }).ok, false);
+});
+
+test('resolver has override priority and dayProfiles never rewrite rules or overrides', () => {
+  const state = defaultState(2026);
+  state.weeklyRules = { 1: { '１限': [{ from: '2026-04-01', to: '2027-03-31', content: '基本' }] } };
+  assert.equal(getWeeklyRuleSlot('2026-04-06', '１限', state), '基本');
+  assert.equal(getResolvedSlot('2026-04-06', '１限', state), '基本');
+  state.dateOverrides = { '2026-04-06': { slots: { '１限': { action: 'replace', content: '変更', source: 'user' } } }, '2026-04-13': { slots: { '１限': { action: 'cancel', source: 'legacy' } } } };
+  assert.equal(getResolvedSlot('2026-04-06', '１限', state), '変更');
+  assert.equal(getSlotOrigin('2026-04-06', '１限', state), 'override');
+  assert.equal(getResolvedSlot('2026-04-13', '１限', state), '');
+  assert.equal(getSlotOrigin('2026-04-13', '１限', state), 'legacy');
+  const before = JSON.stringify({ rules: state.weeklyRules, overrides: state.dateOverrides });
+  state.dayProfiles['2026-04-06'] = 'exam';
+  assert.equal(JSON.stringify({ rules: state.weeklyRules, overrides: state.dateOverrides }), before);
+  delete state.dateOverrides['2026-04-06'].slots['１限']; delete state.dateOverrides['2026-04-06'];
+  assert.equal(getResolvedSlot('2026-04-06', '１限', state), '基本');
+});
+
+test('replacing a weekly range splits existing segments without touching date overrides', () => {
+  const state = defaultState(2026);
+  state.weeklyRules = { 1: { '１限': [{ from: '2026-04-01', to: '2027-03-31', content: '旧' }] } };
+  state.dateOverrides = { '2026-06-01': { slots: { '１限': { action: 'replace', content: '例外', source: 'user' } } } };
+  const changed = replaceWeeklyRuleRange(state, '1', '１限', '2026-06-01', '2026-08-31', '新');
+  assert.equal(changed.ok, true);
+  assert.deepEqual(changed.value.weeklyRules[1]['１限'].map(item => [item.from, item.to, item.content]), [['2026-04-01', '2026-05-31', '旧'], ['2026-06-01', '2026-08-31', '新'], ['2026-09-01', '2027-03-31', '旧']]);
+  assert.deepEqual(changed.value.dateOverrides, state.dateOverrides);
 });

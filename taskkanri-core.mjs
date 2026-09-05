@@ -9,9 +9,9 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260905-stage2-v4',
-  schemaVersion: 3,
-  supportedSchemaVersions: Object.freeze([1, 2, 3]),
+  buildVersion: '20260905-stage3-v1',
+  schemaVersion: 4,
+  supportedSchemaVersions: Object.freeze([1, 2, 3, 4]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -46,8 +46,8 @@ const LEGACY_BASE_KEYS = Object.freeze([
 const LEGACY_SUFFIXES = Object.freeze(['V46', 'V43', 'V42', 'V41']);
 const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIXES.map(suffix => `${base}${suffix}`)));
 const STATE_KEYS = Object.freeze([
-  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'scheduleData', 'configEvents',
-  'configWeekly', 'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
+  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents',
+  'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
   'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
@@ -96,9 +96,10 @@ export function defaultState(year = 2026) {
     isLandscapeMode: false,
     isClockVisible: true,
     isWakeLockRequested: false,
-    scheduleData: {},
+    weeklyTemplate: {},
+    weeklyRules: {},
+    dateOverrides: {},
     configEvents: {},
-    configWeekly: {},
     customHolidays: clone(APP_CONFIG.defaultHolidays),
     dayProfiles: {},
     timeConfig: defaultTimeConfig(),
@@ -147,7 +148,7 @@ export function planAcademicYearChange(state, nextYear) {
       nextYear,
       nextBounds,
       counts: {
-        scheduleData: outside(current.scheduleData), configEvents: outside(current.configEvents), dayProfiles: outside(current.dayProfiles), customHolidays: outside(current.customHolidays),
+        dateOverrides: outside(current.dateOverrides), configEvents: outside(current.configEvents), dayProfiles: outside(current.dayProfiles), customHolidays: outside(current.customHolidays),
         countDateRange: rangeOutside ? 1 : 0
       },
       automaticRange,
@@ -420,7 +421,7 @@ function normalizeDateMap(value, field, stateValidator = null) {
   return { ok: true, value: result };
 }
 
-function normalizeSchedule(value) {
+function normalizeLegacySchedule(value) {
   if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'scheduleData');
   const result = {};
   for (const [dateId, rawDay] of Object.entries(value)) {
@@ -439,19 +440,117 @@ function normalizeSchedule(value) {
   return { ok: true, value: result };
 }
 
-function normalizeWeekly(value) {
-  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'configWeekly');
+function normalizeWeeklyTemplate(value, field = 'weeklyTemplate') {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', field);
   const result = {};
   for (const [day, rawSlots] of Object.entries(value)) {
-    if (!/^[0-6]$/.test(day) || !isPlainObject(rawSlots)) return fail('曜日または曜日データが不正です', `configWeekly.${day}`);
-    result[day] = {};
+    if (!/^[0-6]$/.test(day) || !isPlainObject(rawSlots)) return fail('曜日または曜日データが不正です', `${field}.${day}`);
+    const slots = {};
     for (const [slot, raw] of Object.entries(rawSlots)) {
-      if (!SLOT_SET.has(slot)) return fail('未知の時限です', `configWeekly.${day}.${slot}`);
-      if (typeof raw !== 'string') return fail('文字列が必要です', `configWeekly.${day}.${slot}`);
-      result[day][slot] = sanitizeHtml(raw);
+      if (!SLOT_SET.has(slot)) return fail('未知の時限です', `${field}.${day}.${slot}`);
+      if (typeof raw !== 'string') return fail('文字列が必要です', `${field}.${day}.${slot}`);
+      const content = sanitizeHtml(raw);
+      if (stripHtml(content).trim()) slots[slot] = content;
     }
+    if (Object.keys(slots).length) result[day] = slots;
   }
   return { ok: true, value: result };
+}
+
+function normalizeWeeklyRules(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'weeklyRules');
+  const result = {};
+  for (const [day, rawSlots] of Object.entries(value)) {
+    if (!/^[0-6]$/.test(day) || !isPlainObject(rawSlots)) return fail('曜日または曜日データが不正です', `weeklyRules.${day}`);
+    const slots = {};
+    for (const [slot, segments] of Object.entries(rawSlots)) {
+      if (!SLOT_SET.has(slot) || !Array.isArray(segments)) return fail('時限またはsegment配列が不正です', `weeklyRules.${day}.${slot}`);
+      const normalized = [];
+      let previousTo = '';
+      for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        if (!isPlainObject(segment) || Object.keys(segment).some(key => !['from', 'to', 'content'].includes(key))) return fail('segmentの項目が不正です', `weeklyRules.${day}.${slot}[${index}]`);
+        if (!isValidIsoDate(segment.from) || !isValidIsoDate(segment.to) || segment.from > segment.to || typeof segment.content !== 'string') return fail('segmentの期間または内容が不正です', `weeklyRules.${day}.${slot}[${index}]`);
+        const content = sanitizeHtml(segment.content);
+        if (!stripHtml(content).trim()) return fail('segmentの内容は空にできません', `weeklyRules.${day}.${slot}[${index}]`);
+        if (previousTo && segment.from <= previousTo) return fail('segmentの期間が重複または順不同です', `weeklyRules.${day}.${slot}`);
+        normalized.push({ from: segment.from, to: segment.to, content });
+        previousTo = segment.to;
+      }
+      if (normalized.length) slots[slot] = normalized;
+    }
+    if (Object.keys(slots).length) result[day] = slots;
+  }
+  return { ok: true, value: result };
+}
+
+function normalizeDateOverrides(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'dateOverrides');
+  const result = {};
+  for (const [dateId, rawDay] of Object.entries(value)) {
+    if (!isValidIsoDate(dateId) || !isPlainObject(rawDay) || !isPlainObject(rawDay.slots) || Object.keys(rawDay).some(key => key !== 'slots')) return fail('日別例外が不正です', `dateOverrides.${dateId}`);
+    const slots = {};
+    for (const [slot, override] of Object.entries(rawDay.slots)) {
+      if (!SLOT_SET.has(slot) || !isPlainObject(override) || Object.keys(override).some(key => !['action', 'content', 'source'].includes(key))) return fail('時限例外が不正です', `dateOverrides.${dateId}.${slot}`);
+      if (!['replace', 'cancel'].includes(override.action) || !['legacy', 'user'].includes(override.source)) return fail('action/sourceが不正です', `dateOverrides.${dateId}.${slot}`);
+      if (override.action === 'cancel') {
+        if (own(override, 'content')) return fail('cancelにcontentは指定できません', `dateOverrides.${dateId}.${slot}`);
+        slots[slot] = { action: 'cancel', source: override.source };
+      } else {
+        if (typeof override.content !== 'string') return fail('replaceのcontentが不正です', `dateOverrides.${dateId}.${slot}`);
+        const content = sanitizeHtml(override.content);
+        if (!stripHtml(content).trim()) return fail('replaceのcontentは空にできません', `dateOverrides.${dateId}.${slot}`);
+        slots[slot] = { action: 'replace', content, source: override.source };
+      }
+    }
+    if (Object.keys(slots).length) result[dateId] = { slots };
+  }
+  return { ok: true, value: result };
+}
+
+function weekdayForDate(dateId) { return new Date(`${dateId}T00:00:00Z`).getUTCDay(); }
+
+export function getWeeklyRuleSlot(dateId, slot, state) {
+  if (!isValidIsoDate(dateId) || !SLOT_SET.has(slot)) return '';
+  const segments = state?.weeklyRules?.[weekdayForDate(dateId)]?.[slot];
+  if (!Array.isArray(segments)) return '';
+  const found = segments.find(segment => dateId >= segment.from && dateId <= segment.to);
+  return found?.content || '';
+}
+
+export function getResolvedSlot(dateId, slot, state) {
+  const override = state?.dateOverrides?.[dateId]?.slots?.[slot];
+  if (override?.action === 'cancel') return '';
+  if (override?.action === 'replace') return override.content;
+  return getWeeklyRuleSlot(dateId, slot, state);
+}
+
+export function getSlotOrigin(dateId, slot, state) {
+  const override = state?.dateOverrides?.[dateId]?.slots?.[slot];
+  if (override?.action) return override.source === 'legacy' ? 'legacy' : 'override';
+  return getWeeklyRuleSlot(dateId, slot, state) ? 'rule' : 'empty';
+}
+
+function previousIsoDate(dateId) { const date = new Date(`${dateId}T00:00:00Z`); date.setUTCDate(date.getUTCDate() - 1); return date.toISOString().slice(0, 10); }
+function nextIsoDate(dateId) { const date = new Date(`${dateId}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
+
+export function replaceWeeklyRuleRange(state, weekday, slot, from, to, content) {
+  if (!/^[0-6]$/.test(String(weekday)) || !SLOT_SET.has(slot) || !isValidIsoDate(from) || !isValidIsoDate(to) || from > to || !stripHtml(sanitizeHtml(content)).trim()) return fail('基本時間割の期間または内容が不正です');
+  const next = clone(state);
+  const current = next.weeklyRules?.[weekday]?.[slot] || [];
+  const kept = [];
+  for (const segment of current) {
+    if (segment.to < from || segment.from > to) kept.push(segment);
+    else {
+      if (segment.from < from) kept.push({ ...segment, to: previousIsoDate(from) });
+      if (segment.to > to) kept.push({ ...segment, from: nextIsoDate(to) });
+    }
+  }
+  kept.push({ from, to, content: sanitizeHtml(content) });
+  kept.sort((a, b) => a.from.localeCompare(b.from));
+  if (!next.weeklyRules[weekday]) next.weeklyRules[weekday] = {};
+  next.weeklyRules[weekday][slot] = kept;
+  return normalizeState(next);
 }
 
 function normalizeTimeConfig(value) {
@@ -524,8 +623,7 @@ function normalizeDayProfiles(value) {
 export function normalizeState(input) {
   if (!isPlainObject(input)) return fail('state/dataオブジェクトが必要です');
   const state = defaultState();
-  if (own(input, 'currentYear') && own(input, 'academicYear') && input.currentYear !== input.academicYear) return fail('currentYearとacademicYearが競合しています');
-  const year = own(input, 'currentYear') ? input.currentYear : input.academicYear;
+  const year = input.currentYear;
   if (year !== undefined) {
     if (!Number.isInteger(year) || year < 2000 || year > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
     state.currentYear = year;
@@ -541,12 +639,21 @@ export function normalizeState(input) {
     if (!['standard', 'additive'].includes(input.bulkCalendarSelectionMode)) return fail('standard/additiveのいずれかが必要です', 'bulkCalendarSelectionMode');
     state.bulkCalendarSelectionMode = input.bulkCalendarSelectionMode;
   }
-  if (own(input, 'scheduleData') && own(input, 'teacherSchedule') && JSON.stringify(input.scheduleData) !== JSON.stringify(input.teacherSchedule)) return fail('scheduleDataとteacherScheduleが競合しています');
-  const scheduleInput = own(input, 'scheduleData') ? input.scheduleData : input.teacherSchedule;
-  if (scheduleInput !== undefined) {
-    const normalized = normalizeSchedule(scheduleInput);
+  for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema 4では${legacyField}は使用できません`);
+  if (own(input, 'weeklyTemplate')) {
+    const normalized = normalizeWeeklyTemplate(input.weeklyTemplate);
     if (!normalized.ok) return normalized;
-    state.scheduleData = normalized.value;
+    state.weeklyTemplate = normalized.value;
+  }
+  if (own(input, 'weeklyRules')) {
+    const normalized = normalizeWeeklyRules(input.weeklyRules);
+    if (!normalized.ok) return normalized;
+    state.weeklyRules = normalized.value;
+  }
+  if (own(input, 'dateOverrides')) {
+    const normalized = normalizeDateOverrides(input.dateOverrides);
+    if (!normalized.ok) return normalized;
+    state.dateOverrides = normalized.value;
   }
   for (const [field, validator] of [['configEvents', value => normalizeDateMap(value, 'configEvents')], ['customHolidays', value => normalizeDateMap(value, 'customHolidays')]]) {
     if (!own(input, field)) continue;
@@ -558,11 +665,6 @@ export function normalizeState(input) {
     const normalized = normalizeDayProfiles(input.dayProfiles);
     if (!normalized.ok) return normalized;
     state.dayProfiles = normalized.value;
-  }
-  if (own(input, 'configWeekly')) {
-    const normalized = normalizeWeekly(input.configWeekly);
-    if (!normalized.ok) return normalized;
-    state.configWeekly = normalized.value;
   }
   if (own(input, 'timeConfig')) {
     const normalized = normalizeTimeConfig(input.timeConfig);
@@ -657,9 +759,45 @@ function migrateSchema2State(data) {
   return { ok: true, value: migrated };
 }
 
+function migrateSchema3State(data) {
+  const migrated = clone(data);
+  if (own(migrated, 'academicYear')) {
+    if (own(migrated, 'currentYear') && migrated.currentYear !== migrated.academicYear) return fail('currentYearとacademicYearが競合しています');
+    if (!own(migrated, 'currentYear')) migrated.currentYear = migrated.academicYear;
+    delete migrated.academicYear;
+  }
+  const sourceSchedule = own(migrated, 'scheduleData') ? migrated.scheduleData : migrated.teacherSchedule;
+  if (own(migrated, 'scheduleData') && own(migrated, 'teacherSchedule') && JSON.stringify(migrated.scheduleData) !== JSON.stringify(migrated.teacherSchedule)) return fail('scheduleDataとteacherScheduleが競合しています');
+  const overrides = {};
+  if (sourceSchedule !== undefined) {
+    const normalized = normalizeLegacySchedule(sourceSchedule);
+    if (!normalized.ok) return normalized;
+    for (const [dateId, day] of Object.entries(normalized.value)) {
+      const slots = {};
+      for (const [slot, content] of Object.entries(day.slots)) {
+        slots[slot] = stripHtml(content).trim()
+          ? { action: 'replace', content, source: 'legacy' }
+          : { action: 'cancel', source: 'legacy' };
+      }
+      if (Object.keys(slots).length) overrides[dateId] = { slots };
+    }
+  }
+  const sourceTemplate = own(migrated, 'configWeekly') ? migrated.configWeekly : {};
+  const template = normalizeWeeklyTemplate(sourceTemplate, 'configWeekly');
+  if (!template.ok) return template;
+  delete migrated.scheduleData;
+  delete migrated.teacherSchedule;
+  delete migrated.configWeekly;
+  migrated.weeklyTemplate = template.value;
+  migrated.weeklyRules = {};
+  migrated.dateOverrides = overrides;
+  return { ok: true, value: migrated };
+}
+
 const MIGRATION_REGISTRY = Object.freeze({
   1: migrateSchema1State,
-  2: migrateSchema2State
+  2: migrateSchema2State,
+  3: migrateSchema3State
 });
 
 export function migrateToCurrent(data, sourceSchemaVersion) {
@@ -697,13 +835,14 @@ export function normalizeImportedPayload(rawOrObject) {
   } else if (own(parsed, 'data')) {
     return fail('metaを含むwrapped形式が不正です');
   }
-  const recognized = STATE_KEYS.some(key => own(data, key)) || ['teacherSchedule', 'academicYear', 'noClassData', 'shortData', 'examData'].some(key => own(data, key));
+  const recognized = STATE_KEYS.some(key => own(data, key)) || ['scheduleData', 'configWeekly', 'teacherSchedule', 'academicYear', 'noClassData', 'shortData', 'examData'].some(key => own(data, key));
   if (!recognized) return fail('TaskKanriの既知形式ではありません');
   if (schemaVersion === 3 && ['noClassData', 'shortData', 'examData'].some(field => own(data, field))) {
     return fail('schemaVersion 3では旧日別状態は使用できません', 'dayProfiles');
   }
   const migrated = migrateToCurrent(data, schemaVersion);
   if (!migrated.ok) return migrated;
+  for (const key of Object.keys(migrated.value)) if (!STATE_KEYS.includes(key)) return fail('未知のデータ項目があります', key);
   const normalized = normalizeState(migrated.value);
   if (!normalized.ok) return normalized;
   return { ok: true, value: normalized.value, schemaVersion, sourceSchemaVersion: schemaVersion, source: own(parsed, 'meta') ? 'wrapped' : 'flat' };
@@ -712,16 +851,16 @@ export function normalizeImportedPayload(rawOrObject) {
 export function summarizeState(state) {
   return {
     currentYear: state.currentYear,
-    scheduleDays: Object.keys(state.scheduleData).length,
+    overrideDays: Object.keys(state.dateOverrides).length,
     eventDays: Object.keys(state.configEvents).length,
     holidayDays: Object.keys(state.customHolidays).length,
-    weeklyEntries: Object.values(state.configWeekly).reduce((total, slots) => total + Object.keys(slots).length, 0),
+    weeklyEntries: Object.values(state.weeklyRules).reduce((total, slots) => total + Object.values(slots).reduce((inside, segments) => inside + segments.length, 0), 0),
     countSettings: state.countSettings.length
   };
 }
 
 export function formatStateSummary(summary) {
-  return `年度 ${summary.currentYear} / 予定 ${summary.scheduleDays}日 / 行事 ${summary.eventDays}日 / 祝日 ${summary.holidayDays}日 / 週間設定 ${summary.weeklyEntries}件 / 時数条件 ${summary.countSettings}件`;
+  return `年度 ${summary.currentYear} / 日別例外 ${summary.overrideDays}日 / 行事 ${summary.eventDays}日 / 祝日 ${summary.holidayDays}日 / 基本時間割 ${summary.weeklyEntries}規則 / 時数条件 ${summary.countSettings}件`;
 }
 
 export function serializePayload(state, now = new Date()) {
@@ -880,11 +1019,28 @@ export function createStorageService(storage, options = {}) {
       const parsed = normalizeImportedPayload(raw);
       if (parsed.ok) {
         state = clone(parsed.value);
+        if (parsed.sourceSchemaVersion < APP_CONFIG.schemaVersion) {
+          const snapshot = createRecoverySnapshot();
+          if (!snapshot.ok) {
+            const isolated = quarantine(APP_CONFIG.storeKey, raw, `schema移行前snapshotに失敗: ${snapshot.error}`);
+            setReadOnly(`schema移行を安全に開始できません: ${snapshot.error}`);
+            state = defaultState();
+            return { ok: true, state: clone(state), source: 'master-migration-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
+          }
+          const saved = saveAll(state);
+          if (!saved.ok) {
+            const isolated = quarantine(APP_CONFIG.storeKey, raw, `schema移行の保存に失敗: ${saved.error}`);
+            setReadOnly(`schema移行を保存できません: ${saved.error}`);
+            state = defaultState();
+            return { ok: true, state: clone(state), source: 'master-migration-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
+          }
+          return { ok: true, state: clone(state), source: 'master-migrated', snapshotKey: snapshot.key, readOnly, readOnlyReason };
+        }
         return { ok: true, state: clone(state), source: 'master', readOnly, readOnlyReason };
       }
       const isolated = quarantine(APP_CONFIG.storeKey, raw, parsed.error);
-      if (parsed.migrationConflict) {
-        setReadOnly(`日別状態の競合を隔離したため読み取り専用です: ${parsed.error}`);
+      if (parsed.migrationConflict || /schema|scheduleData|configWeekly|週|日別/.test(parsed.error || '')) {
+        setReadOnly(`データ移行を安全に完了できないため読み取り専用です: ${parsed.error}`);
         state = defaultState();
         return { ok: true, state: clone(state), source: 'master-conflict-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
       }

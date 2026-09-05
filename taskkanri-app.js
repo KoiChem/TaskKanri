@@ -7,14 +7,18 @@ import {
   escapeHtmlAttribute,
   escapeHtmlText,
   extractTodoItems,
+  getResolvedSlot,
+  getSlotOrigin,
+  getWeeklyRuleSlot,
   formatStateSummary,
   isValidIsoDate,
   normalizeImportedPayload,
   planAcademicYearChange,
+  replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage2-v4';
+} from './taskkanri-core.mjs?v=20260905-stage3-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -80,7 +84,13 @@ function getDisplaySlot(slot) {
 function getActiveSlotsForDay(dayIndex) {
   return APP_CONFIG.slotsAll.filter(slot => Boolean(appState.daySlotConfig?.[dayIndex]?.[slot]));
 }
-function scheduleSlots(dateId) { return appState.scheduleData?.[dateId]?.slots || {}; }
+function scheduleSlots(dateId, state = appState) { return Object.fromEntries(APP_CONFIG.slotsAll.map(slot => [slot, getResolvedSlot(dateId, slot, state)])); }
+function resolvedSlot(dateId, slot, state = appState) { return getResolvedSlot(dateId, slot, state); }
+function academicDateIds(state = appState) {
+  const bounds = academicYearBounds(state.currentYear); const result = []; let date = dateFromIso(bounds.start);
+  while (date && getIsoDateStr(date) <= bounds.end) { result.push(getIsoDateStr(date)); date.setDate(date.getDate() + 1); }
+  return result;
+}
 function isAcademicDate(dateId) { const bounds = academicYearBounds(appState.currentYear); return isValidIsoDate(dateId) && dateId >= bounds.start && dateId <= bounds.end; }
 function getDayStateVisual(dateId) {
   const display = {
@@ -525,10 +535,24 @@ function createSlotEditor(dateId, slot, isShortChime, isExamChime) {
   const input = el('div');
   input.className = 'slot-input';
   input.contentEditable = 'true';
-  appendSafeRich(input, scheduleSlots(dateId)[slot] || '');
+  const resolved = resolvedSlot(dateId, slot);
+  appendSafeRich(input, resolved);
   input.addEventListener('blur', () => updateSlot(dateId, slot, input.innerHTML));
   input.addEventListener('paste', handlePaste);
-  row.append(label, input);
+  const origin = getSlotOrigin(dateId, slot, appState);
+  const hasOverride = Boolean(appState.dateOverrides?.[dateId]?.slots?.[slot]);
+  if (hasOverride) {
+    if (origin === 'override') { const mark = el('span', '変'); mark.className = 'slot-change-mark'; mark.title = 'この日だけの変更'; mark.setAttribute('aria-label', 'この日だけの変更'); label.appendChild(mark); }
+    else { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
+    const restore = el('button', '戻す'); restore.type = 'button'; restore.className = 'btn-s'; restore.title = `${dateId} ${slot}を基本時間割に戻す`;
+    restore.addEventListener('click', () => restoreBaseSlot(dateId, slot));
+    const following = el('button', '以降'); following.type = 'button'; following.className = 'btn-s'; following.title = `${dateId}以降の毎週${APP_CONFIG.daysStr[weekdayForDateId(dateId)]}曜日を変更`;
+    following.addEventListener('click', () => changeFollowingWeekly(dateId, slot, input.innerHTML)); row.append(label, input, restore, following);
+  } else {
+    if (origin === 'rule') { label.title = '基本時間割から表示'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 基本時間割から表示`); }
+    if (origin === 'legacy') { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
+    row.append(label, input);
+  }
   return row;
 }
 function renderEditor(dateId, position) {
@@ -615,15 +639,42 @@ function updateAnnualEvent(dateId, value) {
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
-function ensureScheduleDay(state, dateId) {
-  if (!state.scheduleData[dateId]) state.scheduleData[dateId] = { slots: {} };
-  if (!state.scheduleData[dateId].slots) state.scheduleData[dateId].slots = {};
-  return state.scheduleData[dateId].slots;
+function setUserOverride(state, dateId, slot, htmlValue) {
+  const clean = sanitizeHtml(htmlValue);
+  const text = stripHtml(clean).trim();
+  const base = getWeeklyRuleSlot(dateId, slot, state);
+  const existing = state.dateOverrides?.[dateId]?.slots?.[slot];
+  if (existing && clean === getResolvedSlot(dateId, slot, state)) return;
+  if (!state.dateOverrides[dateId]) state.dateOverrides[dateId] = { slots: {} };
+  if (!text) {
+    if (base) state.dateOverrides[dateId].slots[slot] = { action: 'cancel', source: 'user' };
+    else delete state.dateOverrides[dateId].slots[slot];
+  } else if (!existing && clean === base) delete state.dateOverrides[dateId].slots[slot];
+  else state.dateOverrides[dateId].slots[slot] = { action: 'replace', content: clean, source: 'user' };
+  if (!Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId];
 }
 function updateSlot(dateId, slot, htmlValue) {
-  const ok = commitState(state => { ensureScheduleDay(state, dateId)[slot] = sanitizeHtml(htmlValue); });
+  const ok = commitState(state => { setUserOverride(state, dateId, slot, htmlValue); });
   if (ok) updatePreviewUI(dateId);
   return ok;
+}
+function restoreBaseSlot(dateId, slot) {
+  if (!showConfirm(`${dateId} の${getDisplaySlot(slot)}を基本時間割に戻しますか？`)) return;
+  if (commitState(state => { delete state.dateOverrides?.[dateId]?.slots?.[slot]; if (state.dateOverrides?.[dateId] && !Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId]; }, { refresh: true })) updatePreviewUI(dateId);
+}
+function weekdayForDateId(dateId) { return dateFromIso(dateId)?.getDay() ?? 0; }
+function changeFollowingWeekly(dateId, slot, htmlValue) {
+  const content = sanitizeHtml(htmlValue);
+  if (!stripHtml(content).trim()) { showAlert('「この日以降」の基本時間割には空でない内容が必要です。'); return; }
+  const weekday = weekdayForDateId(dateId); const end = academicYearBounds(appState.currentYear).end;
+  const affected = (appState.weeklyRules[weekday]?.[slot] || []).filter(segment => segment.to >= dateId && segment.from <= end).length;
+  const overrides = Object.entries(appState.dateOverrides).filter(([id]) => id >= dateId && id <= end).reduce((total, [, day]) => total + (day.slots[slot] ? 1 : 0), 0);
+  if (!showConfirm(`${dateId} ～ ${end} の毎週${APP_CONFIG.daysStr[weekday]}曜日・${getDisplaySlot(slot)}を変更します。\n既存規則 ${affected}件を安全に分割・置換します。\n日別変更 ${overrides}件は変更せず優先されます。\n続行しますか？`)) return;
+  const snapshot = storageService.createRecoverySnapshot();
+  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
+  const result = replaceWeeklyRuleRange(appState, String(weekday), slot, dateId, end, content);
+  if (!result.ok) { showAlert(result.error); return; }
+  if (commitState(state => Object.assign(state, result.value), { refresh: true })) showAlert(`この日以降の毎週${APP_CONFIG.daysStr[weekday]}曜日を基本時間割として変更しました。`);
 }
 function updateGlobalTask(htmlValue) {
   return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); });
@@ -926,7 +977,7 @@ function openTodoModal() {
   const tbody = document.getElementById('todo-list-tbody'); if (!tbody) return;
   tbody.replaceChildren();
   const tasks = extractTasksForDisplay(appState.globalTaskData, 'GLOBAL', '共通タスク');
-  Object.keys(appState.scheduleData).sort().forEach(dateId => APP_CONFIG.slotsAll.forEach(slot => tasks.push(...extractTasksForDisplay(scheduleSlots(dateId)[slot] || '', dateId, slot))));
+  academicDateIds().forEach(dateId => APP_CONFIG.slotsAll.forEach(slot => tasks.push(...extractTasksForDisplay(resolvedSlot(dateId, slot), dateId, slot))));
   if (!tasks.length) {
     const row = el('tr'); const cell = el('td', '未完了のタスクはありません。\nお疲れ様です🍡🍡🍡'); cell.colSpan = 3; cell.style.whiteSpace = 'pre-line'; cell.style.textAlign = 'center'; cell.style.padding = '40px'; row.appendChild(cell); tbody.appendChild(row);
   } else tasks.forEach(task => {
@@ -978,8 +1029,7 @@ function checkAlarms(now) {
     const next = processAlarmHtml(appState.globalTaskData, '共通タスク', now.getHours(), now.getMinutes(), notifications);
     if (next !== appState.globalTaskData) { appState.globalTaskData = next; changed = true; }
   }
-  const slots = appState.scheduleData[dateId]?.slots;
-  if (slots) APP_CONFIG.slotsAll.forEach(slot => { if (!slots[slot]?.includes('🔔')) return; const next = processAlarmHtml(slots[slot], getDisplaySlot(slot), now.getHours(), now.getMinutes(), notifications); if (next !== slots[slot]) { slots[slot] = next; changed = true; } });
+  APP_CONFIG.slotsAll.forEach(slot => { const current = resolvedSlot(dateId, slot); if (!current?.includes('🔔')) return; const next = processAlarmHtml(current, getDisplaySlot(slot), now.getHours(), now.getMinutes(), notifications); if (next !== current) { setUserOverride(appState, dateId, slot, next); changed = true; } });
   if (changed) {
     const result = storageService.saveAll(appState);
     if (result.ok) appState = result.state; else { appState = before; notifySaveFailure(result); }
@@ -1035,7 +1085,7 @@ function scanSchedulesForCount() {
   const targetSlots = APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot));
   previewCountData = appState.countSettings.map(condition => {
     const hits = [];
-    if (condition.word.trim()) Object.keys(appState.scheduleData).sort().forEach(dateId => {
+    if (condition.word.trim()) academicDateIds().forEach(dateId => {
       if (start && dateId < start || end && dateId > end) return;
       const date = dateFromIso(dateId); if (!date) return;
       targetSlots.forEach(slot => {
@@ -1056,8 +1106,9 @@ function renderCountTags() {
   const container = document.getElementById('count-tags-container'); if (!container) return;
   container.replaceChildren();
   const tags = new Set();
-  Object.values(appState.configWeekly).forEach(slots => Object.values(slots).forEach(value => { const word = getFirstWord(value); if (word) tags.add(word); }));
-  if (!tags.size) { container.appendChild(el('span', '※設定画面の「週間時間割」に入力すると、ここに自動抽出されます')); return; }
+  Object.values(appState.weeklyTemplate).forEach(slots => Object.values(slots).forEach(value => { const word = getFirstWord(value); if (word) tags.add(word); }));
+  Object.values(appState.weeklyRules).forEach(slots => Object.values(slots).forEach(segments => segments.forEach(segment => { const word = getFirstWord(segment.content); if (word) tags.add(word); })));
+  if (!tags.size) { container.appendChild(el('span', '※設定画面の「基本時間割」に入力すると、ここに自動抽出されます')); return; }
   Array.from(tags).sort().forEach(tag => {
     const button = el('button', `${appState.countSettings.some(condition => condition.word.trim() === tag) ? '✓ ' : '＋ '}${tag}`);
     button.type = 'button'; button.className = 'btn-s'; button.disabled = appState.countSettings.some(condition => condition.word.trim() === tag);
@@ -1212,10 +1263,9 @@ function applyCountColumn(groupIndex) {
   const ok = commitState(state => {
     group.hits.forEach(hit => {
       if (hit.excluded) return;
-      const slots = ensureScheduleDay(state, hit.dateId);
-      if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word);
-      else if (hit.checked) { slots[hit.slot] = addCountPrefix(hit.originalHtml, number); number += condition.mode === 'up' ? 1 : -1; }
-      else slots[hit.slot] = removeLeadingCount(hit.originalHtml);
+      if (hit.trashed) setUserOverride(state, hit.dateId, hit.slot, deleteCountWord(hit.originalHtml, condition.word));
+      else if (hit.checked) { setUserOverride(state, hit.dateId, hit.slot, addCountPrefix(hit.originalHtml, number)); number += condition.mode === 'up' ? 1 : -1; }
+      else setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml));
       changed = true;
     });
   });
@@ -1229,10 +1279,9 @@ function applyCountAll() {
     let number = condition.start;
     group.hits.forEach(hit => {
       if (hit.excluded) return;
-      const slots = ensureScheduleDay(state, hit.dateId);
-      if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word);
-      else if (hit.checked) { slots[hit.slot] = addCountPrefix(hit.originalHtml, number); number += condition.mode === 'up' ? 1 : -1; }
-      else slots[hit.slot] = removeLeadingCount(hit.originalHtml);
+      if (hit.trashed) setUserOverride(state, hit.dateId, hit.slot, deleteCountWord(hit.originalHtml, condition.word));
+      else if (hit.checked) { setUserOverride(state, hit.dateId, hit.slot, addCountPrefix(hit.originalHtml, number)); number += condition.mode === 'up' ? 1 : -1; }
+      else setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml));
       applied = true;
     });
   }))) return;
@@ -1242,7 +1291,7 @@ function applyGridCleaning() {
   let applied = false;
   if (!commitState(state => appState.countSettings.forEach((condition, index) => {
     const group = previewCountData[index]; if (!condition.word.trim() || !group) return;
-    group.hits.forEach(hit => { if (hit.excluded) return; const slots = ensureScheduleDay(state, hit.dateId); if (hit.trashed) slots[hit.slot] = deleteCountWord(hit.originalHtml, condition.word); else if (!hit.checked) slots[hit.slot] = removeLeadingCount(hit.originalHtml); applied = true; });
+    group.hits.forEach(hit => { if (hit.excluded) return; if (hit.trashed) setUserOverride(state, hit.dateId, hit.slot, deleteCountWord(hit.originalHtml, condition.word)); else if (!hit.checked) setUserOverride(state, hit.dateId, hit.slot, removeLeadingCount(hit.originalHtml)); applied = true; });
   }))) applied = false;
   if (applied) { showAlert('お掃除内容（消去・番号除去）をカレンダーに反映しました。'); refreshMainUI(); }
   else showAlert('反映する変更（ゴミ箱行き、またはスキップ）がありません。');
@@ -1330,7 +1379,7 @@ function renderSettingsTables() {
   }
   const weeklyBody = document.getElementById('weekly-tbody'); if (weeklyBody) {
     weeklyBody.replaceChildren();
-    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const box = el('div'); box.style.display = 'flex'; box.style.alignItems = 'center'; const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.className = 'tmpl-cb'; checkbox.dataset.day = String(dayIndex); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[dayIndex][slot]); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.configWeekly[dayIndex]?.[slot] || ''); input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); checkbox.addEventListener('change', () => { input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); }); box.append(checkbox, input); cell.appendChild(box); row.appendChild(cell); } weeklyBody.appendChild(row); });
+    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const box = el('div'); box.style.display = 'flex'; box.style.alignItems = 'center'; const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.className = 'tmpl-cb'; checkbox.dataset.day = String(dayIndex); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[dayIndex][slot]); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.weeklyTemplate[dayIndex]?.[slot] || ''); input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); checkbox.addEventListener('change', () => { input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); }); box.append(checkbox, input); cell.appendChild(box); row.appendChild(cell); } weeklyBody.appendChild(row); });
     qa('#weekly-tbody input[type="text"]').forEach(input => input.addEventListener('keydown', handleTableNav));
   }
 }
@@ -1339,6 +1388,15 @@ function openSettingsView() {
   const range = getSmartDateRange(); const start = document.getElementById('tmpl-start'); const end = document.getElementById('tmpl-end'); if (start) start.value = range.start; if (end) end.value = range.end;
   const layout = document.querySelector(`input[name="layout-mode"][value="${appState.isLandscapeMode ? 'landscape' : 'portrait'}"]`); if (layout) layout.checked = true;
   renderSettingsTables();
+  const legacySummary = document.getElementById('legacy-override-summary');
+  if (legacySummary) {
+    let legacy = 0; let same = 0; let different = 0; let cancelled = 0;
+    Object.entries(appState.dateOverrides).forEach(([dateId, day]) => Object.entries(day.slots).forEach(([slot, override]) => {
+      if (override.action === 'cancel') { cancelled += 1; return; }
+      if (override.source === 'legacy') { legacy += 1; if (override.content === getWeeklyRuleSlot(dateId, slot, appState)) same += 1; else different += 1; }
+    }));
+    legacySummary.textContent = `旧データ由来 ${legacy}件（基本時間割と同内容 ${same}件 / 異なる内容 ${different}件）、取消 ${cancelled}件。自動整理は行いません。`;
+  }
   const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
   const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
   const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
@@ -1375,7 +1433,7 @@ function saveBasicSettings() {
     const counts = plan.value.counts;
     const message = [
       `${appState.currentYear}年度から${year}年度へ変更します。既存データは削除しません。`,
-      `年度外に残る件数: 予定 ${counts.scheduleData}日 / 行事 ${counts.configEvents}日 / 日別状態 ${counts.dayProfiles}日 / 祝日 ${counts.customHolidays}日 / 時数期間 ${counts.countDateRange}件`,
+      `年度外に残る件数: 日別変更 ${counts.dateOverrides}日 / 行事 ${counts.configEvents}日 / 日別状態 ${counts.dayProfiles}日 / 祝日 ${counts.customHolidays}日 / 時数期間 ${counts.countDateRange}件`,
       plan.value.automaticRange ? `時数期間は ${plan.value.nextBounds.start} ～ ${plan.value.nextBounds.end} に更新します。` : (plan.value.rangeOutside ? '指定済みの時数期間は年度外を含みますが、そのまま保持します。' : '指定済みの時数期間はそのまま保持します。'),
       '続行しますか？'
     ].join('\n');
@@ -1392,22 +1450,22 @@ function saveTimeConfig() {
 function saveWeekly() {
   const weekly = {};
   qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; const clean = sanitizeHtml(input.value); if (stripHtml(clean)) weekly[input.dataset.day][input.dataset.slot] = clean; });
-  if (commitState(state => { state.configWeekly = weekly; })) showAlert('時間割を保存しました。');
+  if (commitState(state => { state.weeklyTemplate = weekly; })) showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。');
 }
-function applyWeeklyRange(overwrite) {
+function applyWeeklyRange() {
   const start = document.getElementById('tmpl-start')?.value; const end = document.getElementById('tmpl-end')?.value;
   if (!isValidIsoDate(start) || !isValidIsoDate(end) || start > end) { showAlert('適用期間の日付が不正です。'); return; }
-  if (!showConfirm(`${start} ～ ${end} の予定を${overwrite ? '完全に上書き' : '未入力枠のみ反映'}しますか？`)) return;
   const weekly = {}; qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; weekly[input.dataset.day][input.dataset.slot] = sanitizeHtml(input.value); });
-  if (commitState(state => {
-    state.configWeekly = weekly;
-    let date = dateFromIso(start); const last = dateFromIso(end);
-    while (date && last && date <= last) {
-      const dateId = getIsoDateStr(date); const day = String(date.getDay()); const template = state.configWeekly[day] || {}; const target = ensureScheduleDay(state, dateId);
-      APP_CONFIG.slotsAll.forEach(slot => { const enabledInTemplate = qa('#weekly-tbody input[type="text"][data-day][data-slot]').some(input => input.dataset.day === day && input.dataset.slot === slot && !input.disabled); if (!state.daySlotConfig[date.getDay()][slot] || !enabledInTemplate) return; const value = template[slot] || ''; if (overwrite || !stripHtml(target[slot] || '').trim()) target[slot] = value ? `<span style="font-weight:bold;color:#1e3a8a">${escapeHtmlText(stripHtml(value))}</span> ` : ''; });
-      date.setDate(date.getDate() + 1);
-    }
-  })) { showAlert('指定期間へ反映しました。'); refreshMainUI(); }
+  const rules = Object.entries(weekly).flatMap(([day, slots]) => Object.entries(slots).filter(([, value]) => stripHtml(value).trim()).map(([slot, content]) => ({ day, slot, content })));
+  const overlap = rules.reduce((total, rule) => total + (appState.weeklyRules[rule.day]?.[rule.slot] || []).filter(segment => segment.from <= end && segment.to >= start).length, 0);
+  const overrides = Object.entries(appState.dateOverrides).filter(([dateId]) => dateId >= start && dateId <= end).reduce((total, [, day]) => total + Object.keys(day.slots).length, 0);
+  const message = [`対象期間: ${start} ～ ${end}`, `登録する規則: ${rules.length}コマ`, `重なる既存規則: ${overlap}件（安全に分割・置換します）`, `日別変更: ${overrides}件（基本時間割より優先され、そのまま残ります）`, '基本時間割として適用しますか？'].join('\n');
+  if (!showConfirm(message)) return;
+  const snapshot = storageService.createRecoverySnapshot();
+  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
+  let next = clone(appState); next.weeklyTemplate = weekly;
+  for (const rule of rules) { const result = replaceWeeklyRuleRange(next, rule.day, rule.slot, start, end, rule.content); if (!result.ok) { showAlert(result.error); return; } next = result.value; }
+  if (commitState(state => Object.assign(state, next))) { showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
 }
 function saveAnnual() {
   try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; })) { showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
