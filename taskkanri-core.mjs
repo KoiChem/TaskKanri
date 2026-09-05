@@ -9,9 +9,9 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260905-stage1-v4',
-  schemaVersion: 2,
-  supportedSchemaVersions: Object.freeze([1, 2]),
+  buildVersion: '20260905-stage2-v2',
+  schemaVersion: 3,
+  supportedSchemaVersions: Object.freeze([1, 2, 3]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -47,11 +47,13 @@ const LEGACY_SUFFIXES = Object.freeze(['V46', 'V43', 'V42', 'V41']);
 const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIXES.map(suffix => `${base}${suffix}`)));
 const STATE_KEYS = Object.freeze([
   'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'scheduleData', 'configEvents',
-  'configWeekly', 'customHolidays', 'noClassData', 'shortData', 'examData', 'timeConfig', 'globalTaskData',
+  'configWeekly', 'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
   'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
 const TIME_GROUPS = Object.freeze(['normal', 'short', 'exam']);
+export const DAY_PROFILES = Object.freeze(['normal', 'short', 'short-am', 'morning', 'exam', 'mock-exam', 'noclass-hide', 'noclass-show']);
+const DAY_PROFILE_SET = new Set(DAY_PROFILES);
 const SAFE_TAGS = new Set(['BR', 'B', 'STRONG', 'SPAN', 'DIV', 'P']);
 const REMOVE_CONTENT_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH']);
 const REMOVE_ELEMENT_TAGS = new Set(['IMG']);
@@ -98,9 +100,7 @@ export function defaultState(year = 2026) {
     configEvents: {},
     configWeekly: {},
     customHolidays: clone(APP_CONFIG.defaultHolidays),
-    noClassData: {},
-    shortData: {},
-    examData: {},
+    dayProfiles: {},
     timeConfig: defaultTimeConfig(),
     globalTaskData: '',
     bulkCalendarSelectionMode: 'standard',
@@ -118,6 +118,43 @@ export function isValidIsoDate(value) {
   if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1) return false;
   const probe = new Date(Date.UTC(year, month - 1, day));
   return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
+}
+
+export function academicYearBounds(year) {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
+  return { start: `${year}-04-01`, end: `${year + 1}-03-31` };
+}
+
+export function isAcademicYearDate(dateId, year) {
+  const bounds = academicYearBounds(year);
+  return Boolean(bounds && isValidIsoDate(dateId) && dateId >= bounds.start && dateId <= bounds.end);
+}
+
+export function planAcademicYearChange(state, nextYear) {
+  if (!Number.isInteger(nextYear) || nextYear < 2000 || nextYear > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
+  const normalized = normalizeState(state);
+  if (!normalized.ok) return normalized;
+  const current = normalized.value;
+  const nextBounds = academicYearBounds(nextYear);
+  const outside = map => Object.keys(map).filter(dateId => !isAcademicYearDate(dateId, nextYear)).length;
+  const range = current.countDateRange;
+  const oldBounds = academicYearBounds(current.currentYear);
+  const automaticRange = !range.start || !range.end || (range.start === oldBounds.start && range.end === oldBounds.end);
+  const rangeOutside = !automaticRange && Boolean((range.start && !isAcademicYearDate(range.start, nextYear)) || (range.end && !isAcademicYearDate(range.end, nextYear)));
+  return {
+    ok: true,
+    value: {
+      nextYear,
+      nextBounds,
+      counts: {
+        scheduleData: outside(current.scheduleData), configEvents: outside(current.configEvents), dayProfiles: outside(current.dayProfiles), customHolidays: outside(current.customHolidays),
+        countDateRange: rangeOutside ? 1 : 0
+      },
+      automaticRange,
+      rangeOutside,
+      nextCountDateRange: automaticRange ? clone(nextBounds) : clone(range)
+    }
+  };
 }
 
 function validTime(value) {
@@ -473,13 +510,15 @@ function normalizeCountDateRange(value) {
   return { ok: true, value: { start, end } };
 }
 
-function validateStateConflicts(state) {
-  const dates = new Set([...Object.keys(state.noClassData), ...Object.keys(state.shortData), ...Object.keys(state.examData)]);
-  for (const dateId of dates) {
-    const active = [state.noClassData[dateId] > 0, state.shortData[dateId] > 0, state.examData[dateId] > 0].filter(Boolean).length;
-    if (active > 1) return fail('同一日の状態が競合しています', dateId);
+function normalizeDayProfiles(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'dayProfiles');
+  const result = {};
+  for (const [dateId, profile] of Object.entries(value)) {
+    if (!isValidIsoDate(dateId)) return fail('実在するISO日付が必要です', `dayProfiles.${dateId}`);
+    if (typeof profile !== 'string' || !DAY_PROFILE_SET.has(profile)) return fail('未知の日別profileです', `dayProfiles.${dateId}`);
+    if (profile !== 'normal') result[dateId] = profile;
   }
-  return { ok: true };
+  return { ok: true, value: result };
 }
 
 export function normalizeState(input) {
@@ -515,11 +554,10 @@ export function normalizeState(input) {
     if (!normalized.ok) return normalized;
     state[field] = normalized.value;
   }
-  for (const [field, maximum] of [['noClassData', 2], ['shortData', 3], ['examData', 2]]) {
-    if (!own(input, field)) continue;
-    const normalized = normalizeDateMap(input[field], field, value => value >= 0 && value <= maximum);
+  if (own(input, 'dayProfiles')) {
+    const normalized = normalizeDayProfiles(input.dayProfiles);
     if (!normalized.ok) return normalized;
-    state[field] = normalized.value;
+    state.dayProfiles = normalized.value;
   }
   if (own(input, 'configWeekly')) {
     const normalized = normalizeWeekly(input.configWeekly);
@@ -550,8 +588,6 @@ export function normalizeState(input) {
     if (!normalized.ok) return normalized;
     state.daySlotConfig = normalized.value;
   }
-  const conflict = validateStateConflicts(state);
-  if (!conflict.ok) return conflict;
   return { ok: true, value: state };
 }
 
@@ -578,7 +614,7 @@ function validateMeta(meta) {
 }
 
 function migrateSchema1State(data) {
-  const migrated = { ...data };
+  const migrated = clone(data);
   for (const field of ['noClassData', 'shortData', 'examData']) {
     if (!own(data, field) || !isPlainObject(data[field])) continue;
     migrated[field] = Object.fromEntries(Object.entries(data[field]).map(([dateId, value]) => [
@@ -587,6 +623,56 @@ function migrateSchema1State(data) {
     ]));
   }
   return migrated;
+}
+
+function legacyProfile(field, value) {
+  if (!Number.isInteger(value)) return null;
+  if (value === 0) return 'normal';
+  const profiles = {
+    shortData: { 1: 'short', 2: 'short-am', 3: 'morning' },
+    examData: { 1: 'exam', 2: 'mock-exam' },
+    noClassData: { 1: 'noclass-hide', 2: 'noclass-show' }
+  };
+  return profiles[field]?.[value] || null;
+}
+
+function migrateSchema2State(data) {
+  const migrated = clone(data);
+  const profiles = {};
+  for (const field of ['noClassData', 'shortData', 'examData']) {
+    if (!own(migrated, field)) continue;
+    if (!isPlainObject(migrated[field])) return fail('オブジェクトが必要です', field);
+    for (const [dateId, value] of Object.entries(migrated[field])) {
+      if (!isValidIsoDate(dateId)) return fail('実在するISO日付が必要です', `${field}.${dateId}`);
+      const profile = legacyProfile(field, value);
+      if (profile === null) return fail('不正な状態値です', `${field}.${dateId}`);
+      if (profile === 'normal') continue;
+      if (own(profiles, dateId)) return { ...fail('同一日の状態が競合しています', dateId), migrationConflict: true };
+      profiles[dateId] = profile;
+    }
+    delete migrated[field];
+  }
+  if (own(migrated, 'dayProfiles')) return fail('旧日別状態とdayProfilesを同時には指定できません', 'dayProfiles');
+  migrated.dayProfiles = profiles;
+  return { ok: true, value: migrated };
+}
+
+const MIGRATION_REGISTRY = Object.freeze({
+  1: migrateSchema1State,
+  2: migrateSchema2State
+});
+
+export function migrateToCurrent(data, sourceSchemaVersion) {
+  if (!Number.isInteger(sourceSchemaVersion) || !APP_CONFIG.supportedSchemaVersions.includes(sourceSchemaVersion)) return fail('未対応のschemaVersionです', 'meta.schemaVersion');
+  let result = clone(data);
+  for (let version = sourceSchemaVersion; version < APP_CONFIG.schemaVersion; version += 1) {
+    const step = MIGRATION_REGISTRY[version];
+    if (!step) return fail(`schema ${version} の移行処理がありません`);
+    const migrated = step(result);
+    if (migrated?.ok === false) return migrated;
+    result = migrated?.value ?? migrated;
+  }
+  return { ok: true, value: result, schemaVersion: APP_CONFIG.schemaVersion };
 }
 
 export function normalizeImportedPayload(rawOrObject) {
@@ -611,11 +697,16 @@ export function normalizeImportedPayload(rawOrObject) {
   } else if (own(parsed, 'data')) {
     return fail('metaを含むwrapped形式が不正です');
   }
-  const recognized = STATE_KEYS.some(key => own(data, key)) || own(data, 'teacherSchedule') || own(data, 'academicYear');
+  const recognized = STATE_KEYS.some(key => own(data, key)) || ['teacherSchedule', 'academicYear', 'noClassData', 'shortData', 'examData'].some(key => own(data, key));
   if (!recognized) return fail('TaskKanriの既知形式ではありません');
-  const normalized = normalizeState(schemaVersion === 1 ? migrateSchema1State(data) : data);
+  if (schemaVersion === 3 && ['noClassData', 'shortData', 'examData'].some(field => own(data, field))) {
+    return fail('schemaVersion 3では旧日別状態は使用できません', 'dayProfiles');
+  }
+  const migrated = migrateToCurrent(data, schemaVersion);
+  if (!migrated.ok) return migrated;
+  const normalized = normalizeState(migrated.value);
   if (!normalized.ok) return normalized;
-  return { ok: true, value: normalized.value, schemaVersion, source: own(parsed, 'meta') ? 'wrapped' : 'flat' };
+  return { ok: true, value: normalized.value, schemaVersion, sourceSchemaVersion: schemaVersion, source: own(parsed, 'meta') ? 'wrapped' : 'flat' };
 }
 
 export function summarizeState(state) {
@@ -722,8 +813,8 @@ function readLegacyState(storage, options, quarantine) {
     flat[base] = parsed.value;
   }
   if (!found) return { ok: true, found: false, value: defaultState() };
-  const normalized = normalizeState(flat);
-  if (!normalized.ok) return { ok: false, readOnly: false, error: normalized.error };
+  const normalized = normalizeImportedPayload(flat);
+  if (!normalized.ok) return { ok: false, readOnly: Boolean(normalized.migrationConflict), error: normalized.error };
   return { ok: true, found: true, value: normalized.value };
 }
 
@@ -782,12 +873,21 @@ export function createStorageService(storage, options = {}) {
     }
     const raw = storage.getItem(APP_CONFIG.storeKey);
     if (raw !== null) {
+      if (readOnly) {
+        state = defaultState();
+        return { ok: true, state: clone(state), source: 'master-read-only', readOnly, readOnlyReason };
+      }
       const parsed = normalizeImportedPayload(raw);
       if (parsed.ok) {
         state = clone(parsed.value);
         return { ok: true, state: clone(state), source: 'master', readOnly, readOnlyReason };
       }
       const isolated = quarantine(APP_CONFIG.storeKey, raw, parsed.error);
+      if (parsed.migrationConflict) {
+        setReadOnly(`日別状態の競合を隔離したため読み取り専用です: ${parsed.error}`);
+        state = defaultState();
+        return { ok: true, state: clone(state), source: 'master-conflict-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
+      }
       if (!isolated.ok) {
         state = defaultState();
         return { ok: true, state: clone(state), source: 'defaults-read-only', quarantined: false, readOnly: true, readOnlyReason };

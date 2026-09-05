@@ -1,5 +1,6 @@
 import {
   APP_CONFIG as CORE_CONFIG,
+  academicYearBounds,
   clone,
   createStorageService,
   defaultState,
@@ -9,10 +10,11 @@ import {
   formatStateSummary,
   isValidIsoDate,
   normalizeImportedPayload,
+  planAcademicYearChange,
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage1-v4';
+} from './taskkanri-core.mjs?v=20260905-stage2-v2';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -48,7 +50,7 @@ function el(tag, text = undefined) {
   return node;
 }
 function setStyle(node, style) { Object.assign(node.style, style); return node; }
-function getStateVal(map, dateId) { return Number.isInteger(map?.[dateId]) ? map[dateId] : 0; }
+function getDayProfile(dateId, state = appState) { return state.dayProfiles?.[dateId] || 'normal'; }
 function getIsoDateStr(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -79,26 +81,24 @@ function getActiveSlotsForDay(dayIndex) {
   return APP_CONFIG.slotsAll.filter(slot => Boolean(appState.daySlotConfig?.[dayIndex]?.[slot]));
 }
 function scheduleSlots(dateId) { return appState.scheduleData?.[dateId]?.slots || {}; }
-function isAcademicDate(dateId) { return dateId >= `${appState.currentYear}-04-01` && dateId <= `${appState.currentYear + 1}-03-31`; }
+function isAcademicDate(dateId) { const bounds = academicYearBounds(appState.currentYear); return isValidIsoDate(dateId) && dateId >= bounds.start && dateId <= bounds.end; }
 function getDayStateVisual(dateId) {
-  const noClass = getStateVal(appState.noClassData, dateId);
-  const exam = getStateVal(appState.examData, dateId);
-  const short = getStateVal(appState.shortData, dateId);
-  if (noClass === 1) return { className: 'day-state-noclass', shortLabel: '無', label: '授業なし（授業枠を隠す）' };
-  if (noClass === 2) return { className: 'day-state-noclass', shortLabel: '無・表', label: '授業なし（授業枠を表示・時数には数えない）' };
-  if (exam === 1) return { className: 'day-state-exam', shortLabel: '考', label: '定期考査' };
-  if (exam === 2) return { className: 'day-state-exam', shortLabel: '模試', label: '模擬試験' };
-  if (short === 1) return { className: 'day-state-short', shortLabel: '短', label: '短縮時程' };
-  if (short === 2) return { className: 'day-state-short', shortLabel: '短AM', label: '短縮AM' };
-  if (short === 3) return { className: 'day-state-short', shortLabel: '午前', label: '午前時程' };
-  return { className: '', shortLabel: '', label: '通常授業' };
+  const display = {
+    'noclass-hide': ['day-state-noclass', '無', '授業なし（授業枠を隠す）'], 'noclass-show': ['day-state-noclass', '無・表', '授業なし（授業枠を表示・時数には数えない）'],
+    exam: ['day-state-exam', '考', '定期考査'], 'mock-exam': ['day-state-exam', '模試', '模擬試験'],
+    short: ['day-state-short', '短', '短縮時程'], 'short-am': ['day-state-short', '短AM', '短縮AM'], morning: ['day-state-short', '午前', '午前時程'],
+    normal: ['', '', '通常授業']
+  };
+  const [className, shortLabel, label] = display[getDayProfile(dateId)];
+  return { className, shortLabel, label };
 }
 function getDayBgClass(dateId) {
   const date = dateFromIso(dateId);
   if (!date) return '';
-  if (getStateVal(appState.noClassData, dateId) > 0) return 'bg-no-class';
-  if (getStateVal(appState.examData, dateId) > 0) return 'bg-exam';
-  if (getStateVal(appState.shortData, dateId) > 0) return 'bg-short';
+  const profile = getDayProfile(dateId);
+  if (profile.startsWith('noclass')) return 'bg-no-class';
+  if (profile === 'exam' || profile === 'mock-exam') return 'bg-exam';
+  if (['short', 'short-am', 'morning'].includes(profile)) return 'bg-short';
   if (appState.customHolidays[dateId] || date.getDay() === 0) return 'bg-sun-hol';
   if (date.getDay() === 6) return 'bg-sat';
   return '';
@@ -182,44 +182,21 @@ function commitState(mutator, { refresh = false } = {}) {
   }
 }
 
-function setStateValue(state, dateId, type, value) {
-  const valueMap = { noClass: state.noClassData, short: state.shortData, exam: state.examData }[type];
-  if (!valueMap) return;
-  const max = type === 'short' ? 3 : 2;
-  const bounded = Math.max(0, Math.min(max, Number(value) || 0));
-  if (bounded === 0) delete valueMap[dateId]; else valueMap[dateId] = bounded;
-  if (bounded > 0) {
-    if (type !== 'noClass') delete state.noClassData[dateId];
-    if (type !== 'short') delete state.shortData[dateId];
-    if (type !== 'exam') delete state.examData[dateId];
-  }
-}
 function applyPresetToState(state, dateId, preset) {
-  const presets = {
-    normal: ['normal', 0], short: ['short', 1], 'short-am': ['short', 2], morning: ['short', 3],
-    exam: ['exam', 1], 'mock-exam': ['exam', 2], 'noclass-hide': ['noClass', 1], 'noclass-show': ['noClass', 2]
-  };
-  const setting = presets[preset];
-  if (!setting) return false;
-  if (setting[0] === 'normal') {
-    delete state.noClassData[dateId];
-    delete state.shortData[dateId];
-    delete state.examData[dateId];
-  } else setStateValue(state, dateId, setting[0], setting[1]);
+  if (!['normal', 'short', 'short-am', 'morning', 'exam', 'mock-exam', 'noclass-hide', 'noclass-show'].includes(preset) || !isValidIsoDate(dateId)) return false;
+  if (!state.dayProfiles) state.dayProfiles = {};
+  if (preset === 'normal') delete state.dayProfiles[dateId]; else state.dayProfiles[dateId] = preset;
   return true;
 }
 const DayStateEngine = {
-  set(dateId, type, value) {
-    return commitState(state => setStateValue(state, dateId, type, value), { refresh: true });
-  },
   applyPreset(dateId, preset) {
     return commitState(state => applyPresetToState(state, dateId, preset), { refresh: true });
   },
   toggle(dateId, type) {
-    const limits = { noClass: 3, short: 4, exam: 3 };
-    const map = { noClass: appState.noClassData, short: appState.shortData, exam: appState.examData }[type];
-    if (!map || !limits[type]) return false;
-    return this.set(dateId, type, (getStateVal(map, dateId) + 1) % limits[type]);
+    const cycles = { noClass: ['normal', 'noclass-hide', 'noclass-show'], short: ['normal', 'short', 'short-am', 'morning'], exam: ['normal', 'exam', 'mock-exam'] };
+    const cycle = cycles[type]; if (!cycle) return false;
+    const current = getDayProfile(dateId); const next = cycle[(cycle.indexOf(current) + 1) % cycle.length];
+    return this.applyPreset(dateId, next);
   }
 };
 
@@ -446,8 +423,9 @@ function showTooltip(event, dateId) {
   };
   addLine('祝:', appState.customHolidays[dateId] || '', '#fc8181');
   addLine('', appState.configEvents[dateId] || '', '#f6ad55');
-  const noClass = getStateVal(appState.noClassData, dateId) === 1;
-  const hideAfternoon = getStateVal(appState.examData, dateId) === 1 || [2, 3].includes(getStateVal(appState.shortData, dateId));
+  const profile = getDayProfile(dateId);
+  const noClass = profile === 'noclass-hide';
+  const hideAfternoon = profile === 'exam' || profile === 'short-am' || profile === 'morning';
   getActiveSlotsForDay(date.getDay()).forEach(slot => {
     if (noClass && slot !== '朝' && slot !== '放課後') return;
     if (appState.customHolidays[dateId] && PERIOD_SLOTS.has(slot)) return;
@@ -475,11 +453,12 @@ function updateToolbarState() {
   const shortButton = document.getElementById('toolbar-short-btn');
   const examButton = document.getElementById('toolbar-exam-btn');
   const noClassButton = document.getElementById('toolbar-noclass-btn');
-  const short = getStateVal(appState.shortData, currentMainDateId);
-  const exam = getStateVal(appState.examData, currentMainDateId);
-  const noClass = getStateVal(appState.noClassData, currentMainDateId);
-  if (shortButton) { shortButton.className = short ? 'state-btn short-active' : 'state-btn'; shortButton.textContent = APP_CONFIG.labels.short[short] || APP_CONFIG.labels.short[0]; }
-  if (examButton) { examButton.className = exam ? 'state-btn exam-active' : 'state-btn'; examButton.textContent = APP_CONFIG.labels.exam[exam] || APP_CONFIG.labels.exam[0]; }
+  const profile = getDayProfile(currentMainDateId);
+  const short = ['short', 'short-am', 'morning'].indexOf(profile) + 1;
+  const exam = ['exam', 'mock-exam'].indexOf(profile) + 1;
+  const noClass = ['noclass-hide', 'noclass-show'].indexOf(profile) + 1;
+  if (shortButton) { shortButton.className = short > 0 ? 'state-btn short-active' : 'state-btn'; shortButton.textContent = APP_CONFIG.labels.short[short] || APP_CONFIG.labels.short[0]; }
+  if (examButton) { examButton.className = exam > 0 ? 'state-btn exam-active' : 'state-btn'; examButton.textContent = APP_CONFIG.labels.exam[exam] || APP_CONFIG.labels.exam[0]; }
   if (noClassButton) { noClassButton.className = noClass === 1 ? 'state-btn noclass-active' : noClass === 2 ? 'state-btn noclass-active inset' : 'state-btn'; noClassButton.textContent = APP_CONFIG.labels.noClass[noClass] || APP_CONFIG.labels.noClass[0]; }
 }
 function buildPanelHeader(dateId, position) {
@@ -565,9 +544,10 @@ function renderEditor(dateId, position) {
   const content = el('div');
   setStyle(content, { flex: '1', overflowY: 'auto', paddingRight: '5px', display: 'flex', flexDirection: 'column' });
   const day = date.getDay();
-  const short = getStateVal(appState.shortData, dateId);
-  const exam = getStateVal(appState.examData, dateId);
-  const noClass = getStateVal(appState.noClassData, dateId);
+  const profile = getDayProfile(dateId);
+  const short = ['short', 'short-am', 'morning'].indexOf(profile) + 1;
+  const exam = ['exam', 'mock-exam'].indexOf(profile) + 1;
+  const noClass = ['noclass-hide', 'noclass-show'].indexOf(profile) + 1;
   const holiday = Boolean(appState.customHolidays[dateId]);
   const hideClasses = noClass === 1;
   const hideAfternoon = exam === 1 || short === 2 || short === 3;
@@ -896,7 +876,7 @@ function applyBulkCalendarPreset(preset) {
   const label = getBulkCalendarStateLabel(preset);
   if (!ids.length || !label) return;
   const before = clone(appState);
-  bulkCalendarUndoSnapshot = ids.map(id => ({ id, noClass: getStateVal(appState.noClassData, id), short: getStateVal(appState.shortData, id), exam: getStateVal(appState.examData, id) }));
+  bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
   if (!commitState(state => ids.forEach(id => applyPresetToState(state, id, preset)))) { appState = before; bulkCalendarUndoSnapshot = null; return; }
   bulkCalendarStatus = `${ids.length}日を「${label}」に設定しました。`;
   renderBulkCalendar(); refreshMainUI();
@@ -904,7 +884,7 @@ function applyBulkCalendarPreset(preset) {
 function undoBulkCalendarChange() {
   if (!bulkCalendarUndoSnapshot) return;
   const snapshot = bulkCalendarUndoSnapshot;
-  if (!commitState(state => snapshot.forEach(item => { setStateValue(state, item.id, 'noClass', item.noClass); setStateValue(state, item.id, 'short', item.short); setStateValue(state, item.id, 'exam', item.exam); }))) return;
+  if (!commitState(state => snapshot.forEach(item => applyPresetToState(state, item.id, item.profile)))) return;
   bulkCalendarUndoSnapshot = null;
   bulkCalendarStatus = `${snapshot.length}日の直前の変更を元に戻しました。`;
   renderBulkCalendar(); refreshMainUI();
@@ -1050,10 +1030,11 @@ function scanSchedulesForCount() {
       targetSlots.forEach(slot => {
         const html = scheduleSlots(dateId)[slot]; if (!html || getFirstWord(html) !== condition.word.trim()) return;
         const isExcludedByConfig = !appState.daySlotConfig?.[date.getDay()]?.[slot];
-        const isMorningOnly = [2, 3].includes(getStateVal(appState.shortData, dateId)) && ['５限', '６限', '７限'].includes(slot);
+        const profile = getDayProfile(dateId);
+        const isMorningOnly = ['short-am', 'morning'].includes(profile) && ['５限', '６限', '７限'].includes(slot);
         const isHolidayPeriod = Boolean(appState.customHolidays[dateId]);
         const excluded = isExcludedByConfig || isMorningOnly || isHolidayPeriod;
-        const skippedDay = getStateVal(appState.noClassData, dateId) > 0 || getStateVal(appState.examData, dateId) > 0;
+        const skippedDay = profile.startsWith('noclass') || ['exam', 'mock-exam'].includes(profile);
         hits.push({ dateId, slot, plainText: stripHtml(html), originalHtml: html, checked: !excluded && !skippedDay, trashed: false, excluded, excludedReason: isHolidayPeriod ? '休日・祝日のため除外' : isMorningOnly ? '午前時程により除外' : isExcludedByConfig ? '設定により除外' : '' });
       });
     });
@@ -1372,7 +1353,19 @@ function parseTextareaMap(value, fieldLabel) {
 function saveBasicSettings() {
   const year = Number(document.getElementById('academic-year-input')?.value); const layout = document.querySelector('input[name="layout-mode"]:checked')?.value;
   if (!Number.isInteger(year) || year < 2000 || year > 2100 || !['portrait', 'landscape'].includes(layout)) { showAlert('年度または画面レイアウトが不正です。'); return; }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
+  const plan = planAcademicYearChange(appState, year);
+  if (!plan.ok) { showAlert(plan.error); return; }
+  if (year !== appState.currentYear) {
+    const counts = plan.value.counts;
+    const message = [
+      `${appState.currentYear}年度から${year}年度へ変更します。既存データは削除しません。`,
+      `年度外に残る件数: 予定 ${counts.scheduleData}日 / 行事 ${counts.configEvents}日 / 日別状態 ${counts.dayProfiles}日 / 祝日 ${counts.customHolidays}日 / 時数期間 ${counts.countDateRange}件`,
+      plan.value.automaticRange ? `時数期間は ${plan.value.nextBounds.start} ～ ${plan.value.nextBounds.end} に更新します。` : (plan.value.rangeOutside ? '指定済みの時数期間は年度外を含みますが、そのまま保持します。' : '指定済みの時数期間はそのまま保持します。'),
+      '続行しますか？'
+    ].join('\n');
+    if (!showConfirm(message)) return;
+  }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
 }
 function saveTimeConfig() {
   const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig);
@@ -1513,7 +1506,7 @@ function initApp() {
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
 }
 
-function getDateListContextPreset(dateId) { const noClass = getStateVal(appState.noClassData, dateId); const exam = getStateVal(appState.examData, dateId); const short = getStateVal(appState.shortData, dateId); if (noClass === 1) return 'noclass-hide'; if (noClass === 2) return 'noclass-show'; if (exam === 1) return 'exam'; if (exam === 2) return 'mock-exam'; if (short === 1) return 'short'; if (short === 2) return 'short-am'; if (short === 3) return 'morning'; return 'normal'; }
+function getDateListContextPreset(dateId) { return getDayProfile(dateId); }
 function isDateListContextMenuOpen() { const menu = document.getElementById('date-list-context-menu'); return Boolean(menu && !menu.hidden); }
 function openDateListContextMenu(event, dateId) {
   event.preventDefault(); event.stopPropagation(); hideTooltip(); dateListContextDateId = dateId; dateListContextInvoker = document.activeElement;

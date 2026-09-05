@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   APP_CONFIG,
+  academicYearBounds,
   createStorageService,
   defaultState,
   escapeHtmlAttribute,
   extractTodoItems,
+  isValidIsoDate,
+  migrateToCurrent,
   normalizeImportedPayload,
+  planAcademicYearChange,
   sanitizeHtml,
   serializePayload,
   taskKanriOwnedKeys
@@ -139,15 +143,15 @@ test('wrapped legacy versions and flat imports complete defaults and survive rel
     };
     const prepared = normalizeImportedPayload(JSON.stringify(wrappedLegacy));
     assert.equal(prepared.ok, true, `v${version}`);
-    assert.equal(prepared.schemaVersion, 1, `v${version}`);
+    assert.equal(prepared.sourceSchemaVersion, 1, `v${version}`);
     const imported = service.importRaw(JSON.stringify(wrappedLegacy), { confirm: () => true });
     assert.equal(imported.ok, true, `v${version}`);
     assert.equal(imported.state.daySlotConfig[1]['１限'], true, `v${version}`);
     assert.equal(imported.state.timeConfig.normal['１限'], '08:50', `v${version}`);
-    assert.equal(imported.state.noClassData['2026-05-29'], 1, `v${version}`);
-    assert.equal(imported.state.noClassData['2026-05-30'], 0, `v${version}`);
-    assert.equal(imported.state.shortData['2026-06-01'], 1, `v${version}`);
-    assert.equal(imported.state.examData['2026-06-02'], 0, `v${version}`);
+    assert.equal(imported.state.dayProfiles['2026-05-29'], 'noclass-hide', `v${version}`);
+    assert.equal(imported.state.dayProfiles['2026-05-30'], undefined, `v${version}`);
+    assert.equal(imported.state.dayProfiles['2026-06-01'], 'short', `v${version}`);
+    assert.equal(imported.state.dayProfiles['2026-06-02'], undefined, `v${version}`);
   }
   const reloaded = newService(storage);
   const loaded = reloaded.load();
@@ -240,4 +244,79 @@ test('import sanitizes hostile rich text before commit and preserves data-state 
   assert.equal(result.ok, true);
   assert.equal(result.state.globalTaskData, '<span class="todo-badge state-1" data-state="1">途</span>');
   assert.equal(normalizeImportedPayload(JSON.stringify(payload)).ok, true);
+});
+
+test('v1 and v2 states migrate through the explicit registry to sparse v3 dayProfiles', () => {
+  const legacy = {
+    currentYear: 2026,
+    noClassData: { '2026-04-01': 1, '2026-04-02': 2, '2026-04-03': 0 },
+    shortData: { '2026-04-04': 1, '2026-04-05': 2, '2026-04-06': 3 },
+    examData: { '2026-04-07': 1, '2026-04-08': 2 }
+  };
+  const before = JSON.parse(JSON.stringify(legacy));
+  const migrated = migrateToCurrent(legacy, 2);
+  assert.equal(migrated.ok, true);
+  assert.deepEqual(legacy, before, 'migration clones its input');
+  assert.deepEqual(migrated.value.dayProfiles, {
+    '2026-04-01': 'noclass-hide', '2026-04-02': 'noclass-show', '2026-04-04': 'short', '2026-04-05': 'short-am',
+    '2026-04-06': 'morning', '2026-04-07': 'exam', '2026-04-08': 'mock-exam'
+  });
+  assert.equal('noClassData' in migrated.value, false);
+  const v1 = normalizeImportedPayload({ currentYear: 2026, shortData: { '2026-04-01': true, '2026-04-02': false } });
+  assert.equal(v1.ok, true);
+  assert.deepEqual(v1.value.dayProfiles, { '2026-04-01': 'short' });
+  const current = normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 3 }, data: migrated.value }));
+  assert.equal(current.ok, true);
+  assert.deepEqual(current.value, normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 3 }, data: current.value })).value, 'v3 reload is idempotent');
+  const serialized = serializePayload(current.value, fixedNow());
+  assert.equal(serialized.value.meta.schemaVersion, 3);
+  assert.equal('noClassData' in serialized.value.data, false);
+  assert.deepEqual(serialized.value.data.dayProfiles, migrated.value.dayProfiles);
+});
+
+test('v3 rejects unknown profiles, future schemas, legacy maps, and conflicting migration without mutation', () => {
+  const storage = new FakeStorage({ [APP_CONFIG.storeKey]: masterRaw() });
+  const service = newService(storage); service.load();
+  const before = storage.getItem(APP_CONFIG.storeKey);
+  const rejected = [
+    { meta: { schemaVersion: 3 }, data: { currentYear: 2026, dayProfiles: { '2026-04-01': 'unknown' } } },
+    { meta: { schemaVersion: 4 }, data: { currentYear: 2026 } },
+    { meta: { schemaVersion: 3 }, data: { currentYear: 2026, noClassData: {} } },
+    { meta: { schemaVersion: 2 }, data: { currentYear: 2026, noClassData: { '2026-04-01': 1 }, examData: { '2026-04-01': 1 } } }
+  ];
+  for (const payload of rejected) {
+    assert.equal(service.importRaw(JSON.stringify(payload), { confirm: () => { throw new Error('must not confirm rejection'); } }).ok, false);
+    assert.equal(storage.getItem(APP_CONFIG.storeKey), before);
+  }
+});
+
+test('a conflicting v2 master is quarantined and enters read-only without overwriting raw master', () => {
+  const raw = JSON.stringify({ meta: { schemaVersion: 2 }, data: { currentYear: 2026, noClassData: { '2026-04-01': 1 }, shortData: { '2026-04-01': 1 } } });
+  const storage = new FakeStorage({ [APP_CONFIG.storeKey]: raw });
+  const loaded = newService(storage).load();
+  assert.equal(loaded.readOnly, true);
+  assert.equal(storage.getItem(APP_CONFIG.storeKey), raw);
+  assert.equal(Array.from(storage.data.keys()).some(key => key.startsWith(APP_CONFIG.quarantinePrefix)), true);
+});
+
+test('canonical dates and academic-year plans reject impossible ranges and retain all data', () => {
+  for (const value of ['2026-02-29', '2026-02-31', '2026-13-01', '2026-00-01']) assert.equal(isValidIsoDate(value), false, value);
+  assert.equal(isValidIsoDate('2028-02-29'), true);
+  assert.equal(normalizeImportedPayload({ currentYear: 2026, countDateRange: { start: '2026-09-08', end: '2026-09-07' } }).ok, false);
+  const state = defaultState(2026);
+  state.scheduleData['2026-04-01'] = { slots: {} }; state.scheduleData['2027-04-01'] = { slots: {} };
+  state.configEvents['2026-04-02'] = '年度外'; state.dayProfiles['2027-04-03'] = 'exam'; state.customHolidays['2026-04-04'] = '休日';
+  const automatic = planAcademicYearChange(state, 2027);
+  assert.equal(automatic.ok, true);
+  assert.deepEqual(automatic.value.nextCountDateRange, academicYearBounds(2027));
+  assert.equal(automatic.value.counts.scheduleData, 1);
+  assert.equal(automatic.value.counts.configEvents, 1);
+  assert.equal(automatic.value.counts.dayProfiles, 0);
+  assert.equal(automatic.value.counts.customHolidays > 0, true);
+  state.countDateRange = { start: '2026-09-01', end: '2026-12-31' };
+  const explicit = planAcademicYearChange(state, 2027);
+  assert.equal(explicit.value.automaticRange, false);
+  assert.deepEqual(explicit.value.nextCountDateRange, state.countDateRange);
+  assert.equal(explicit.value.rangeOutside, true);
+  assert.equal(state.dayProfiles['2027-04-03'], 'exam', 'planning is non-mutating, so cancel is safe');
 });

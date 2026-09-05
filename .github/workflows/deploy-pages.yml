@@ -23,7 +23,7 @@ jobs:
 
       - name: Verify syntax and behavior
         run: |
-          node --check taskkanri-app.js
+          node --input-type=module --check < taskkanri-app.js
           node --check taskkanri-core.mjs
           node --test tests/core.test.mjs
           git diff --check
