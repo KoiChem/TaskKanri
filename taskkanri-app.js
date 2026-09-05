@@ -12,7 +12,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage1-v2';
+} from './taskkanri-core.mjs?v=20260905-stage1-v3';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);

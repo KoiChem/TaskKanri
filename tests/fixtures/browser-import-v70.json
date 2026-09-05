@@ -15,6 +15,12 @@
     "configEvents": {
       "2026-09-07": "旧データ行事"
     },
+    "noClassData": {
+      "2026-09-08": true
+    },
+    "shortData": {
+      "2026-09-09": true
+    },
     "globalTaskData": "<span class=\"todo-badge state-0\" data-state=\"0\">未</span>旧データの課題"
   }
 }

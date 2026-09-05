@@ -84,6 +84,7 @@ test('invalid and unknown imports are rejected without changing the master', () 
     JSON.stringify({ countSettings: [{ word: '化学', mode: 'sideways', start: 1 }] }),
     JSON.stringify({ countDateRange: { start: '2026-09-08', end: '2026-09-07' } }),
     JSON.stringify({ countDateRange: { start: null, end: '' } }),
+    JSON.stringify({ noClassData: { '2026-05-01': 'true' } }),
     JSON.stringify({ meta: { version: 0 }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { version: 73 }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { version: '71' }, data: { currentYear: 2026 } }),
@@ -91,6 +92,7 @@ test('invalid and unknown imports are rejected without changing the master', () 
     JSON.stringify({ meta: { schemaVersion: 999 }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { schemaVersion: 2, lastUpdated: 'not-a-date' }, data: { currentYear: 2026 } }),
     JSON.stringify({ meta: { schemaVersion: 2, appVersion: 72 }, data: { currentYear: 2026 } }),
+    JSON.stringify({ meta: { schemaVersion: 2 }, data: { currentYear: 2026, noClassData: { '2026-05-01': true } } }),
     JSON.stringify({ daySlotConfig: { 1: { '１限': 'true' } } }),
     JSON.stringify({ daySlotConfig: { 1: { 未知の時限: true } } })
   ];
@@ -129,7 +131,10 @@ test('wrapped legacy versions and flat imports complete defaults and survive rel
         currentYear: 2026,
         isLandscapeMode: true,
         scheduleData: { '2026-04-06': { slots: { '１限': `<strong>化学 v${version}</strong>` } } },
-        configEvents: { '2026-04-06': '始業式' }
+        configEvents: { '2026-04-06': '始業式' },
+        noClassData: { '2026-05-29': true, '2026-05-30': false },
+        shortData: { '2026-06-01': true },
+        examData: { '2026-06-02': false }
       }
     };
     const prepared = normalizeImportedPayload(JSON.stringify(wrappedLegacy));
@@ -139,6 +144,10 @@ test('wrapped legacy versions and flat imports complete defaults and survive rel
     assert.equal(imported.ok, true, `v${version}`);
     assert.equal(imported.state.daySlotConfig[1]['１限'], true, `v${version}`);
     assert.equal(imported.state.timeConfig.normal['１限'], '08:50', `v${version}`);
+    assert.equal(imported.state.noClassData['2026-05-29'], 1, `v${version}`);
+    assert.equal(imported.state.noClassData['2026-05-30'], 0, `v${version}`);
+    assert.equal(imported.state.shortData['2026-06-01'], 1, `v${version}`);
+    assert.equal(imported.state.examData['2026-06-02'], 0, `v${version}`);
   }
   const reloaded = newService(storage);
   const loaded = reloaded.load();

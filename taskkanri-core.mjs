@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260905-stage1-v2',
+  buildVersion: '20260905-stage1-v3',
   schemaVersion: 2,
   supportedSchemaVersions: Object.freeze([1, 2]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -577,6 +577,18 @@ function validateMeta(meta) {
   return { ok: true, schemaVersion };
 }
 
+function migrateSchema1State(data) {
+  const migrated = { ...data };
+  for (const field of ['noClassData', 'shortData', 'examData']) {
+    if (!own(data, field) || !isPlainObject(data[field])) continue;
+    migrated[field] = Object.fromEntries(Object.entries(data[field]).map(([dateId, value]) => [
+      dateId,
+      typeof value === 'boolean' ? Number(value) : value
+    ]));
+  }
+  return migrated;
+}
+
 export function normalizeImportedPayload(rawOrObject) {
   let parsed = rawOrObject;
   if (typeof rawOrObject === 'string') {
@@ -601,7 +613,7 @@ export function normalizeImportedPayload(rawOrObject) {
   }
   const recognized = STATE_KEYS.some(key => own(data, key)) || own(data, 'teacherSchedule') || own(data, 'academicYear');
   if (!recognized) return fail('TaskKanriの既知形式ではありません');
-  const normalized = normalizeState(data);
+  const normalized = normalizeState(schemaVersion === 1 ? migrateSchema1State(data) : data);
   if (!normalized.ok) return normalized;
   return { ok: true, value: normalized.value, schemaVersion, source: own(parsed, 'meta') ? 'wrapped' : 'flat' };
 }
