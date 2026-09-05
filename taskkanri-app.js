@@ -12,7 +12,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260905-stage1-v3';
+} from './taskkanri-core.mjs?v=20260905-stage1-v4';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -291,6 +291,8 @@ function createDateItem(dateId, searching = false) {
   line.style.display = 'flex';
   line.style.justifyContent = 'space-between';
   line.style.alignItems = 'center';
+  line.style.width = '100%';
+  line.style.minWidth = '0';
   const wrapper = el('div');
   wrapper.className = 'date-wrapper';
   wrapper.addEventListener('click', () => renderEditor(dateId, 'top'));
@@ -308,6 +310,7 @@ function createDateItem(dateId, searching = false) {
   line.appendChild(wrapper);
   const actions = el('div');
   actions.className = 'btn-group';
+  actions.style.marginLeft = 'auto';
   actions.appendChild(createDateButton(dateId, 'left'));
   actions.appendChild(createDateButton(dateId, 'right'));
   line.appendChild(actions);
@@ -1063,7 +1066,6 @@ function renderCountTags() {
   const tags = new Set();
   Object.values(appState.configWeekly).forEach(slots => Object.values(slots).forEach(value => { const word = getFirstWord(value); if (word) tags.add(word); }));
   if (!tags.size) { container.appendChild(el('span', '※設定画面の「週間時間割」に入力すると、ここに自動抽出されます')); return; }
-  container.appendChild(el('span', '抽出タグ:'));
   Array.from(tags).sort().forEach(tag => {
     const button = el('button', `${appState.countSettings.some(condition => condition.word.trim() === tag) ? '✓ ' : '＋ '}${tag}`);
     button.type = 'button'; button.className = 'btn-s'; button.disabled = appState.countSettings.some(condition => condition.word.trim() === tag);
@@ -1162,7 +1164,7 @@ function renderCountGrid() {
   const start = document.getElementById('count-start-date')?.value || appState.countDateRange.start;
   const end = document.getElementById('count-end-date')?.value || appState.countDateRange.end;
   if (!start || !end) return;
-  const table = el('table'); setStyle(table, { width: '100%', borderCollapse: 'collapse', fontSize: '12px', background: '#fff', textAlign: 'center' });
+  const table = el('table'); table.className = 'count-grid-table';
   const head = el('thead'); const headRow = el('tr'); ['日付(曜)', '行事予定', ...APP_CONFIG.slotsAll.filter(slot => PERIOD_SLOTS.has(slot))].forEach(label => headRow.appendChild(el('th', label))); head.appendChild(headRow); table.appendChild(head);
   const body = el('tbody'); let date = dateFromIso(start); const last = dateFromIso(end);
   while (date && last && date <= last) {
@@ -1479,6 +1481,20 @@ function initStartupDates() {
   while (next.getDay() === 0 || next.getDay() === 6 || appState.customHolidays[getIsoDateStr(next)]) next.setDate(next.getDate() + 1);
   renderEditor(getIsoDateStr(next), 'bottom-left');
   const week = dateFromIso(base); week.setDate(week.getDate() + 7); renderEditor(getIsoDateStr(week), 'bottom-right');
+  return base;
+}
+function scrollDateListToStartupRow(dateId, rowNumber = 7) {
+  const list = document.getElementById('date-list');
+  const target = document.getElementById(`preview-${dateId}`)?.closest('.date-item');
+  if (!list || !target) return;
+  const items = qa('.date-item', list);
+  const targetIndex = items.indexOf(target);
+  if (targetIndex < 0) return;
+  const anchor = items[Math.max(0, targetIndex - (rowNumber - 1))];
+  const originalScrollBehavior = list.style.scrollBehavior;
+  list.style.scrollBehavior = 'auto';
+  list.scrollTop += anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  list.style.scrollBehavior = originalScrollBehavior;
 }
 function initApp() {
   if (initialized) return; initialized = true;
@@ -1493,7 +1509,7 @@ function initApp() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
   document.body.className = appState.isLandscapeMode ? 'layout-landscape' : 'layout-portrait'; document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
-  generateDateList(); initStartupDates(); renderQuarantineUI(); showStorageWarning();
+  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToStartupRow(startupDateId)); renderQuarantineUI(); showStorageWarning();
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
 }
 

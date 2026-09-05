@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260905-stage1-v3">
+<meta name="taskkanri-build-version" content="20260905-stage1-v4">
 <meta name="taskkanri-schema-version" content="2">
 <title>タスク管理くん</title>
 <style>
@@ -162,7 +162,7 @@
   .todo-row { cursor: pointer; transition: 0.2s; }
   .todo-row:hover { background-color: #ebf8ff !important; }
 
-  #settings-view { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 1500; padding: 20px; overflow-y: auto; }
+  #settings-view { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; box-sizing: border-box; background: white; z-index: 1500; padding: 20px; overflow-y: auto; }
   .btn-save { background: #38a169; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-size: 14px; transition: 0.2s; }
   .btn-save:hover { background: #2f855a; }
   
@@ -196,6 +196,16 @@
   .count-drag-handle:active { cursor:grabbing; }
   .count-sortable-ghost { opacity:.35; background:#ebf8ff !important; }
   .count-sortable-chosen { box-shadow:0 2px 8px rgba(49,130,206,.25); }
+  .count-tags-panel { margin:0 0 8px; border-bottom:1px dashed #cbd5e0; }
+  .count-tags-panel > summary { cursor:pointer; color:#4a5568; font-size:12px; font-weight:bold; padding:3px 0 7px; }
+  .count-tags-panel[open] > summary { padding-bottom:4px; }
+  .count-tags-panel #count-tags-container { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:24px; padding:0 0 8px; }
+  #count-grid-container { overflow:auto; }
+  .count-grid-table { width:100%; border-collapse:separate; border-spacing:0; font-size:12px; background:#fff; text-align:center; }
+  .count-grid-table th, .count-grid-table td { border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; padding:4px; vertical-align:middle; }
+  .count-grid-table th:first-child, .count-grid-table td:first-child { border-left:1px solid #e2e8f0; }
+  .count-grid-table thead tr:first-child th { border-top:1px solid #e2e8f0; }
+  .count-grid-table thead th { position:sticky; top:0; z-index:2; background:#edf2f7; }
 
   /* --- 日付一括設定カレンダー --- */
   .calendar-modal-box { width:calc(100vw - 16px); height:calc(100vh - 16px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:10px 12px; box-sizing:border-box; }
@@ -434,14 +444,11 @@
 <div id="count-modal" class="modal-overlay" style="z-index: 1500;">
   <div class="menu-box" style="width: 95vw; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; padding: 15px 20px;">
     <h2 style="margin:0 0 10px 0; text-align:center; font-size:20px; color:#2d3748;">🔢 授業時数マネージャー</h2>
-    <p style="font-size:12px; color:#718096; text-align:center; margin-top:0; line-height:1.4;">
-        ※「クラス別比較」で数え、「時程グリッド」で行事を見ながら不要な予定を消去できます。<br>
-        ※設定画面で非表示にしたコマは自動的にカウント対象外となり、誤集計を防ぎます。
-    </p>
     <div style="background:#f7fafc; padding:10px; border-radius:6px; border:1px solid #cbd5e0; margin-bottom:10px; flex-shrink: 0;">
-      
-      <div id="count-tags-container" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px dashed #cbd5e0; min-height:24px; align-items:center;"></div>
-      
+      <details class="count-tags-panel" open>
+        <summary>抽出タグ</summary>
+        <div id="count-tags-container"></div>
+      </details>
       <div style="display:flex; align-items:center; gap:15px; margin-bottom:8px;">
           <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
           <div style="font-size:13px; color:#4a5568; display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:2px 6px;">
@@ -461,7 +468,7 @@
       </div>
       <div style="flex:1; background:#fff; border:1px solid #cbd5e0; border-top:none; border-radius:0 0 6px 6px; padding:10px; overflow:hidden; position:relative;">
         <div id="count-preview-container" style="display:flex; gap:10px; width:100%; height:100%; overflow-x:auto; overflow-y:hidden;"></div>
-        <div id="count-grid-container" style="display:none; width:100%; height:100%; overflow-y:auto;"></div>
+        <div id="count-grid-container" style="display:none; width:100%; height:100%;"></div>
       </div>
     </div>
 
@@ -640,6 +647,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260905-stage1-v3"></script>
+<script type="module" src="taskkanri-app.js?v=20260905-stage1-v4"></script>
 </body>
 </html>
