@@ -13,6 +13,7 @@ import {
   HistoryManager,
   formatStateSummary,
   getDateSchedulePolicy,
+  getHolidayName,
   isEffectiveHoliday,
   isSlotVisibleForDate,
   isValidIsoDate,
@@ -25,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260906-academic-rollover-v1';
+} from './taskkanri-core.mjs?v=20260906-rollover-master-timetable-v2';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -94,6 +95,7 @@ function getDisplaySlot(slot) {
 function getActiveSlotsForDate(dateId) {
   return APP_CONFIG.slotsAll.filter(slot => isSlotVisibleForDate(dateId, slot, appState));
 }
+function holidayName(dateId, state = appState) { return getHolidayName(dateId, state); }
 function scheduleSlots(dateId, state = appState) { return Object.fromEntries(APP_CONFIG.slotsAll.map(slot => [slot, getResolvedSlot(dateId, slot, state)])); }
 function resolvedSlot(dateId, slot, state = appState) { return getResolvedSlot(dateId, slot, state); }
 function academicDateIds(state = appState) {
@@ -122,7 +124,7 @@ function getDayBgClass(dateId) {
   if (profile.startsWith('noclass')) return 'bg-no-class';
   if (profile === 'exam' || profile === 'mock-exam') return 'bg-exam';
   if (['short', 'short-am', 'morning'].includes(profile)) return 'bg-short';
-  if (appState.customHolidays[dateId] || date.getDay() === 0) return 'bg-sun-hol';
+  if (holidayName(dateId) || date.getDay() === 0) return 'bg-sun-hol';
   if (date.getDay() === 6) return 'bg-sat';
   if (policy.isFixedOffActive) return 'bg-fixed-off';
   return '';
@@ -137,7 +139,7 @@ function getSmartDateRange() {
   return { start: getIsoDateStr(today), end: getIsoDateStr(end) };
 }
 function getPreviewText(dateId) {
-  const raw = appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? appState.customHolidays[dateId] : '');
+  const raw = appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? holidayName(dateId) : '');
   const text = stripHtml(raw).replace(/\s+/g, '');
   const length = appState.isLandscapeMode ? 10 : 5;
   if (typeof Intl !== 'undefined' && Intl.Segmenter) return Array.from(new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)).slice(0, length).map(item => item.segment).join('');
@@ -392,7 +394,7 @@ function createDateItem(dateId, searching = false) {
     snippets.style.paddingTop = '2px';
     snippets.addEventListener('click', () => renderEditor(dateId, 'top'));
     const eventText = stripHtml(appState.configEvents[dateId] || '');
-    const holidayText = stripHtml(appState.customHolidays[dateId] || '');
+    const holidayText = stripHtml(holidayName(dateId) || '');
     const slots = scheduleSlots(dateId);
     const dayText = [eventText, holidayText, ...APP_CONFIG.slotsAll.map(slot => stripHtml(slots[slot] || ''))].filter(Boolean).join(' ');
     const found = [];
@@ -450,9 +452,9 @@ function generateDateList() {
   while (date <= end) {
     const dateId = getIsoDateStr(date);
     if (!searching || (() => {
-      const text = [appState.configEvents[dateId], appState.customHolidays[dateId], ...APP_CONFIG.slotsAll.map(slot => scheduleSlots(dateId)[slot])].map(stripHtml).join(' ').toLocaleLowerCase();
+      const text = [appState.configEvents[dateId], holidayName(dateId), ...APP_CONFIG.slotsAll.map(slot => scheduleSlots(dateId)[slot])].map(stripHtml).join(' ').toLocaleLowerCase();
       if (currentSearchMode === 'day') return currentSearchKeywords.every(keyword => text.includes(keyword.toLocaleLowerCase()));
-      const eventText = `${stripHtml(appState.configEvents[dateId] || '')} ${stripHtml(appState.customHolidays[dateId] || '')}`;
+      const eventText = `${stripHtml(appState.configEvents[dateId] || '')} ${stripHtml(holidayName(dateId) || '')}`;
       if (currentSearchKeywords.every(keyword => eventText.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()))) return true;
       return APP_CONFIG.slotsAll.some(slot => {
         const slotText = stripHtml(scheduleSlots(dateId)[slot] || '').toLocaleLowerCase();
@@ -516,7 +518,7 @@ function showTooltip(event, dateId) {
     hasContent = true;
   };
   const holiday = isEffectiveHoliday(dateId, appState);
-  addLine('祝:', holiday ? appState.customHolidays[dateId] : '', '#fc8181');
+  addLine('祝:', holiday ? holidayName(dateId) : '', '#fc8181');
   addLine('', appState.configEvents[dateId] || '', '#f6ad55');
   const profile = getDayProfile(dateId);
   const noClass = profile === 'noclass-hide';
@@ -607,11 +609,11 @@ function buildPanelHeader(dateId, position) {
   if (top) eventInput.style.marginLeft = '15px';
   eventInput.addEventListener('input', () => updateAnnualEvent(dateId, eventInput.value));
   secondLine.appendChild(eventInput);
-  if (holiday) secondLine.appendChild(el('span', `祝：${stripHtml(appState.customHolidays[dateId])}`));
+  if (holiday) secondLine.appendChild(el('span', `祝：${stripHtml(holidayName(dateId))}`));
   if (!top) header.appendChild(secondLine);
   return header;
 }
-function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = false) {
+function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = false, showRuleActions = false) {
   const row = el('div');
   row.className = 'slot-row';
   const label = el('div', getDisplaySlot(slot));
@@ -630,10 +632,13 @@ function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = f
   if (hasOverride) {
     if (origin === 'override') { const mark = el('span', '変'); mark.className = 'slot-change-mark'; mark.title = 'この日だけの変更'; mark.setAttribute('aria-label', 'この日だけの変更'); label.appendChild(mark); }
     else { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
-    const restore = el('button', '戻す'); restore.type = 'button'; restore.className = 'btn-s'; restore.title = `${dateId} ${slot}を基本時間割に戻す`;
-    restore.addEventListener('click', () => restoreBaseSlot(dateId, slot));
-    const following = el('button', '以降'); following.type = 'button'; following.className = 'btn-s'; following.title = `${dateId}以降の毎週${APP_CONFIG.daysStr[weekdayForDateId(dateId)]}曜日を変更`;
-    following.addEventListener('click', () => changeFollowingWeekly(dateId, slot, input.innerHTML)); row.append(label, input, restore, following);
+    row.append(label, input);
+    if (showRuleActions) {
+      const restore = el('button', '戻す'); restore.type = 'button'; restore.className = 'btn-s'; restore.title = `${dateId} ${slot}を基本時間割に戻す`;
+      restore.addEventListener('click', () => restoreBaseSlot(dateId, slot));
+      const following = el('button', '以降'); following.type = 'button'; following.className = 'btn-s'; following.title = `${dateId}以降の毎週${APP_CONFIG.daysStr[weekdayForDateId(dateId)]}曜日を変更`;
+      following.addEventListener('click', () => changeFollowingWeekly(dateId, slot, input.innerHTML)); row.append(restore, following);
+    }
   } else {
     if (origin === 'rule') { label.title = '基本時間割から表示'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 基本時間割から表示`); }
     if (origin === 'legacy') { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
@@ -665,7 +670,7 @@ function renderEditor(dateId, position) {
   const isShortChime = short === 1 || short === 2;
   const isExamChime = exam === 1;
   const canRender = slot => isSlotVisibleForDate(dateId, slot, appState);
-  const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)); });
+  const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime, targetPosition === 'top')); });
   addSlots(['朝']);
   if (!hideClasses) {
     const first = ['１限', '２限', '３限', '４限'].filter(canRender);
@@ -677,7 +682,7 @@ function renderEditor(dateId, position) {
       [first, second].filter(slots => slots.length > 0).forEach(slots => {
         const column = el('div');
         column.className = 'col-half';
-        slots.forEach(slot => column.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
+        slots.forEach(slot => column.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime, targetPosition === 'top')));
         columns.appendChild(column);
       });
       if (columns.childElementCount > 0) content.appendChild(columns);
@@ -852,7 +857,7 @@ function getBulkCalendarDateTooltip(dateId, visual) {
   if (!date) return '';
   const values = [`${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${APP_CONFIG.daysStr[date.getDay()]}）`, visual.label];
   const eventText = stripHtml(appState.configEvents[dateId] || '').replace(/\s+/g, ' ').trim();
-  const holidayText = isEffectiveHoliday(dateId, appState) ? stripHtml(appState.customHolidays[dateId] || '').replace(/\s+/g, ' ').trim() : '';
+  const holidayText = isEffectiveHoliday(dateId, appState) ? stripHtml(holidayName(dateId) || '').replace(/\s+/g, ' ').trim() : '';
   if (eventText) values.push(eventText);
   if (holidayText) values.push(holidayText);
   return values.join('\n');
@@ -1306,7 +1311,7 @@ function renderCountGrid() {
   while (date && last && date <= last) {
     const dateId = getIsoDateStr(date); const row = el('tr'); row.className = getDayBgClass(dateId);
     const dateCell = el('td'); dateCell.appendChild(el('span', `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`)); const trashDay = el('button', '🗑️'); trashDay.type = 'button'; trashDay.className = 'btn-s'; trashDay.title = 'この日の授業を全消去/全復活'; trashDay.addEventListener('click', () => trashDayAll(dateId)); dateCell.appendChild(trashDay); row.appendChild(dateCell);
-    const eventText = stripHtml(appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? appState.customHolidays[dateId] : '')); const eventCell = el('td', eventText); eventCell.className = 'count-grid-event'; if (eventText) { setSafeTitle(eventCell, eventText); eventCell.setAttribute('aria-label', eventText); } row.appendChild(eventCell);
+    const eventText = stripHtml(appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? holidayName(dateId) : '')); const eventCell = el('td', eventText); eventCell.className = 'count-grid-event'; if (eventText) { setSafeTitle(eventCell, eventText); eventCell.setAttribute('aria-label', eventText); } row.appendChild(eventCell);
     periodSlots.forEach(slot => {
       const cell = el('td');
       previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => {
@@ -1530,8 +1535,9 @@ function openSettingsView() {
     }));
     legacySummary.textContent = `旧データ由来 ${legacy}件（基本時間割と同内容 ${same}件 / 異なる内容 ${different}件）、取消 ${cancelled}件。自動整理は行いません。`;
   }
-  const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
-  const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
+  const bounds = academicYearBounds(appState.currentYear);
+  const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
+  const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
   const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
   renderQuarantineUI(); settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block'; isHydratingSettings = false;
 }
@@ -1565,16 +1571,22 @@ function parseTextareaMap(value, fieldLabel) {
   }
   return result;
 }
+function replaceAcademicYearDateMap(existing, replacement) {
+  const bounds = academicYearBounds(appState.currentYear);
+  const next = {};
+  Object.entries(existing || {}).forEach(([dateId, value]) => { if (dateId < bounds.start || dateId > bounds.end) next[dateId] = value; });
+  return { ...next, ...replacement };
+}
 function academicYearRolloverStorageUsageKb() {
   const bytes = (storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike?.getItem(key)?.length || 0) + key.length) * 2, 0);
   return (bytes / 1024).toFixed(2);
 }
 function buildAcademicYearRolloverPlan() {
-  const copyWeeklyRules = Boolean(document.getElementById('academic-year-rollover-weekly')?.checked);
+  const copyBaseTimetable = Boolean(document.getElementById('academic-year-rollover-weekly')?.checked);
   return planAcademicYearRollover(appState, {
     sourceYear: appState.currentYear,
     targetYear: appState.currentYear + 1,
-    copyWeeklyRules
+    copyBaseTimetable
   });
 }
 function renderAcademicYearRolloverPreview() {
@@ -1590,18 +1602,26 @@ function renderAcademicYearRolloverPreview() {
   const value = plan.value;
   if (heading) heading.textContent = `${value.sourceYear}年度から${value.targetYear}年度へ繰り越します`;
   const excluded = value.excludedCounts;
+  const counts = value.counts;
+  const needsResetConfirmation = counts.removedTargetRules > 0 || counts.removedTargetEvents > 0;
+  const confirmationWrap = document.getElementById('academic-year-rollover-reset-confirm-wrap');
+  const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
+  if (confirmationWrap) { confirmationWrap.hidden = !needsResetConfirmation; confirmationWrap.style.display = needsResetConfirmation ? 'flex' : 'none'; }
+  if (!needsResetConfirmation && confirmation) confirmation.checked = false;
   const lines = [
-    value.copyWeeklyRules
-      ? `週間授業規則: ${value.candidateCount}件を確認し、${value.copiedCount}件を追加予定です。`
-      : '週間授業規則: 作成しません。',
-    value.copyWeeklyRules && value.conflictCount ? `既存の次年度規則との競合: ${value.conflictCount}件（既存を優先し、空いている期間だけ追加）` : '',
-    value.copyWeeklyRules && value.skippedCount ? `競合により追加しない規則: ${value.skippedCount}件` : '',
-    `日別変更・行事・日別状態・祝日: 繰り越しません（日別変更 ${excluded.dateOverrides}日 / 行事 ${excluded.configEvents}日 / 日別状態 ${excluded.dayProfiles}日 / 祝日 ${excluded.customHolidays}日）。`,
+    value.copyBaseTimetable
+      ? `基本時間割: コピーします。週間授業規則は ${value.candidateCount}件を確認し、${value.copiedCount}件を作成予定です。`
+      : '基本時間割: 空にします。週間授業規則は作成しません。',
+    `次年度に入力済みの週間授業規則: ${counts.removedTargetRules}件を削除予定${counts.splitRules ? `（年度境界で ${counts.splitRules}件を分割して年度外は保持）` : ''}。`,
+    `年間行事: 次年度分 ${counts.removedTargetEvents}件をリセットします（元年度の行事は保持）。`,
+    `暦上の祝日: 次年度分を設定します（確定 ${counts.confirmedHolidays}件 / 暫定 ${counts.tentativeHolidays}件）。学校独自休日は元年度からコピーしません。`,
+    `繰越先に既にあるデータは保持: 学校独自休日 ${counts.preservedTargetCustomHolidays}日 / 日別変更 ${counts.preservedTargetOverrides}日 / 日別状態 ${counts.preservedTargetDayProfiles}日。`,
+    `元年度からコピーしないデータ: 日別変更 ${excluded.dateOverrides}日 / 行事 ${excluded.configEvents}日 / 日別状態 ${excluded.dayProfiles}日 / 学校独自休日 ${excluded.customHolidays}日。`,
     `時数集計期間: ${value.nextCountDateRange.start} ～ ${value.nextCountDateRange.end} に設定します。開始番号は変更しません。`,
     `現在のTaskKanri保存領域: 約 ${academicYearRolloverStorageUsageKb()} KB。実行前に復旧snapshotを作成します。`
   ].filter(Boolean);
   if (preview) preview.textContent = lines.join('\n');
-  if (execute) { execute.disabled = false; execute.textContent = `${value.targetYear}年度へ繰り越す`; }
+  if (execute) { execute.disabled = needsResetConfirmation && !confirmation?.checked; execute.textContent = `${value.targetYear}年度へ繰り越す`; }
   return plan;
 }
 function openAcademicYearRolloverModal() {
@@ -1610,6 +1630,8 @@ function openAcademicYearRolloverModal() {
   academicYearRolloverInvoker = document.activeElement;
   const weekly = document.getElementById('academic-year-rollover-weekly');
   if (weekly) weekly.checked = false;
+  const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
+  if (confirmation) confirmation.checked = false;
   const modal = document.getElementById('academic-year-rollover-modal');
   if (!modal) return;
   modal.style.display = 'flex';
@@ -1636,11 +1658,13 @@ function executeAcademicYearRollover() {
   const plan = buildAcademicYearRolloverPlan();
   if (!plan.ok) { showAlert(plan.error); return; }
   const value = plan.value;
+  const needsResetConfirmation = value.counts.removedTargetRules > 0 || value.counts.removedTargetEvents > 0;
+  if (needsResetConfirmation && !document.getElementById('academic-year-rollover-reset-confirm')?.checked) { showAlert('次年度に入力済みの基本時間割規則・年間行事を削除する確認にチェックしてください。'); return; }
   const snapshot = storageService.createRecoverySnapshot();
   if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
   const applied = applyAcademicYearRollover(appState, plan);
   if (!applied.ok) { showAlert(applied.error); return; }
-  const copied = value.copyWeeklyRules ? `${value.copiedCount}件の週間授業規則` : '週間授業規則を作成せず';
+  const copied = value.copyBaseTimetable ? `基本時間割と${value.copiedCount}件の週間授業規則` : '基本時間割を空にし、週間授業規則を作成せず';
   if (!commitState(state => Object.assign(state, applied.value), { refresh: true, historyLabel: `年度繰越 ${value.sourceYear}→${value.targetYear}`, historyScope: 'academic-year-rollover' })) return;
   closeAcademicYearRolloverModal();
   settingsDirtySections.clear();
@@ -1664,7 +1688,7 @@ function saveBasicSettings() {
     ].join('\n');
     if (!showConfirm(message)) return;
   }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; state.calendarHolidays = plan.value.nextCalendarHolidays; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
 }
 function saveTimeConfig() {
   const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig); const instructionDays = clone(appState.instructionDayConfig);
@@ -1708,10 +1732,10 @@ function applyWeeklyRange() {
   if (commitState(state => Object.assign(state, next), { historyLabel: '基本時間割の適用', historyScope: 'weekly-rule' })) { clearSettingsDirty('weekly'); showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
 }
 function saveAnnual() {
-  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { clearSettingsDirty('events'); showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = replaceAcademicYearDateMap(state.configEvents, parsed); }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { clearSettingsDirty('events'); showAlert('現在年度の年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 function saveHolidays() {
-  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; }, { historyLabel: '祝日設定の保存', historyScope: 'holiday' })) { clearSettingsDirty('holidays'); showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '学校独自休日'); if (commitState(state => { state.customHolidays = replaceAcademicYearDateMap(state.customHolidays, parsed); }, { historyLabel: '学校独自休日の保存', historyScope: 'holiday' })) { clearSettingsDirty('holidays'); showAlert('現在年度の学校独自休日を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 
 function exportData() {

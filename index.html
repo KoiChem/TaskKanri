@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-academic-rollover-v1">
-<meta name="taskkanri-schema-version" content="5">
+<meta name="taskkanri-build-version" content="20260906-rollover-master-timetable-v2">
+<meta name="taskkanri-schema-version" content="6">
 <title>タスク管理くん</title>
 <style>
   :root { 
@@ -579,9 +579,9 @@
       <h3>繰越内容</h3>
       <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
         <input id="academic-year-rollover-weekly" type="checkbox" onchange="renderAcademicYearRolloverPreview()">
-        <span><strong>週間授業規則を次年度にも作成する</strong><br><span class="rollover-note">年度ごとに担当時間割が変わる場合は、選択せずに進んでください。</span></span>
+        <span><strong>基本時間割と週間授業規則を次年度へコピーする</strong><br><span class="rollover-note">年度ごとに担当時間割が変わる場合は、選択せずに進んでください。</span></span>
       </label>
-      <p class="rollover-note">日別変更・年間行事・日別状態・祝日・休業日は繰り越しません。元年度のデータは削除されず、次年度にある規則も上書きしません。</p>
+      <p class="rollover-note">年間行事は次年度分をリセットします。暦上の祝日は次年度分へ更新し、学校独自休日・日別変更・日別状態は元年度からコピーしません。</p>
     </section>
 
     <section class="rollover-section">
@@ -593,6 +593,11 @@
       <h3>実行時の安全処理</h3>
       <p class="rollover-note">実行前に復旧snapshotを作成します。作成または保存に失敗した場合、年度・時間割とも変更しません。成功後は「元に戻す」で繰越全体を取り消せます。</p>
     </section>
+
+    <label id="academic-year-rollover-reset-confirm-wrap" class="rollover-section rollover-warning" hidden style="display:none; align-items:flex-start; gap:8px; cursor:pointer;">
+      <input id="academic-year-rollover-reset-confirm" type="checkbox" onchange="renderAcademicYearRolloverPreview()">
+      <span><strong>次年度に入力済みの基本時間割規則・年間行事を削除して、繰越内容で作り直すことを確認しました。</strong><br><span class="rollover-note">過年度の記録は削除しません。実行前snapshotと「元に戻す」で復旧できます。</span></span>
+    </label>
 
     <div class="rollover-actions">
       <button type="button" class="menu-btn" onclick="closeAcademicYearRolloverModal()">キャンセル</button>
@@ -654,7 +659,7 @@
   
   <div data-settings-section="weekly" style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="margin:0;">3. 基本時間割</h3>
+      <h3 style="margin:0;">3. 基本時間割（マスター）</h3>
       <button class="btn-save" onclick="saveWeekly()">基本時間割を保存</button>
     </div>
     <table class="tmpl-table">
@@ -663,13 +668,13 @@
     </table>
     
     <div class="apply-control-box">
-      <h4 style="margin:0 0 10px 0; color:#2d3748;">▼ この期間の基本時間割として適用</h4>
+      <h4 style="margin:0 0 10px 0; color:#2d3748;">▼ このマスターを期間へ適用</h4>
       <div style="margin-bottom:10px; display:flex; gap:15px; flex-wrap:wrap; align-items:center;">
         <div>適用期間： <input type="date" id="tmpl-start"> ～ <input type="date" id="tmpl-end"></div>
       </div>
-      <p style="font-size:12px; color:#718096; margin-top:0;">※表は下書きです。保存だけでは日別予定は変わりません。適用時も日別変更はそのまま優先されます。</p>
+      <p style="font-size:12px; color:#718096; margin-top:0;">※保存だけでは期間別の予定は変わりません。適用後の週間授業規則は期間ごとの確定記録で、後からマスターを編集しても自動変更されません。日別変更は引き続き優先されます。</p>
       <div style="display:flex; gap:10px;">
-        <button class="btn-save" style="background:#4299e1; flex:1;" onclick="applyWeeklyRange()">この期間の基本時間割として適用</button>
+        <button class="btn-save" style="background:#4299e1; flex:1;" onclick="applyWeeklyRange()">指定期間の週間授業規則を作成</button>
       </div>
       <p id="legacy-override-summary" style="font-size:12px; color:#4a5568; margin:10px 0 0;"></p>
     </div>
@@ -681,7 +686,8 @@
       <textarea id="annual-text-ui"></textarea>
     </div>
     <div data-settings-section="holidays" style="flex:1; background:#fff5f5; padding:15px; border-radius:8px; border:1px solid #feb2b2;">
-      <h3>5. 祝日設定 (YYMMDD:祝日名) <button class="btn-save" onclick="saveHolidays()">保存</button></h3>
+      <h3>5. 学校独自休日 (YYMMDD:休日名) <button class="btn-save" onclick="saveHolidays()">保存</button></h3>
+      <p style="font-size:12px; color:#742a2a; margin-top:0;">国民の祝日・振替休日は暦データから自動設定されます。ここでは学校独自の休日だけを編集します。</p>
       <textarea id="holiday-text-ui"></textarea>
     </div>
   </div>
@@ -713,6 +719,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-academic-rollover-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-rollover-master-timetable-v2"></script>
 </body>
 </html>

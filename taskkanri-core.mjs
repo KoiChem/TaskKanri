@@ -7,11 +7,11 @@
  */
 
 export const APP_CONFIG = Object.freeze({
-  displayVersion: '74',
+  displayVersion: '75',
   compatibilityVersion: '73',
-  buildVersion: '20260906-academic-rollover-v1',
-  schemaVersion: 5,
-  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5]),
+  buildVersion: '20260906-rollover-master-timetable-v2',
+  schemaVersion: 6,
+  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -30,11 +30,14 @@ export const APP_CONFIG = Object.freeze({
     short: Object.freeze({ '朝': '08:35', '１限': '08:50', '２限': '09:40', '３限': '10:30', '４限': '11:20', '昼休み': '12:00', '５限': '12:45', '６限': '13:35', '７限': '14:25', '放課後': '15:25' }),
     exam: Object.freeze({ '朝': '08:35', '１限': '08:50', '２限': '09:50', '３限': '10:50', '４限': '11:50', '昼休み': '', '５限': '', '６限': '', '７限': '', '放課後': '12:00' })
   }),
-  defaultHolidays: Object.freeze({
+  knownCalendarHolidays: Object.freeze({
     '2026-04-29': '昭和の日', '2026-05-03': '憲法記念日', '2026-05-04': 'みどりの日', '2026-05-05': 'こどもの日', '2026-05-06': '振替休日',
-    '2026-07-20': '海の日', '2026-08-11': '山の日', '2026-09-21': '敬老の日', '2026-09-22': '国民の休日', '2026-09-23': '秋分の日',
+    '2026-07-20': '海の日', '2026-08-11': '山の日', '2026-09-21': '敬老の日', '2026-09-22': '休日', '2026-09-23': '秋分の日',
     '2026-10-12': 'スポーツの日', '2026-11-03': '文化の日', '2026-11-23': '勤労感謝の日',
-    '2027-01-01': '元日', '2027-01-11': '成人の日', '2027-02-11': '建国記念の日', '2027-02-23': '天皇誕生日', '2027-03-21': '春分の日', '2027-03-22': '振替休日'
+    '2027-01-01': '元日', '2027-01-11': '成人の日', '2027-02-11': '建国記念の日', '2027-02-23': '天皇誕生日', '2027-03-21': '春分の日', '2027-03-22': '振替休日',
+    '2027-04-29': '昭和の日', '2027-05-03': '憲法記念日', '2027-05-04': 'みどりの日', '2027-05-05': 'こどもの日',
+    '2027-07-19': '海の日', '2027-08-11': '山の日', '2027-09-20': '敬老の日', '2027-09-23': '秋分の日',
+    '2027-10-11': 'スポーツの日', '2027-11-03': '文化の日', '2027-11-23': '勤労感謝の日'
   })
 });
 
@@ -46,7 +49,7 @@ const LEGACY_BASE_KEYS = Object.freeze([
 const LEGACY_SUFFIXES = Object.freeze(['V46', 'V43', 'V42', 'V41']);
 const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIXES.map(suffix => `${base}${suffix}`)));
 const STATE_KEYS = Object.freeze([
-  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents',
+  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents', 'calendarHolidays',
   'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
   'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
 ]);
@@ -157,7 +160,8 @@ export function defaultState(year = 2026) {
     weeklyRules: {},
     dateOverrides: {},
     configEvents: {},
-    customHolidays: clone(APP_CONFIG.defaultHolidays),
+    calendarHolidays: buildCalendarHolidaysForAcademicYear(year),
+    customHolidays: {},
     dayProfiles: {},
     timeConfig: defaultTimeConfig(),
     globalTaskData: '',
@@ -179,6 +183,113 @@ export function isValidIsoDate(value) {
   return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
 }
 
+function isoDate(year, month, day) {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function addIsoDays(dateId, amount) {
+  const date = new Date(`${dateId}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function nthWeekdayOfMonth(year, month, weekday, nth) {
+  const first = isoDate(year, month, 1);
+  const offset = (weekday - weekdayForDateId(first) + 7) % 7;
+  return isoDate(year, month, 1 + offset + (nth - 1) * 7);
+}
+
+function vernalEquinoxDay(year) {
+  const offset = year - 2000;
+  return Math.floor(20.69115 + (0.242194 * offset) - Math.floor(offset / 4));
+}
+
+function autumnalEquinoxDay(year) {
+  const offset = year - 2000;
+  return Math.floor(23.09 + (0.242194 * offset) - Math.floor(offset / 4));
+}
+
+/**
+ * Returns a locally computed Japanese calendar-holiday map for one calendar
+ * year.  Cabinet Office data bundled in APP_CONFIG is authoritative where it
+ * is available; other years are deliberately labeled tentative.
+ */
+export function buildCalendarHolidaysForYear(year) {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return {};
+  const names = {};
+  const add = (month, day, name) => { names[isoDate(year, month, day)] = name; };
+  add(1, 1, '元日');
+  add(1, Number(nthWeekdayOfMonth(year, 1, 1, 2).slice(8, 10)), '成人の日');
+  add(2, 11, '建国記念の日');
+  if (year >= 2020) add(2, 23, '天皇誕生日');
+  else if (year <= 2018) add(12, 23, '天皇誕生日');
+  add(3, vernalEquinoxDay(year), '春分の日');
+  add(4, 29, '昭和の日');
+  add(5, 3, '憲法記念日');
+  add(5, 4, 'みどりの日');
+  add(5, 5, 'こどもの日');
+  add(7, Number(nthWeekdayOfMonth(year, 7, 1, 3).slice(8, 10)), '海の日');
+  if (year >= 2016) add(8, 11, '山の日');
+  add(9, Number(nthWeekdayOfMonth(year, 9, 1, 3).slice(8, 10)), '敬老の日');
+  add(9, autumnalEquinoxDay(year), '秋分の日');
+  add(10, Number(nthWeekdayOfMonth(year, 10, 1, 2).slice(8, 10)), year >= 2020 ? 'スポーツの日' : '体育の日');
+  add(11, 3, '文化の日');
+  add(11, 23, '勤労感謝の日');
+
+  // One-off statutory changes.  These preserve correct migration and import
+  // behavior for the years most likely to be present in existing records.
+  if (year === 2019) { add(5, 1, '天皇の即位の日'); add(10, 22, '即位礼正殿の儀'); }
+  if (year === 2020) {
+    delete names[isoDate(year, 7, 20)]; delete names[isoDate(year, 8, 11)]; delete names[isoDate(year, 10, 12)];
+    add(7, 23, '海の日'); add(7, 24, 'スポーツの日'); add(8, 10, '山の日');
+  }
+  if (year === 2021) {
+    delete names[isoDate(year, 7, 19)]; delete names[isoDate(year, 8, 11)]; delete names[isoDate(year, 10, 11)];
+    add(7, 22, '海の日'); add(7, 23, 'スポーツの日'); add(8, 8, '山の日');
+  }
+
+  // A Sunday holiday moves to the following non-holiday.  Compute this before
+  // citizens' holidays; then repeat the citizens' holiday check to cover a
+  // date made adjacent by a substitute day.
+  Object.keys(names).sort().forEach(dateId => {
+    if (weekdayForDateId(dateId) !== 0) return;
+    let substitute = addIsoDays(dateId, 1);
+    while (names[substitute]) substitute = addIsoDays(substitute, 1);
+    names[substitute] = '振替休日';
+  });
+  for (let month = 1; month <= 12; month += 1) {
+    const max = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    for (let day = 2; day < max; day += 1) {
+      const dateId = isoDate(year, month, day);
+      if (!names[dateId] && weekdayForDateId(dateId) !== 0 && names[addIsoDays(dateId, -1)] && names[addIsoDays(dateId, 1)]) names[dateId] = '休日';
+    }
+  }
+  return Object.fromEntries(Object.entries(names).sort(([left], [right]) => left.localeCompare(right)).map(([dateId, name]) => {
+    const confirmed = holidayNamesMatch(APP_CONFIG.knownCalendarHolidays[dateId], name);
+    return [dateId, { name, status: confirmed ? 'confirmed' : 'tentative' }];
+  }));
+}
+
+function holidayNamesMatch(left, right) {
+  if (left === right) return true;
+  const citizenHolidayNames = new Set(['休日', '国民の休日']);
+  return citizenHolidayNames.has(left) && citizenHolidayNames.has(right);
+}
+
+export function buildCalendarHolidaysForAcademicYear(year) {
+  const bounds = academicYearBounds(year);
+  if (!bounds) return {};
+  return Object.fromEntries(Object.entries({ ...buildCalendarHolidaysForYear(year), ...buildCalendarHolidaysForYear(year + 1) })
+    .filter(([dateId]) => dateId >= bounds.start && dateId <= bounds.end));
+}
+
+export function getHolidayName(dateId, state) {
+  const custom = state?.customHolidays?.[dateId];
+  if (typeof custom === 'string' && stripHtml(custom).trim()) return custom;
+  const calendar = state?.calendarHolidays?.[dateId];
+  return typeof calendar?.name === 'string' ? calendar.name : '';
+}
+
 export function isWeekend(dateId) {
   const day = weekdayForDateId(dateId);
   return day === 0 || day === 6;
@@ -190,7 +301,7 @@ export function weekdayForDateId(dateId) {
 }
 
 export function isEffectiveHoliday(dateId, state) {
-  return Boolean(state?.customHolidays?.[dateId]) && !(state?.dayProfiles?.[dateId] && state.dayProfiles[dateId] !== 'normal');
+  return Boolean(getHolidayName(dateId, state)) && !(state?.dayProfiles?.[dateId] && state.dayProfiles[dateId] !== 'normal');
 }
 
 export function getDateSchedulePolicy(dateId, state) {
@@ -241,6 +352,7 @@ export function planAcademicYearChange(state, nextYear) {
   const oldBounds = academicYearBounds(current.currentYear);
   const automaticRange = !range.start || !range.end || (range.start === oldBounds.start && range.end === oldBounds.end);
   const rangeOutside = !automaticRange && Boolean((range.start && !isAcademicYearDate(range.start, nextYear)) || (range.end && !isAcademicYearDate(range.end, nextYear)));
+  const preservedCalendar = Object.fromEntries(Object.entries(current.calendarHolidays || {}).filter(([dateId]) => !isAcademicYearDate(dateId, nextYear)));
   return {
     ok: true,
     value: {
@@ -252,7 +364,8 @@ export function planAcademicYearChange(state, nextYear) {
       },
       automaticRange,
       rangeOutside,
-      nextCountDateRange: automaticRange ? clone(nextBounds) : clone(range)
+      nextCountDateRange: automaticRange ? clone(nextBounds) : clone(range),
+      nextCalendarHolidays: { ...preservedCalendar, ...buildCalendarHolidaysForAcademicYear(nextYear) }
     }
   };
 }
@@ -315,29 +428,69 @@ function appendWeeklyRuleInFreeRanges(state, rule) {
   return { state: next, added: freeRanges, conflicted: occupied.length > 0 };
 }
 
+function removeWeeklyRulesInRange(rules, range) {
+  const next = {};
+  let removed = 0;
+  let split = 0;
+  for (const [day, slots] of Object.entries(rules || {})) {
+    const nextSlots = {};
+    for (const [slot, segments] of Object.entries(slots)) {
+      const kept = [];
+      for (const segment of segments) {
+        const overlap = intersectIsoRanges(segment, { from: range.start, to: range.end });
+        if (!overlap) {
+          kept.push({ ...segment });
+          continue;
+        }
+        removed += 1;
+        const left = segment.from < overlap.from ? { ...segment, to: shiftIsoDateByDays(overlap.from, -1) } : null;
+        const right = segment.to > overlap.to ? { ...segment, from: shiftIsoDateByDays(overlap.to, 1) } : null;
+        if (left || right) split += 1;
+        if (left) kept.push(left);
+        if (right) kept.push(right);
+      }
+      if (kept.length) nextSlots[slot] = kept;
+    }
+    if (Object.keys(nextSlots).length) next[day] = nextSlots;
+  }
+  return { rules: next, removed, split };
+}
+
+function removeDateMapInRange(map, range) {
+  const next = {};
+  let removed = 0;
+  for (const [dateId, value] of Object.entries(map || {})) {
+    if (dateId >= range.start && dateId <= range.end) removed += 1;
+    else next[dateId] = clone(value);
+  }
+  return { map: next, removed };
+}
+
 /**
  * Creates a non-mutating next-academic-year plan.  Weekly rules are opt-in;
  * one-day changes, events, profiles, and holidays intentionally never move.
  */
-export function planAcademicYearRollover(state, { sourceYear, targetYear, copyWeeklyRules = false } = {}) {
+export function planAcademicYearRollover(state, options = {}) {
   const normalized = normalizeState(state);
   if (!normalized.ok) return normalized;
   const current = normalized.value;
-  const fromYear = sourceYear ?? current.currentYear;
-  const toYear = targetYear ?? fromYear + 1;
+  const fromYear = options.sourceYear ?? current.currentYear;
+  const toYear = options.targetYear ?? fromYear + 1;
+  const copyBaseTimetable = typeof options.copyBaseTimetable === 'boolean'
+    ? options.copyBaseTimetable
+    : Boolean(options.copyWeeklyRules);
   if (!Number.isInteger(fromYear) || !Number.isInteger(toYear) || fromYear < 2000 || fromYear > 2100 || toYear < 2000 || toYear > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
   if (fromYear !== current.currentYear) return fail('繰越元は現在表示中の年度にしてください', 'sourceYear');
   if (toYear !== fromYear + 1) return fail('繰越先は次年度のみ指定できます', 'targetYear');
   const sourceBounds = academicYearBounds(fromYear);
   const targetBounds = academicYearBounds(toYear);
-  let plannedState = clone(current);
+  const clearedRules = removeWeeklyRulesInRange(current.weeklyRules, targetBounds);
+  let plannedState = { ...clone(current), weeklyRules: clearedRules.rules };
   const plannedWeeklyRules = [];
   let candidateCount = 0;
   let copiedCount = 0;
-  let conflictCount = 0;
-  let skippedCount = 0;
 
-  if (copyWeeklyRules) {
+  if (copyBaseTimetable) {
     for (const [day, slots] of Object.entries(current.weeklyRules)) {
       for (const [slot, segments] of Object.entries(slots)) {
         for (const segment of segments) {
@@ -349,14 +502,22 @@ export function planAcademicYearRollover(state, { sourceYear, targetYear, copyWe
           if (!from || !to) return fail(`うるう日のため ${sourceRange.from}〜${sourceRange.to} を次年度へ安全に繰り越せません`, 'weeklyRules');
           const appended = appendWeeklyRuleInFreeRanges(plannedState, { day, slot, from, to, content: segment.content });
           plannedState = appended.state;
-          if (appended.conflicted) conflictCount += 1;
-          if (!appended.added.length) skippedCount += 1;
           copiedCount += appended.added.length;
           appended.added.forEach(range => plannedWeeklyRules.push({ day, slot, ...range, content: segment.content }));
         }
       }
     }
   }
+
+  const remainingEvents = removeDateMapInRange(current.configEvents, targetBounds);
+  const remainingCalendar = removeDateMapInRange(current.calendarHolidays, targetBounds);
+  const nextCalendarHolidays = {
+    ...remainingCalendar.map,
+    ...buildCalendarHolidaysForAcademicYear(toYear)
+  };
+  const holidayValues = Object.entries(nextCalendarHolidays)
+    .filter(([dateId, entry]) => dateId >= targetBounds.start && dateId <= targetBounds.end && entry && typeof entry === 'object')
+    .map(([, entry]) => entry);
 
   return {
     ok: true,
@@ -365,20 +526,36 @@ export function planAcademicYearRollover(state, { sourceYear, targetYear, copyWe
       targetYear: toYear,
       sourceBounds,
       targetBounds,
-      copyWeeklyRules: Boolean(copyWeeklyRules),
+      copyBaseTimetable,
+      // Kept temporarily so older callers can read the intent without a
+      // different outcome.  New UI and tests must use copyBaseTimetable.
+      copyWeeklyRules: copyBaseTimetable,
       plannedWeeklyRules,
       candidateCount,
       copiedCount,
-      conflictCount,
-      skippedCount,
+      conflictCount: 0,
+      skippedCount: 0,
       nextCountDateRange: clone(targetBounds),
+      nextWeeklyTemplate: copyBaseTimetable ? clone(current.weeklyTemplate) : {},
+      nextWeeklyRules: plannedState.weeklyRules,
+      nextConfigEvents: remainingEvents.map,
+      nextCalendarHolidays,
+      counts: {
+        removedTargetRules: clearedRules.removed,
+        splitRules: clearedRules.split,
+        removedTargetEvents: remainingEvents.removed,
+        confirmedHolidays: holidayValues.filter(entry => entry.status === 'confirmed').length,
+        tentativeHolidays: holidayValues.filter(entry => entry.status === 'tentative').length,
+        preservedTargetCustomHolidays: countDatesWithinAcademicYear(current.customHolidays, toYear),
+        preservedTargetOverrides: countDatesWithinAcademicYear(current.dateOverrides, toYear),
+        preservedTargetDayProfiles: countDatesWithinAcademicYear(current.dayProfiles, toYear)
+      },
       excludedCounts: {
         dateOverrides: countDatesWithinAcademicYear(current.dateOverrides, fromYear),
         configEvents: countDatesWithinAcademicYear(current.configEvents, fromYear),
         dayProfiles: countDatesWithinAcademicYear(current.dayProfiles, fromYear),
         customHolidays: countDatesWithinAcademicYear(current.customHolidays, fromYear)
-      },
-      nextWeeklyRules: copyWeeklyRules ? plannedState.weeklyRules : null
+      }
     }
   };
 }
@@ -394,7 +571,11 @@ export function applyAcademicYearRollover(state, plan) {
   const next = clone(current);
   next.currentYear = value.targetYear;
   next.countDateRange = clone(value.nextCountDateRange);
-  if (value.copyWeeklyRules) next.weeklyRules = clone(value.nextWeeklyRules);
+  if (typeof value.copyBaseTimetable !== 'boolean' || !isPlainObject(value.nextWeeklyTemplate) || !isPlainObject(value.nextWeeklyRules) || !isPlainObject(value.nextConfigEvents) || !isPlainObject(value.nextCalendarHolidays)) return fail('年度繰越プランの内容が不正です');
+  next.weeklyTemplate = clone(value.nextWeeklyTemplate);
+  next.weeklyRules = clone(value.nextWeeklyRules);
+  next.configEvents = clone(value.nextConfigEvents);
+  next.calendarHolidays = clone(value.nextCalendarHolidays);
   return normalizeState(next);
 }
 
@@ -661,6 +842,19 @@ function normalizeDateMap(value, field, stateValidator = null) {
   return { ok: true, value: result };
 }
 
+function normalizeCalendarHolidays(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'calendarHolidays');
+  const result = {};
+  for (const [dateId, raw] of Object.entries(value)) {
+    if (!isValidIsoDate(dateId) || !isPlainObject(raw) || Object.keys(raw).some(key => !['name', 'status'].includes(key))) return fail('暦上の祝日が不正です', `calendarHolidays.${dateId}`);
+    if (typeof raw.name !== 'string' || !['confirmed', 'tentative'].includes(raw.status)) return fail('祝日名または確定状態が不正です', `calendarHolidays.${dateId}`);
+    const name = sanitizeHtml(raw.name);
+    if (!stripHtml(name).trim()) return fail('祝日名は空にできません', `calendarHolidays.${dateId}`);
+    result[dateId] = { name, status: raw.status };
+  }
+  return { ok: true, value: result };
+}
+
 function normalizeLegacySchedule(value) {
   if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'scheduleData');
   const result = {};
@@ -879,6 +1073,7 @@ export function normalizeState(input) {
     if (!Number.isInteger(year) || year < 2000 || year > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
     state.currentYear = year;
   }
+  state.calendarHolidays = buildCalendarHolidaysForAcademicYear(state.currentYear);
   const booleanFields = ['isLandscapeMode', 'isClockVisible', 'isWakeLockRequested'];
   for (const field of booleanFields) {
     if (!own(input, field)) continue;
@@ -890,7 +1085,7 @@ export function normalizeState(input) {
     if (!['standard', 'additive'].includes(input.bulkCalendarSelectionMode)) return fail('standard/additiveのいずれかが必要です', 'bulkCalendarSelectionMode');
     state.bulkCalendarSelectionMode = input.bulkCalendarSelectionMode;
   }
-  for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema 5では${legacyField}は使用できません`);
+  for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema ${APP_CONFIG.schemaVersion}では${legacyField}は使用できません`);
   if (own(input, 'weeklyTemplate')) {
     const normalized = normalizeWeeklyTemplate(input.weeklyTemplate);
     if (!normalized.ok) return normalized;
@@ -911,6 +1106,11 @@ export function normalizeState(input) {
     const normalized = validator(input[field]);
     if (!normalized.ok) return normalized;
     state[field] = normalized.value;
+  }
+  if (own(input, 'calendarHolidays')) {
+    const normalized = normalizeCalendarHolidays(input.calendarHolidays);
+    if (!normalized.ok) return normalized;
+    state.calendarHolidays = normalized.value;
   }
   if (own(input, 'dayProfiles')) {
     const normalized = normalizeDayProfiles(input.dayProfiles);
@@ -1057,11 +1257,34 @@ function migrateSchema4State(data) {
   return { ok: true, value: migrated };
 }
 
+function migrateSchema5State(data) {
+  const migrated = clone(data);
+  const currentYear = Number.isInteger(migrated.currentYear) ? migrated.currentYear : 2026;
+  const calendarHolidays = buildCalendarHolidaysForAcademicYear(currentYear);
+  const customHolidays = {};
+  const legacyHolidays = own(migrated, 'customHolidays') ? migrated.customHolidays : {};
+  if (!isPlainObject(legacyHolidays)) return fail('オブジェクトが必要です', 'customHolidays');
+  for (const [dateId, rawName] of Object.entries(legacyHolidays)) {
+    if (!isValidIsoDate(dateId) || typeof rawName !== 'string') return fail('既存の祝日設定が不正です', `customHolidays.${dateId}`);
+    const name = sanitizeHtml(rawName);
+    const generated = buildCalendarHolidaysForYear(Number(dateId.slice(0, 4)))[dateId];
+    if (generated && holidayNamesMatch(stripHtml(generated.name), stripHtml(name))) {
+      calendarHolidays[dateId] = generated;
+    } else {
+      customHolidays[dateId] = name;
+    }
+  }
+  migrated.calendarHolidays = calendarHolidays;
+  migrated.customHolidays = customHolidays;
+  return migrated;
+}
+
 const MIGRATION_REGISTRY = Object.freeze({
   1: migrateSchema1State,
   2: migrateSchema2State,
   3: migrateSchema3State,
-  4: migrateSchema4State
+  4: migrateSchema4State,
+  5: migrateSchema5State
 });
 
 export function migrateToCurrent(data, sourceSchemaVersion) {
@@ -1113,11 +1336,14 @@ export function normalizeImportedPayload(rawOrObject) {
 }
 
 export function summarizeState(state) {
+  const holidayDates = new Set([...Object.keys(state.calendarHolidays || {}), ...Object.keys(state.customHolidays || {})]);
   return {
     currentYear: state.currentYear,
     overrideDays: Object.keys(state.dateOverrides).length,
     eventDays: Object.keys(state.configEvents).length,
-    holidayDays: Object.keys(state.customHolidays).length,
+    holidayDays: holidayDates.size,
+    calendarHolidayDays: Object.keys(state.calendarHolidays || {}).length,
+    customHolidayDays: Object.keys(state.customHolidays || {}).length,
     weeklyEntries: Object.values(state.weeklyRules).reduce((total, slots) => total + Object.values(slots).reduce((inside, segments) => inside + segments.length, 0), 0),
     countSettings: state.countSettings.length
   };
