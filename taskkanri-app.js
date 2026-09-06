@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260906-count-range-bulk-context-v1';
+} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -866,6 +866,11 @@ function getBulkCalendarDateTooltip(dateId, visual) {
 function renderBulkCalendar() {
   const container = document.getElementById('bulk-calendar-grid');
   if (!container) return;
+  const workspace = container.closest('.calendar-workspace');
+  const isVertical = appState.bulkCalendarMonthLayout === 'vertical';
+  container.classList.toggle('month-layout-horizontal', !isVertical);
+  container.classList.toggle('month-layout-vertical', isVertical);
+  workspace?.classList.toggle('is-month-layout-vertical', isVertical);
   container.replaceChildren();
   const todayId = getIsoDateStr(new Date());
   for (let offset = 0; offset < 12; offset += 1) {
@@ -975,15 +980,22 @@ function setBulkCalendarSelectionMode(mode) {
   bulkCalendarRangeAnchor = '';
   renderBulkCalendar();
 }
+function setBulkCalendarMonthLayout(layout) {
+  if (!['horizontal', 'vertical'].includes(layout) || appState.bulkCalendarMonthLayout === layout) return;
+  commitState(state => { state.bulkCalendarMonthLayout = layout; }, { historyLabel: '年間カレンダー月並びの変更', historyScope: 'calendar-setting' });
+  closeBulkCalendarContextMenu();
+  renderBulkCalendar();
+}
 function updateBulkCalendarControls() {
   const count = bulkCalendarSelection.size;
-  const summary = document.getElementById('bulk-calendar-selection-summary'); if (summary) summary.textContent = `${count}日を選択中`;
+  const summary = document.getElementById('bulk-calendar-selection-summary'); if (summary) summary.textContent = `${count}日`;
   const status = document.getElementById('bulk-calendar-action-status'); if (status) status.textContent = bulkCalendarStatus;
   qa('[data-bulk-day-state]').forEach(button => { button.disabled = count === 0; });
   const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = historyManager.peekUndo()?.scope === 'bulk-calendar' ? '' : 'none';
   const clear = document.getElementById('bulk-calendar-context-clear'); if (clear) { clear.disabled = count === 0; clear.textContent = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
   qa('[data-bulk-context-preset]').forEach(button => { button.disabled = count === 0; });
   ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarSelectionMode === mode); button.setAttribute('aria-pressed', String(appState.bulkCalendarSelectionMode === mode)); } });
+  ['horizontal', 'vertical'].forEach(layout => { const button = document.getElementById(`bulk-month-layout-${layout}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarMonthLayout === layout); button.setAttribute('aria-pressed', String(appState.bulkCalendarMonthLayout === layout)); } });
 }
 function openBulkCalendarModal() {
   bulkCalendarInvoker = document.activeElement; bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; bulkCalendarUndoSnapshot = null; bulkCalendarStatus = '';
@@ -1960,7 +1972,7 @@ Object.assign(window, {
   openTodoModal, closeTodoModal, jumpToDateFromTodo, openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
   updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
-  openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode,
+  openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode, setBulkCalendarMonthLayout,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, applyBulkCalendarContextPreset, saveBulkCalendarContextHoliday, clearBulkCalendarContextHoliday, undoBulkCalendarChange,
   openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
   openAcademicYearRolloverModal, closeAcademicYearRolloverModal, handleAcademicYearRolloverKeydown, renderAcademicYearRolloverPreview, executeAcademicYearRollover,

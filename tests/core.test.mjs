@@ -354,7 +354,7 @@ test('import sanitizes hostile rich text before commit and preserves data-state 
   assert.equal(normalizeImportedPayload(JSON.stringify(payload)).ok, true);
 });
 
-test('v1 through v5 states migrate through the explicit registry to schema 6 data', () => {
+test('v1 through v6 states migrate through the explicit registry to schema 7 data', () => {
   const legacy = {
     currentYear: 2026,
     noClassData: { '2026-04-01': 1, '2026-04-02': 2, '2026-04-03': 0 },
@@ -377,22 +377,30 @@ test('v1 through v5 states migrate through the explicit registry to schema 6 dat
   delete schema3Data.instructionDayConfig;
   const current = normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 3 }, data: schema3Data }));
   assert.equal(current.ok, true);
-  assert.deepEqual(current.value, normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 6 }, data: current.value })).value, 'schema 6 reload is idempotent');
+  assert.deepEqual(current.value, normalizeImportedPayload(JSON.stringify({ meta: { schemaVersion: 7 }, data: current.value })).value, 'schema 7 reload is idempotent');
   const serialized = serializePayload(current.value, fixedNow());
-  assert.equal(serialized.value.meta.schemaVersion, 6);
+  assert.equal(serialized.value.meta.schemaVersion, 7);
   assert.equal('noClassData' in serialized.value.data, false);
   assert.deepEqual(serialized.value.data.dayProfiles, migrated.value.dayProfiles);
   assert.deepEqual(serialized.value.data.instructionDayConfig, defaultInstructionDayConfig());
+  assert.equal(serialized.value.data.bulkCalendarMonthLayout, 'horizontal');
+  const schema6 = normalizeImportedPayload({ meta: { schemaVersion: 6 }, data: { currentYear: 2026 } });
+  assert.equal(schema6.ok, true);
+  assert.equal(schema6.value.bulkCalendarMonthLayout, 'horizontal');
+  const vertical = normalizeImportedPayload({ meta: { schemaVersion: 7 }, data: { currentYear: 2026, bulkCalendarMonthLayout: 'vertical' } });
+  assert.equal(vertical.ok, true);
+  assert.equal(vertical.value.bulkCalendarMonthLayout, 'vertical');
 });
 
-test('schema 6 rejects unknown profiles, future schemas, malformed calendar holidays, legacy maps, and conflicting migration without mutation', () => {
+test('schema 7 rejects unknown profiles, future schemas, malformed calendar holidays, legacy maps, and invalid month layout without mutation', () => {
   const storage = new FakeStorage({ [APP_CONFIG.storeKey]: masterRaw() });
   const service = newService(storage); service.load();
   const before = storage.getItem(APP_CONFIG.storeKey);
   const rejected = [
     { meta: { schemaVersion: 3 }, data: { currentYear: 2026, dayProfiles: { '2026-04-01': 'unknown' } } },
-    { meta: { schemaVersion: 7 }, data: { currentYear: 2026 } },
-    { meta: { schemaVersion: 6 }, data: { currentYear: 2026, calendarHolidays: { '2027-04-29': { name: '昭和の日', status: 'unknown' } } } },
+    { meta: { schemaVersion: 8 }, data: { currentYear: 2026 } },
+    { meta: { schemaVersion: 7 }, data: { currentYear: 2026, calendarHolidays: { '2027-04-29': { name: '昭和の日', status: 'unknown' } } } },
+    { meta: { schemaVersion: 7 }, data: { currentYear: 2026, bulkCalendarMonthLayout: 'diagonal' } },
     { meta: { schemaVersion: 4 }, data: { currentYear: 2026, scheduleData: {} } },
     { meta: { schemaVersion: 2 }, data: { currentYear: 2026, noClassData: { '2026-04-01': 1 }, examData: { '2026-04-01': 1 } } }
   ];
@@ -563,14 +571,14 @@ test('schema 5 export never dual-writes legacy schedule fields', () => {
   assert.equal(payload.value.data.dateOverrides['2026-04-06'].slots['１限'].content, '実験');
 });
 
-test('loading a schema 4 master snapshots before atomic schema 6 migration', () => {
+test('loading a schema 4 master snapshots before atomic schema 7 migration', () => {
   const raw = JSON.stringify({ meta: { schemaVersion: 4 }, data: { currentYear: 2026, weeklyTemplate: { 1: { '１限': '化学' } }, weeklyRules: {}, dateOverrides: { '2026-04-06': { slots: { '１限': { action: 'replace', content: '化学', source: 'legacy' } } } } } });
   const storage = new FakeStorage({ [APP_CONFIG.storeKey]: raw });
   const loaded = newService(storage).load();
   assert.equal(loaded.ok, true);
   assert.equal(loaded.source, 'master-migrated');
   assert.equal(loaded.state.dateOverrides['2026-04-06'].slots['１限'].source, 'legacy');
-  assert.equal(JSON.parse(storage.getItem(APP_CONFIG.storeKey)).meta.schemaVersion, 6);
+  assert.equal(JSON.parse(storage.getItem(APP_CONFIG.storeKey)).meta.schemaVersion, 7);
   const snapshotKey = Array.from(storage.data.keys()).find(key => key.startsWith(APP_CONFIG.recoveryPrefix));
   assert.equal(JSON.parse(storage.getItem(snapshotKey)).raw, raw);
   const blockedStorage = new FakeStorage({ [APP_CONFIG.storeKey]: raw });

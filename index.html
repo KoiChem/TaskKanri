@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-count-range-bulk-context-v1">
-<meta name="taskkanri-schema-version" content="6">
+<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v1">
+<meta name="taskkanri-schema-version" content="7">
 <title>タスク管理くん</title>
 <style>
   :root { 
@@ -234,17 +234,21 @@
 
   /* --- 日付一括設定カレンダー --- */
   .calendar-modal-box { width:calc(100vw - 16px); height:calc(100vh - 16px); background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); display:flex; flex-direction:column; padding:10px 12px; box-sizing:border-box; }
-  .calendar-modal-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:6px; flex-shrink:0; }
-  .calendar-modal-header h2 { margin:0; font-size:20px; color:var(--text); }
+  .calendar-modal-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-shrink:0; min-width:0; overflow-x:auto; }
+  .calendar-modal-header h2 { flex:0 0 auto; margin:0; font-size:18px; color:var(--text); white-space:nowrap; }
+  .calendar-header-controls { display:flex; align-items:center; gap:5px; margin-left:auto; flex:0 0 auto; white-space:nowrap; }
+  .calendar-selection-summary { padding:3px 5px; color:#2d3748; font-size:12px; font-weight:bold; }
+  .calendar-modal-header .btn-s { padding:3px 7px; font-size:11px; white-space:nowrap; }
   .calendar-modal-body { display:flex; gap:14px; flex:1; min-height:0; overflow:hidden; }
   .calendar-workspace { flex:1; min-width:0; min-height:0; overflow:hidden; padding-right:0; display:flex; flex-direction:column; }
-  .calendar-selection-bar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; padding:5px 7px; background:#f7fafc; border:1px solid #e2e8f0; border-radius:6px; flex-shrink:0; }
-  .calendar-selection-actions { display:flex; gap:5px; flex-wrap:wrap; }
-  .calendar-selection-mode { display:flex; align-items:center; gap:2px; padding-right:4px; border-right:1px solid #cbd5e0; }
+  .calendar-selection-mode { display:flex; align-items:center; gap:2px; padding-right:5px; border-right:1px solid #cbd5e0; }
   .calendar-selection-mode-label { font-size:11px; color:#4a5568; white-space:nowrap; margin-right:2px; }
   .calendar-selection-mode-btn { padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; background:#fff; color:#4a5568; cursor:pointer; font:inherit; font-size:11px; white-space:nowrap; }
   .calendar-selection-mode-btn.is-active { background:#3182ce; color:#fff; border-color:#2b6cb0; }
   .calendar-year-grid { flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, minmax(0, 1fr)); gap:6px; }
+  .calendar-workspace.is-month-layout-vertical { overflow-y:auto; }
+  .calendar-year-grid.month-layout-vertical { flex:none; height:auto; grid-template-columns:minmax(0, 1fr); grid-template-rows:none; padding-bottom:6px; }
+  .calendar-year-grid.month-layout-vertical .calendar-month { min-height:210px; }
   .calendar-month { min-width:0; min-height:0; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:auto auto minmax(0, 1fr); }
   .calendar-month-head { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:5px 7px; background:#edf2f7; font-weight:bold; font-size:13px; }
   .calendar-month-head .btn-s { font-size:10px; padding:2px 5px; }
@@ -305,7 +309,7 @@
   @media (orientation: portrait) {
     .calendar-modal-body { flex-direction:column; }
     .calendar-workspace { flex:1; }
-    .calendar-year-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); }
+    .calendar-year-grid.month-layout-horizontal { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); }
     .calendar-control-panel { width:auto; flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:4px; max-height:175px; overflow-y:auto; }
     .calendar-control-panel h3, .calendar-control-panel > p { grid-column:1 / -1; }
     .calendar-state-option { margin:0; min-height:36px; padding:4px; }
@@ -515,21 +519,24 @@
   <div class="calendar-modal-box" role="dialog" aria-modal="true" aria-labelledby="bulk-calendar-title" onkeydown="handleBulkCalendarModalKeydown(event)">
     <div class="calendar-modal-header">
       <h2 id="bulk-calendar-title" tabindex="-1">🗓️ 日付の一括設定</h2>
-      <button class="btn-s" onclick="closeBulkCalendarModal()" aria-label="日付一括設定を閉じる">✕ 閉じる</button>
+      <div class="calendar-header-controls">
+        <div id="bulk-calendar-selection-summary" class="calendar-selection-summary">0日</div>
+        <div class="calendar-selection-mode" role="group" aria-label="日付の選択方法">
+          <span class="calendar-selection-mode-label">選択</span>
+          <button type="button" id="bulk-selection-mode-standard" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('standard')" title="通常クリックは1日選択。Ctrl/⌘で追加、Shiftで範囲選択">標準</button>
+          <button type="button" id="bulk-selection-mode-additive" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('additive')" title="通常クリックで日付を追加・解除">追加</button>
+        </div>
+        <div class="calendar-selection-mode" role="group" aria-label="月ごとのカレンダーの並び">
+          <span class="calendar-selection-mode-label">月</span>
+          <button type="button" id="bulk-month-layout-horizontal" class="calendar-selection-mode-btn" onclick="setBulkCalendarMonthLayout('horizontal')" title="月を横方向に並べる">横</button>
+          <button type="button" id="bulk-month-layout-vertical" class="calendar-selection-mode-btn" onclick="setBulkCalendarMonthLayout('vertical')" title="月を縦方向に並べる">縦</button>
+        </div>
+        <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
+        <button class="btn-s" onclick="closeBulkCalendarModal()" aria-label="日付一括設定を閉じる" title="閉じる">✕</button>
+      </div>
     </div>
     <div class="calendar-modal-body">
       <section class="calendar-workspace" aria-label="年度カレンダー" onscroll="closeBulkCalendarContextMenu()">
-        <div class="calendar-selection-bar">
-          <div id="bulk-calendar-selection-summary" style="font-size:13px; font-weight:bold; white-space:nowrap;">0日を選択中</div>
-          <div class="calendar-selection-actions">
-            <div class="calendar-selection-mode" role="group" aria-label="日付の選択方法">
-              <span class="calendar-selection-mode-label">選択:</span>
-              <button type="button" id="bulk-selection-mode-standard" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('standard')" title="通常クリックは1日選択。Ctrl/⌘で追加、Shiftで範囲選択">標準</button>
-              <button type="button" id="bulk-selection-mode-additive" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('additive')" title="通常クリックで日付を追加・解除">追加</button>
-            </div>
-            <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
-          </div>
-        </div>
         <div id="bulk-calendar-grid" class="calendar-year-grid" oncontextmenu="openBulkCalendarContextMenu(event)"></div>
       </section>
       <aside class="calendar-control-panel" aria-label="選択日の設定">
@@ -748,6 +755,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-count-range-bulk-context-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v1"></script>
 </body>
 </html>

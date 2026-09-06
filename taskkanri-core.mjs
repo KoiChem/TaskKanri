@@ -9,9 +9,9 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '75',
   compatibilityVersion: '73',
-  buildVersion: '20260906-count-range-bulk-context-v1',
-  schemaVersion: 6,
-  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6]),
+  buildVersion: '20260907-bulk-calendar-layout-v1',
+  schemaVersion: 7,
+  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -51,7 +51,7 @@ const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIX
 const STATE_KEYS = Object.freeze([
   'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents', 'calendarHolidays',
   'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
-  'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
+  'bulkCalendarSelectionMode', 'bulkCalendarMonthLayout', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
 const PERIOD_SLOT_SET = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -166,6 +166,7 @@ export function defaultState(year = 2026) {
     timeConfig: defaultTimeConfig(),
     globalTaskData: '',
     bulkCalendarSelectionMode: 'standard',
+    bulkCalendarMonthLayout: 'horizontal',
     countSettings: [{ word: '', mode: 'down', start: 1 }],
     countDateRange: { start: '', end: '' },
     daySlotConfig: defaultDaySlotConfig(),
@@ -1085,6 +1086,10 @@ export function normalizeState(input) {
     if (!['standard', 'additive'].includes(input.bulkCalendarSelectionMode)) return fail('standard/additiveのいずれかが必要です', 'bulkCalendarSelectionMode');
     state.bulkCalendarSelectionMode = input.bulkCalendarSelectionMode;
   }
+  if (own(input, 'bulkCalendarMonthLayout')) {
+    if (!['horizontal', 'vertical'].includes(input.bulkCalendarMonthLayout)) return fail('horizontal/verticalのいずれかが必要です', 'bulkCalendarMonthLayout');
+    state.bulkCalendarMonthLayout = input.bulkCalendarMonthLayout;
+  }
   for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema ${APP_CONFIG.schemaVersion}では${legacyField}は使用できません`);
   if (own(input, 'weeklyTemplate')) {
     const normalized = normalizeWeeklyTemplate(input.weeklyTemplate);
@@ -1279,12 +1284,22 @@ function migrateSchema5State(data) {
   return migrated;
 }
 
+function migrateSchema6State(data) {
+  const migrated = clone(data);
+  // Older exports did not have a month-layout preference.  Keep a valid value
+  // if an intermediate build happened to write one, otherwise use the former
+  // horizontal layout so importing never changes the visible default.
+  if (!['horizontal', 'vertical'].includes(migrated.bulkCalendarMonthLayout)) migrated.bulkCalendarMonthLayout = 'horizontal';
+  return { ok: true, value: migrated };
+}
+
 const MIGRATION_REGISTRY = Object.freeze({
   1: migrateSchema1State,
   2: migrateSchema2State,
   3: migrateSchema3State,
   4: migrateSchema4State,
-  5: migrateSchema5State
+  5: migrateSchema5State,
+  6: migrateSchema6State
 });
 
 export function migrateToCurrent(data, sourceSchemaVersion) {
