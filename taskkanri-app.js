@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260906-holiday-review-node24-v1';
+} from './taskkanri-core.mjs?v=20260906-count-range-bulk-context-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -44,6 +44,7 @@ let bulkCalendarInvoker = null;
 let bulkCalendarUndoSnapshot = null;
 let bulkCalendarStatus = '';
 let bulkCalendarContextMenuInvoker = null;
+let bulkCalendarContextDateId = '';
 let dateListContextDateId = '';
 let dateListContextInvoker = null;
 let previewCountData = [];
@@ -906,6 +907,7 @@ function renderBulkCalendar() {
       const dateButton = el('button');
       dateButton.type = 'button';
       dateButton.className = `calendar-date-cell ${getDayBgClass(dateId)}`;
+      dateButton.dataset.dateId = dateId;
       const visual = getDayStateVisual(dateId);
       dateButton.setAttribute('aria-pressed', String(bulkCalendarSelection.has(dateId)));
       const tooltip = getBulkCalendarDateTooltip(dateId, visual);
@@ -980,6 +982,7 @@ function updateBulkCalendarControls() {
   qa('[data-bulk-day-state]').forEach(button => { button.disabled = count === 0; });
   const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = historyManager.peekUndo()?.scope === 'bulk-calendar' ? '' : 'none';
   const clear = document.getElementById('bulk-calendar-context-clear'); if (clear) { clear.disabled = count === 0; clear.textContent = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
+  qa('[data-bulk-context-preset]').forEach(button => { button.disabled = count === 0; });
   ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarSelectionMode === mode); button.setAttribute('aria-pressed', String(appState.bulkCalendarSelectionMode === mode)); } });
 }
 function openBulkCalendarModal() {
@@ -1005,18 +1008,68 @@ function handleBulkCalendarModalKeydown(event) {
 function isBulkCalendarContextMenuOpen() { const menu = document.getElementById('bulk-calendar-context-menu'); return Boolean(menu && !menu.hidden); }
 function openBulkCalendarContextMenu(event) {
   event.preventDefault();
+  const dateCell = event.target.closest?.('.calendar-date-cell');
+  const dateId = dateCell?.dataset.dateId;
+  if (!dateId || !isAcademicDate(dateId)) return;
+  if (!bulkCalendarSelection.has(dateId)) {
+    bulkCalendarSelection.clear();
+    bulkCalendarSelection.add(dateId);
+    bulkCalendarRangeAnchor = dateId;
+    renderBulkCalendar();
+  }
   const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu) return;
-  bulkCalendarContextMenuInvoker = document.activeElement; menu.hidden = false; updateBulkCalendarControls();
-  const width = 210; const height = 46;
+  bulkCalendarContextDateId = dateId;
+  bulkCalendarContextMenuInvoker = q(`#bulk-calendar-grid [data-date-id="${dateId}"]`);
+  const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
+  const title = document.getElementById('bulk-calendar-context-title');
+  const date = dateFromIso(dateId);
+  if (title && date) title.textContent = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${APP_CONFIG.daysStr[date.getDay()]}）を含む ${ids.length}日`;
+  const profiles = ids.map(getDayProfile);
+  const activePreset = profiles.length && profiles.every(profile => profile === profiles[0]) ? profiles[0] : '';
+  qa('[data-bulk-context-preset]').forEach(button => button.classList.toggle('is-active', button.dataset.bulkContextPreset === activePreset));
+  const holidayInput = document.getElementById('bulk-calendar-context-holiday-name');
+  const holidayNames = ids.map(id => stripHtml(appState.customHolidays[id] || ''));
+  if (holidayInput) holidayInput.value = holidayNames.length && holidayNames.every(name => name === holidayNames[0]) ? holidayNames[0] : '';
+  menu.hidden = false; updateBulkCalendarControls();
+  const width = menu.offsetWidth || 294; const height = menu.offsetHeight || 360;
   menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8))}px`;
   menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))}px`;
-  document.getElementById('bulk-calendar-context-clear')?.focus();
+  menu.querySelector('[data-bulk-context-preset]')?.focus();
 }
 function closeBulkCalendarContextMenu(restoreFocus = false) {
   const menu = document.getElementById('bulk-calendar-context-menu'); if (!menu || menu.hidden) return;
   menu.hidden = true;
   if (restoreFocus) bulkCalendarContextMenuInvoker?.focus?.();
   bulkCalendarContextMenuInvoker = null;
+  bulkCalendarContextDateId = '';
+}
+function applyBulkCalendarContextPreset(preset) {
+  if (!bulkCalendarContextDateId || !bulkCalendarSelection.size) return;
+  closeBulkCalendarContextMenu();
+  applyBulkCalendarPreset(preset);
+}
+function saveBulkCalendarContextHoliday() {
+  const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
+  if (!bulkCalendarContextDateId || !ids.length) return;
+  const input = document.getElementById('bulk-calendar-context-holiday-name');
+  const clean = sanitizeHtml(input?.value || '');
+  const holidayName = stripHtml(clean).trim() ? clean : '休日';
+  const before = clone(appState);
+  bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
+  if (!commitState(state => ids.forEach(id => { state.customHolidays[id] = holidayName; }), { historyLabel: '年間カレンダー一括休日設定', historyScope: 'bulk-calendar' })) { appState = before; bulkCalendarUndoSnapshot = null; return; }
+  closeBulkCalendarContextMenu();
+  bulkCalendarStatus = `${ids.length}日を学校独自休日「${stripHtml(holidayName)}」に設定しました。`;
+  renderBulkCalendar(); refreshMainUI();
+}
+function clearBulkCalendarContextHoliday() {
+  const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
+  if (!bulkCalendarContextDateId || !ids.length) return;
+  const before = clone(appState);
+  bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
+  if (!commitState(state => ids.forEach(id => { delete state.customHolidays[id]; }), { historyLabel: '年間カレンダー一括休日解除', historyScope: 'bulk-calendar' })) { appState = before; bulkCalendarUndoSnapshot = null; return; }
+  closeBulkCalendarContextMenu();
+  bulkCalendarStatus = `${ids.length}日の学校独自休日を解除しました。暦上の祝日はそのままです。`;
+  renderBulkCalendar(); refreshMainUI();
 }
 function applyBulkCalendarPreset(preset) {
   const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
@@ -1908,7 +1961,7 @@ Object.assign(window, {
   updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode,
-  toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, undoBulkCalendarChange,
+  toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, applyBulkCalendarContextPreset, saveBulkCalendarContextHoliday, clearBulkCalendarContextHoliday, undoBulkCalendarChange,
   openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
   openAcademicYearRolloverModal, closeAcademicYearRolloverModal, handleAcademicYearRolloverKeydown, renderAcademicYearRolloverPreview, executeAcademicYearRollover,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,

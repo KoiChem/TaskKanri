@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-holiday-review-node24-v1">
+<meta name="taskkanri-build-version" content="20260906-count-range-bulk-context-v1">
 <meta name="taskkanri-schema-version" content="6">
 <title>タスク管理くん</title>
 <style>
@@ -288,6 +288,8 @@
   .calendar-context-menu button { width:100%; padding:7px 9px; border:0; border-radius:4px; background:#fff; color:var(--text); cursor:pointer; font:inherit; font-size:13px; text-align:left; }
   .calendar-context-menu button:hover:not(:disabled), .calendar-context-menu button:focus-visible { background:#ebf8ff; outline:none; }
   .calendar-context-menu button:disabled { color:#a0aec0; cursor:not-allowed; }
+  .bulk-calendar-context-menu { width:278px; padding:8px; box-sizing:border-box; }
+  .bulk-calendar-context-menu .bulk-calendar-context-clear { width:100%; margin-top:7px; padding:6px 7px; border:1px solid #cbd5e0; font-size:11px; text-align:center; }
   .date-list-context-menu { position:fixed; z-index:2200; width:278px; padding:8px; background:#fff; border:1px solid #a0aec0; border-radius:7px; box-shadow:0 5px 18px rgba(0,0,0,.24); }
   .date-list-context-title { margin:0 0 6px; font-size:13px; font-weight:bold; color:#2d3748; }
   .date-list-context-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; }
@@ -476,17 +478,15 @@
       <details class="count-settings-panel" open>
         <summary>コマを数える授業</summary>
         <div id="count-tags-container"></div>
-        <div style="display:flex; align-items:center; gap:15px; margin-bottom:8px;">
-            <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
-            <div style="font-size:13px; color:#4a5568; display:flex; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:2px 6px;">
-                <span style="font-weight:bold; color:#2d3748;">対象期間:</span>
-                <input type="date" id="count-start-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
-                <span>〜</span>
-                <input type="date" id="count-end-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent;" onchange="updateCountDateRange()">
-            </div>
-        </div>
+        <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px; margin-bottom:8px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
         <div id="count-settings-container" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; max-height: 25vh; overflow-y: auto; padding-right:5px;"></div>
       </details>
+      <div style="font-size:13px; color:#4a5568; display:flex; flex-wrap:wrap; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:4px 6px; margin-top:8px; width:max-content; max-width:100%; box-sizing:border-box;">
+        <span style="font-weight:bold; color:#2d3748;">対象期間:</span>
+        <input type="date" id="count-start-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent; min-width:0;" onchange="updateCountDateRange()">
+        <span>〜</span>
+        <input type="date" id="count-end-date" style="padding:2px; border:none; outline:none; font-size:13px; background:transparent; min-width:0;" onchange="updateCountDateRange()">
+      </div>
     </div>
     
     <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
@@ -551,8 +551,24 @@
       <div class="calendar-legend"><span class="bg-short">短縮時程</span><span class="bg-exam">考査</span><span class="bg-no-class">授業なし</span><span>青枠：選択中</span></div>
       <div style="display:flex; gap:8px;"><button id="bulk-calendar-undo-btn" class="menu-btn" style="display:none; padding:9px 16px; background:#fffaf0; border-color:#ed8936;" onclick="undoBulkCalendarChange()">直前の変更を元に戻す</button><button class="menu-btn" style="padding:9px 20px; background:#cbd5e0;" onclick="closeBulkCalendarModal()">閉じる</button></div>
     </div>
-    <div id="bulk-calendar-context-menu" class="calendar-context-menu" role="menu" aria-label="日付選択メニュー" hidden>
-      <button id="bulk-calendar-context-clear" type="button" role="menuitem" onclick="clearBulkCalendarSelection()">選択をすべて解除</button>
+    <div id="bulk-calendar-context-menu" class="calendar-context-menu bulk-calendar-context-menu" role="dialog" aria-label="選択日の種別設定" hidden>
+      <p id="bulk-calendar-context-title" class="date-list-context-title"></p>
+      <div class="date-list-context-actions">
+        <button type="button" data-bulk-context-preset="normal" onclick="applyBulkCalendarContextPreset('normal')">通常に戻す</button>
+        <button type="button" class="ctx-short" data-bulk-context-preset="short" onclick="applyBulkCalendarContextPreset('short')">短縮時程</button>
+        <button type="button" class="ctx-short" data-bulk-context-preset="short-am" onclick="applyBulkCalendarContextPreset('short-am')">短縮AM</button>
+        <button type="button" class="ctx-short" data-bulk-context-preset="morning" onclick="applyBulkCalendarContextPreset('morning')">午前時程</button>
+        <button type="button" class="ctx-exam" data-bulk-context-preset="exam" onclick="applyBulkCalendarContextPreset('exam')">定期考査</button>
+        <button type="button" class="ctx-exam" data-bulk-context-preset="mock-exam" onclick="applyBulkCalendarContextPreset('mock-exam')">模擬試験</button>
+        <button type="button" class="ctx-noclass" data-bulk-context-preset="noclass-hide" onclick="applyBulkCalendarContextPreset('noclass-hide')">授業なし（枠を隠す）</button>
+        <button type="button" class="ctx-noclass" data-bulk-context-preset="noclass-show" onclick="applyBulkCalendarContextPreset('noclass-show')">授業なし（枠を表示）</button>
+      </div>
+      <div class="date-list-context-holiday">
+        <input id="bulk-calendar-context-holiday-name" type="text" placeholder="学校独自休日名">
+        <button type="button" onclick="saveBulkCalendarContextHoliday()">休日に設定</button>
+        <button type="button" onclick="clearBulkCalendarContextHoliday()">解除</button>
+      </div>
+      <button id="bulk-calendar-context-clear" class="bulk-calendar-context-clear" type="button" onclick="clearBulkCalendarSelection()">選択をすべて解除</button>
     </div>
   </div>
 </div>
@@ -732,6 +748,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-holiday-review-node24-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-count-range-bulk-context-v1"></script>
 </body>
 </html>
