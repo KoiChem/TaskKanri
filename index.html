@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v3">
+<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v4">
 <meta name="taskkanri-schema-version" content="7">
 <title>タスク管理くん</title>
 <style>
@@ -239,30 +239,30 @@
   .calendar-header-controls { display:flex; align-items:center; gap:5px; margin-left:auto; flex:0 0 auto; white-space:nowrap; }
   .calendar-selection-summary { padding:3px 5px; color:#2d3748; font-size:12px; font-weight:bold; }
   .calendar-modal-header .btn-s { padding:3px 7px; font-size:11px; white-space:nowrap; }
-  .calendar-modal-body { display:flex; gap:14px; flex:1; min-height:0; overflow:hidden; }
+  .calendar-modal-body { display:flex; gap:12px; flex:1; min-height:0; overflow:hidden; }
   .calendar-workspace { flex:1; min-width:0; min-height:0; overflow:hidden; padding-right:0; display:flex; flex-direction:column; }
   .calendar-selection-mode { display:flex; align-items:center; gap:2px; padding-right:5px; border-right:1px solid #cbd5e0; }
   .calendar-selection-mode-label { font-size:11px; color:#4a5568; white-space:nowrap; margin-right:2px; }
   .calendar-selection-mode-btn { padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; background:#fff; color:#4a5568; cursor:pointer; font:inherit; font-size:11px; white-space:nowrap; }
   .calendar-selection-mode-btn.is-active { background:#3182ce; color:#fff; border-color:#2b6cb0; }
-  .calendar-year-grid { flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, minmax(0, 1fr)); gap:6px; }
+  .calendar-year-grid { --calendar-month-head-height:24px; --calendar-week-head-height:18px; --calendar-day-cell-height:clamp(22px, 3.2vh, 28px); flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, max-content); gap:6px; align-content:space-between; }
   /* 縦並びは 4→5→6→7月と列を下へ進め、8月・12月から次の列を始める。 */
-  .calendar-year-grid.month-layout-vertical { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, max-content); grid-auto-flow:column; align-content:start; }
-  .calendar-year-grid.month-layout-vertical .calendar-month { align-self:start; grid-template-rows:auto auto auto; }
-  .calendar-year-grid.month-layout-vertical .calendar-days { grid-template-rows:repeat(6, max-content); }
-  .calendar-month { min-width:0; min-height:0; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:auto auto minmax(0, 1fr); }
-  .calendar-month-head { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:5px 7px; background:#edf2f7; font-weight:bold; font-size:13px; }
-  .calendar-month-head .btn-s { font-size:10px; padding:2px 5px; }
+  .calendar-year-grid.month-layout-vertical { --calendar-day-cell-height:clamp(18px, 2.6vh, 21px); grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, max-content); grid-auto-flow:column; align-content:space-between; }
+  .calendar-month { min-width:0; align-self:start; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:var(--calendar-month-head-height) var(--calendar-week-head-height) auto; }
+  .calendar-month-head { box-sizing:border-box; min-height:0; height:var(--calendar-month-head-height); display:flex; align-items:center; justify-content:space-between; gap:4px; padding:2px 5px; background:#edf2f7; font-weight:bold; font-size:12px; }
+  .calendar-month-head .btn-s { min-height:17px; padding:1px 4px; font-size:9px; line-height:1; }
   .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); }
-  .calendar-days { min-height:0; grid-template-rows:repeat(6, minmax(0, 1fr)); }
-  .calendar-weekday-btn { min-height:24px; padding:3px 0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:10px; }
+  .calendar-week-head { min-height:0; height:var(--calendar-week-head-height); }
+  .calendar-days { min-height:0; grid-template-rows:repeat(6, var(--calendar-day-cell-height)); }
+  .calendar-weekday-btn { min-height:0; height:var(--calendar-week-head-height); padding:0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:9px; line-height:1; }
   .calendar-weekday-btn:hover { background:#ebf8ff; }
   .calendar-weekday-btn:focus-visible { outline:2px solid #3182ce; outline-offset:-2px; z-index:1; }
   .calendar-weekday-btn.is-all-selected { background:#bee3f8; color:#1e3a8a; font-weight:bold; }
   .calendar-weekday-btn:nth-child(6) { color:#3182ce; }
   .calendar-weekday-btn:last-child { color:#e53e3e; }
-  .calendar-day-spacer { min-height:0; background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
-  .calendar-date-cell { min-height:0; border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:1px; text-align:center; font:inherit; font-size:12px; position:relative; }
+  .calendar-day-spacer, .calendar-date-cell { box-sizing:border-box; min-height:0; block-size:var(--calendar-day-cell-height); }
+  .calendar-day-spacer { background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
+  .calendar-date-cell { border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:0; text-align:center; font:inherit; font-size:12px; line-height:1; position:relative; overflow:hidden; }
   .calendar-date-cell.bg-sat { background-color:#e6f2ff; }
   .calendar-date-cell.bg-sun-hol { background-color:#ffe6e6; }
   .calendar-date-cell.bg-short { background-color:var(--bg-short); }
@@ -270,11 +270,13 @@
   .calendar-date-cell.bg-no-class { background-color:var(--bg-noclass); }
   .calendar-date-cell:hover { filter:brightness(.96); outline:2px solid #90cdf4; outline-offset:-2px; z-index:1; }
   .calendar-date-cell.is-selected { outline:3px solid #3182ce; outline-offset:-3px; z-index:1; font-weight:bold; }
-  .calendar-date-cell .calendar-state-mark { display:block; font-size:8px; line-height:1; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .calendar-date-number { position:absolute; top:1px; left:0; right:0; font-size:11px; line-height:11px; }
+  .calendar-date-cell .calendar-state-mark { position:absolute; right:1px; bottom:1px; left:1px; height:8px; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:8px; line-height:8px; pointer-events:none; }
   .calendar-date-cell .calendar-today-mark { position:absolute; top:1px; right:2px; width:4px; height:4px; background:#3182ce; border-radius:50%; }
-  .calendar-control-panel { width:245px; flex:0 0 245px; overflow-y:auto; border:1px solid #cbd5e0; border-radius:6px; padding:8px; box-sizing:border-box; background:#f8fafc; }
-  .calendar-control-panel h3 { margin:0 0 8px; font-size:15px; }
-  .calendar-state-option { display:block; width:100%; padding:7px; margin:4px 0; background:#fff; border:1px solid #cbd5e0; border-radius:4px; cursor:pointer; font:inherit; font-size:12px; color:var(--text); text-align:left; transition:.15s; }
+  .calendar-control-panel { width:245px; flex:0 0 245px; overflow:hidden; border:1px solid #cbd5e0; border-radius:6px; padding:7px; box-sizing:border-box; background:#f8fafc; }
+  .calendar-control-panel h3 { margin:0; font-size:14px; line-height:18px; }
+  .calendar-control-hint { height:18px; margin:1px 0 3px; overflow:hidden; color:#718096; font-size:10px; line-height:18px; text-overflow:ellipsis; white-space:nowrap; }
+  .calendar-state-option { display:flex; align-items:center; width:100%; height:29px; margin:3px 0; padding:3px 6px; overflow:hidden; border:1px solid #cbd5e0; border-radius:4px; background:#fff; color:var(--text); cursor:pointer; font:inherit; font-size:12px; line-height:1; text-align:left; text-overflow:ellipsis; white-space:nowrap; transition:.15s; }
   .calendar-state-option:hover:not(:disabled) { filter:brightness(.97); box-shadow:0 1px 3px rgba(0,0,0,.12); }
   .calendar-state-option:active:not(:disabled) { transform:translateY(1px); }
   .calendar-state-option:focus-visible { outline:3px solid #3182ce; outline-offset:1px; }
@@ -284,11 +286,12 @@
   .calendar-state-option.state-exam { background:var(--bg-exam); border-color:#d6bcfa; }
   .calendar-state-option.state-noclass { background:var(--bg-noclass); border-color:#9ae6b4; }
   .calendar-state-option.state-holiday { background:#fff5f5; border-color:#feb2b2; }
-  .calendar-state-option small { display:block; color:#718096; margin-top:2px; }
-  .calendar-action-status { min-height:18px; margin:8px 0 0; color:#2d3748; font-size:12px; line-height:1.4; }
-  .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:6px; flex-shrink:0; }
-  .calendar-legend { display:flex; gap:8px; flex-wrap:wrap; font-size:11px; color:#4a5568; }
-  .calendar-legend span { padding:2px 5px; border-radius:3px; border:1px solid #cbd5e0; }
+  .calendar-state-option small { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0, 0, 0, 0); white-space:nowrap; }
+  .calendar-action-status { height:18px; min-height:18px; margin:3px 0 0; overflow:hidden; color:#2d3748; font-size:11px; line-height:18px; text-overflow:ellipsis; white-space:nowrap; }
+  .calendar-modal-footer { display:flex; align-items:center; gap:8px; height:26px; margin-top:4px; box-sizing:border-box; flex-shrink:0; }
+  .calendar-legend { display:flex; flex:1; gap:5px; overflow:hidden; color:#4a5568; font-size:10px; white-space:nowrap; }
+  .calendar-legend span { padding:1px 4px; border:1px solid #cbd5e0; border-radius:3px; }
+  #bulk-calendar-undo-btn { display:none; box-sizing:border-box; flex:0 0 auto; height:22px; padding:3px 8px; background:#fffaf0; border-color:#ed8936; font-size:11px; }
   .calendar-context-menu { position:fixed; z-index:1900; min-width:190px; padding:4px; background:#fff; border:1px solid #a0aec0; border-radius:6px; box-shadow:0 5px 16px rgba(0,0,0,.22); }
   .calendar-context-menu button { width:100%; padding:7px 9px; border:0; border-radius:4px; background:#fff; color:var(--text); cursor:pointer; font:inherit; font-size:13px; text-align:left; }
   .calendar-context-menu button:hover:not(:disabled), .calendar-context-menu button:focus-visible { background:#ebf8ff; outline:none; }
@@ -308,13 +311,21 @@
   .date-list-context-holiday input { min-width:0; padding:5px; border:1px solid #cbd5e0; border-radius:4px; font:inherit; font-size:12px; }
   .date-list-context-holiday button { padding:5px 7px; border:1px solid #cbd5e0; border-radius:4px; background:#fff; color:#2d3748; cursor:pointer; font:inherit; font-size:11px; }
   @media (orientation: portrait) {
-    .calendar-modal-body { flex-direction:column; }
+    .calendar-modal-body { flex-direction:column; gap:8px; }
     .calendar-workspace { flex:1; }
-    .calendar-year-grid.month-layout-horizontal { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); }
-    .calendar-control-panel { width:auto; flex:0 0 auto; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:4px; max-height:175px; overflow-y:auto; }
-    .calendar-control-panel h3, .calendar-control-panel > p { grid-column:1 / -1; }
-    .calendar-state-option { margin:0; min-height:36px; padding:4px; }
-    .calendar-state-option small { font-size:10px; }
+    .calendar-year-grid.month-layout-horizontal { --calendar-day-cell-height:clamp(18px, 2.6vh, 21px); grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, max-content); align-content:space-between; }
+    .calendar-control-panel { width:auto; flex:0 0 170px; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:18px 20px repeat(3, 28px) 18px; gap:3px; padding:6px; overflow:hidden; }
+    .calendar-control-panel h3, .calendar-control-hint, .calendar-action-status { grid-column:1 / -1; margin:0; }
+    .calendar-control-hint { height:20px; line-height:20px; }
+    .calendar-state-option { height:auto; min-height:0; margin:0; padding:3px; justify-content:center; font-size:11px; text-align:center; }
+    .calendar-action-status { height:18px; min-height:18px; line-height:18px; }
+  }
+  @media (max-height:700px) {
+    .calendar-year-grid { --calendar-month-head-height:20px; --calendar-week-head-height:16px; }
+    .calendar-year-grid.month-layout-horizontal, .calendar-year-grid.month-layout-vertical { --calendar-day-cell-height:17px; }
+  }
+  @media (max-height:640px) {
+    .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
 </head>
@@ -536,22 +547,22 @@
       </section>
       <aside class="calendar-control-panel" aria-label="選択日の設定">
         <h3>選択日の日種別</h3>
-        <p style="font-size:11px; color:#718096; margin:0 0 6px;">日付を選び、設定したい種別を押すとすぐに反映されます。休日設定は保存され、ほかの日種別がある間は表示を休止します。</p>
-        <button type="button" class="calendar-state-option state-normal" data-bulk-day-state="normal" onclick="applyBulkCalendarPreset('normal')">通常に戻す<small>授業なし・考査・時程を解除</small></button>
-        <button type="button" class="calendar-state-option state-holiday" data-bulk-day-state="holiday" onclick="applyBulkCalendarHoliday()">休日に設定<small>既定名: 休日</small></button>
+        <p class="calendar-control-hint" title="日付を選び、設定したい種別を押すとすぐに反映されます。休日設定は保存され、ほかの日種別がある間は表示を休止します。">日付を選択して種別を押すと即時反映</p>
+        <button type="button" class="calendar-state-option state-normal" data-bulk-day-state="normal" onclick="applyBulkCalendarPreset('normal')" title="授業なし・考査・時程を解除">通常に戻す<small>授業なし・考査・時程を解除</small></button>
+        <button type="button" class="calendar-state-option state-holiday" data-bulk-day-state="holiday" onclick="applyBulkCalendarHoliday()" title="既定名: 休日">休日に設定<small>既定名: 休日</small></button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short" onclick="applyBulkCalendarPreset('short')">短縮時程</button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short-am" onclick="applyBulkCalendarPreset('short-am')">短縮AM<small>午後の授業枠を隠す</small></button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="morning" onclick="applyBulkCalendarPreset('morning')">午前時程<small>午後の授業枠を隠す</small></button>
         <button type="button" class="calendar-state-option state-exam" data-bulk-day-state="exam" onclick="applyBulkCalendarPreset('exam')">定期考査</button>
         <button type="button" class="calendar-state-option state-exam" data-bulk-day-state="mock-exam" onclick="applyBulkCalendarPreset('mock-exam')">模擬試験</button>
-        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-hide" onclick="applyBulkCalendarPreset('noclass-hide')">授業なし（授業枠を隠す）<small>予定データは残す</small></button>
-        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-show" onclick="applyBulkCalendarPreset('noclass-show')">授業なし（授業枠を表示・時数には数えない）</button>
+        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-hide" onclick="applyBulkCalendarPreset('noclass-hide')" aria-label="授業なし、授業枠を隠す" title="予定データは残す">授業なし（枠非表示）<small>予定データは残す</small></button>
+        <button type="button" class="calendar-state-option state-noclass" data-bulk-day-state="noclass-show" onclick="applyBulkCalendarPreset('noclass-show')" aria-label="授業なし、授業枠を表示し、時数には数えない" title="授業枠を表示し、時数には数えない">授業なし（枠表示）</button>
         <p id="bulk-calendar-action-status" class="calendar-action-status" aria-live="polite"></p>
       </aside>
     </div>
     <div class="calendar-modal-footer">
       <div class="calendar-legend"><span class="bg-short">短縮時程</span><span class="bg-exam">考査</span><span class="bg-no-class">授業なし</span><span>青枠：選択中</span></div>
-      <div style="display:flex; gap:8px;"><button id="bulk-calendar-undo-btn" class="menu-btn" style="display:none; padding:9px 16px; background:#fffaf0; border-color:#ed8936;" onclick="undoBulkCalendarChange()">直前の変更を元に戻す</button><button class="menu-btn" style="padding:9px 20px; background:#cbd5e0;" onclick="closeBulkCalendarModal()">閉じる</button></div>
+      <button id="bulk-calendar-undo-btn" class="menu-btn" onclick="undoBulkCalendarChange()">直前の変更を元に戻す</button>
     </div>
     <div id="bulk-calendar-context-menu" class="calendar-context-menu bulk-calendar-context-menu" role="dialog" aria-label="選択日の種別設定" hidden>
       <p id="bulk-calendar-context-title" class="date-list-context-title"></p>
@@ -750,6 +761,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v3"></script>
+<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v4"></script>
 </body>
 </html>

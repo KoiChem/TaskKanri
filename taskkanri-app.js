@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v3';
+} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v4';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -917,12 +917,13 @@ function renderBulkCalendar() {
       dateButton.setAttribute('aria-label', tooltip);
       dateButton.title = tooltip;
       dateButton.classList.toggle('is-selected', bulkCalendarSelection.has(dateId));
-      dateButton.appendChild(el('span', String(day)));
-      if (visual.shortLabel) { const stateMark = el('span', visual.shortLabel); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark); }
+      const dateNumber = el('span', String(day)); dateNumber.className = 'calendar-date-number'; dateButton.appendChild(dateNumber);
+      const stateMark = el('span', visual.shortLabel); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark);
       if (dateId === todayId) { const todayMark = el('span'); todayMark.className = 'calendar-today-mark'; todayMark.setAttribute('aria-label', '今日'); dateButton.appendChild(todayMark); }
       dateButton.addEventListener('click', event => toggleBulkCalendarDate(dateId, event));
       days.appendChild(dateButton);
     }
+    for (let blank = firstDay + lastDay; blank < 42; blank += 1) days.appendChild(el('span')).className = 'calendar-day-spacer';
     monthBox.appendChild(days);
     container.appendChild(monthBox);
   }
@@ -989,7 +990,7 @@ function updateBulkCalendarControls() {
   const summary = document.getElementById('bulk-calendar-selection-summary'); if (summary) summary.textContent = `${count}日`;
   const status = document.getElementById('bulk-calendar-action-status'); if (status) status.textContent = bulkCalendarStatus;
   qa('[data-bulk-day-state]').forEach(button => { button.disabled = count === 0; });
-  const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = historyManager.peekUndo()?.scope === 'bulk-calendar' ? '' : 'none';
+  const undo = document.getElementById('bulk-calendar-undo-btn'); if (undo) undo.style.display = historyManager.peekUndo()?.scope === 'bulk-calendar' ? 'inline-flex' : 'none';
   const clear = document.getElementById('bulk-calendar-context-clear'); if (clear) { clear.disabled = count === 0; clear.textContent = count ? `選択をすべて解除（${count}日）` : '選択中の日付はありません'; }
   qa('[data-bulk-context-preset]').forEach(button => { button.disabled = count === 0; });
   ['standard', 'additive'].forEach(mode => { const button = document.getElementById(`bulk-selection-mode-${mode}`); if (button) { button.classList.toggle('is-active', appState.bulkCalendarSelectionMode === mode); button.setAttribute('aria-pressed', String(appState.bulkCalendarSelectionMode === mode)); } });
