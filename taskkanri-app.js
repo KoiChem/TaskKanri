@@ -21,7 +21,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260906-calendar-v1';
+} from './taskkanri-core.mjs?v=20260906-slot-width-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -662,12 +662,13 @@ function renderEditor(dateId, position) {
     if (useColumns) {
       const columns = el('div');
       columns.className = 'cols-wrapper';
-      const left = el('div'); left.className = 'col-half';
-      const right = el('div'); right.className = 'col-half';
-      first.forEach(slot => left.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
-      second.forEach(slot => right.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
-      columns.append(left, right);
-      content.appendChild(columns);
+      [first, second].filter(slots => slots.length > 0).forEach(slots => {
+        const column = el('div');
+        column.className = 'col-half';
+        slots.forEach(slot => column.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
+        columns.appendChild(column);
+      });
+      if (columns.childElementCount > 0) content.appendChild(columns);
     } else {
       addSlots(first);
       addSlots(second);
@@ -677,7 +678,7 @@ function renderEditor(dateId, position) {
   if (targetPosition === 'top') {
     const globalArea = el('div');
     setStyle(globalArea, { marginTop: '10px', paddingTop: '8px', flexShrink: '0' });
-    const title = el('div', 'タスク');
+    const title = el('div', '共通タスク');
     setStyle(title, { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', marginBottom: '4px' });
     const globalInput = el('div');
     globalInput.className = 'slot-input';
