@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-undo-v1">
+<meta name="taskkanri-build-version" content="20260906-undo-v2">
 <meta name="taskkanri-schema-version" content="4">
 <title>タスク管理くん</title>
 <style>
@@ -342,8 +342,8 @@
 
 <div id="right-panel">
   <div id="format-toolbar">
-    <button id="history-undo-btn" class="btn-s" type="button" onclick="undoHistory()" disabled title="元に戻せる変更はありません" aria-label="元に戻せる変更はありません" style="min-width:44px; min-height:44px;">↶ 元に戻す</button>
-    <button id="history-redo-btn" class="btn-s" type="button" onclick="redoHistory()" disabled title="やり直せる変更はありません" aria-label="やり直せる変更はありません" style="min-width:44px; min-height:44px;">↷ やり直す</button>
+    <button id="history-undo-btn" class="fmt-btn" type="button" onclick="undoHistory()" disabled title="元に戻せる変更はありません" aria-label="元に戻せる変更はありません">↶</button>
+    <button id="history-redo-btn" class="fmt-btn" type="button" onclick="redoHistory()" disabled title="やり直せる変更はありません" aria-label="やり直せる変更はありません">↷</button>
     <button class="fmt-btn" style="font-weight:bold;" onmousedown="event.preventDefault(); EditorCmd.exec('bold')">太</button>
     <button class="fmt-btn" style="color:red; font-weight:bold;" onmousedown="event.preventDefault(); EditorCmd.exec('foreColor', 'red')">赤</button>
     <button class="fmt-btn" style="background:yellow;" onmousedown="event.preventDefault(); EditorCmd.exec('hiliteColor', 'yellow')">黄</button>
@@ -653,6 +653,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-undo-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-undo-v2"></script>
 </body>
 </html>

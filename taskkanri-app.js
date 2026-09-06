@@ -19,7 +19,7 @@ import {
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260906-undo-v1';
+} from './taskkanri-core.mjs?v=20260906-undo-v2';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
