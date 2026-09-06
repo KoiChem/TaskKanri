@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v2';
+} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v3';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
