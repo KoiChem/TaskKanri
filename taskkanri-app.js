@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260906-rollover-master-timetable-v2';
+} from './taskkanri-core.mjs?v=20260906-holiday-review-node24-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1589,6 +1589,29 @@ function buildAcademicYearRolloverPlan() {
     copyBaseTimetable
   });
 }
+function renderAcademicYearRolloverHolidayReview(value) {
+  const wrap = document.getElementById('academic-year-rollover-holiday-review');
+  const list = document.getElementById('academic-year-rollover-holiday-list');
+  const confirmationWrap = document.getElementById('academic-year-rollover-holiday-confirm-wrap');
+  const confirmation = document.getElementById('academic-year-rollover-holiday-confirm');
+  const bounds = academicYearBounds(value.targetYear);
+  const tentative = Object.entries(value.nextCalendarHolidays || {})
+    .filter(([dateId, entry]) => dateId >= bounds.start && dateId <= bounds.end && entry?.status === 'tentative')
+    .sort(([left], [right]) => left.localeCompare(right));
+  const needed = tentative.length > 0;
+  if (wrap) { wrap.hidden = !needed; wrap.style.display = needed ? 'block' : 'none'; }
+  if (confirmationWrap) { confirmationWrap.hidden = !needed; confirmationWrap.style.display = needed ? 'flex' : 'none'; }
+  if (!needed && confirmation) confirmation.checked = false;
+  if (list) {
+    list.replaceChildren();
+    tentative.forEach(([dateId, entry]) => {
+      const item = document.createElement('li');
+      item.textContent = `${dateId}　${stripHtml(entry.name)}`;
+      list.appendChild(item);
+    });
+  }
+  return needed;
+}
 function renderAcademicYearRolloverPreview() {
   const preview = document.getElementById('academic-year-rollover-preview');
   const heading = document.getElementById('academic-year-rollover-heading');
@@ -1603,6 +1626,8 @@ function renderAcademicYearRolloverPreview() {
   if (heading) heading.textContent = `${value.sourceYear}年度から${value.targetYear}年度へ繰り越します`;
   const excluded = value.excludedCounts;
   const counts = value.counts;
+  const needsHolidayConfirmation = renderAcademicYearRolloverHolidayReview(value);
+  const holidayConfirmation = document.getElementById('academic-year-rollover-holiday-confirm');
   const needsResetConfirmation = counts.removedTargetRules > 0 || counts.removedTargetEvents > 0;
   const confirmationWrap = document.getElementById('academic-year-rollover-reset-confirm-wrap');
   const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
@@ -1615,13 +1640,14 @@ function renderAcademicYearRolloverPreview() {
     `次年度に入力済みの週間授業規則: ${counts.removedTargetRules}件を削除予定${counts.splitRules ? `（年度境界で ${counts.splitRules}件を分割して年度外は保持）` : ''}。`,
     `年間行事: 次年度分 ${counts.removedTargetEvents}件をリセットします（元年度の行事は保持）。`,
     `暦上の祝日: 次年度分を設定します（確定 ${counts.confirmedHolidays}件 / 暫定 ${counts.tentativeHolidays}件）。学校独自休日は元年度からコピーしません。`,
+    needsHolidayConfirmation ? '暫定日: 下の一覧を公式発表と照合してから、確認欄にチェックしてください。' : '',
     `繰越先に既にあるデータは保持: 学校独自休日 ${counts.preservedTargetCustomHolidays}日 / 日別変更 ${counts.preservedTargetOverrides}日 / 日別状態 ${counts.preservedTargetDayProfiles}日。`,
     `元年度からコピーしないデータ: 日別変更 ${excluded.dateOverrides}日 / 行事 ${excluded.configEvents}日 / 日別状態 ${excluded.dayProfiles}日 / 学校独自休日 ${excluded.customHolidays}日。`,
     `時数集計期間: ${value.nextCountDateRange.start} ～ ${value.nextCountDateRange.end} に設定します。開始番号は変更しません。`,
     `現在のTaskKanri保存領域: 約 ${academicYearRolloverStorageUsageKb()} KB。実行前に復旧snapshotを作成します。`
   ].filter(Boolean);
   if (preview) preview.textContent = lines.join('\n');
-  if (execute) { execute.disabled = needsResetConfirmation && !confirmation?.checked; execute.textContent = `${value.targetYear}年度へ繰り越す`; }
+  if (execute) { execute.disabled = (needsResetConfirmation && !confirmation?.checked) || (needsHolidayConfirmation && !holidayConfirmation?.checked); execute.textContent = `${value.targetYear}年度へ繰り越す`; }
   return plan;
 }
 function openAcademicYearRolloverModal() {
@@ -1632,6 +1658,8 @@ function openAcademicYearRolloverModal() {
   if (weekly) weekly.checked = false;
   const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
   if (confirmation) confirmation.checked = false;
+  const holidayConfirmation = document.getElementById('academic-year-rollover-holiday-confirm');
+  if (holidayConfirmation) holidayConfirmation.checked = false;
   const modal = document.getElementById('academic-year-rollover-modal');
   if (!modal) return;
   modal.style.display = 'flex';
@@ -1660,6 +1688,7 @@ function executeAcademicYearRollover() {
   const value = plan.value;
   const needsResetConfirmation = value.counts.removedTargetRules > 0 || value.counts.removedTargetEvents > 0;
   if (needsResetConfirmation && !document.getElementById('academic-year-rollover-reset-confirm')?.checked) { showAlert('次年度に入力済みの基本時間割規則・年間行事を削除する確認にチェックしてください。'); return; }
+  if (value.counts.tentativeHolidays > 0 && !document.getElementById('academic-year-rollover-holiday-confirm')?.checked) { showAlert('暫定日の一覧を内閣府の公式発表と照合し、確認にチェックしてください。'); return; }
   const snapshot = storageService.createRecoverySnapshot();
   if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
   const applied = applyAcademicYearRollover(appState, plan);

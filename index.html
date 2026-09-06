@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-rollover-master-timetable-v2">
+<meta name="taskkanri-build-version" content="20260906-holiday-review-node24-v1">
 <meta name="taskkanri-schema-version" content="6">
 <title>タスク管理くん</title>
 <style>
@@ -167,6 +167,7 @@
   .rollover-summary { white-space:pre-line; margin:0; font-size:13px; line-height:1.55; color:#2d3748; }
   .rollover-note { margin:6px 0 0; font-size:12px; line-height:1.5; color:#4a5568; }
   .rollover-warning { color:#9c4221; background:#fffaf0; border-color:#f6ad55; }
+  .rollover-holiday-list { margin:8px 0 0; padding-left:22px; font-size:13px; line-height:1.6; color:#742a2a; }
   .rollover-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
   @media (max-width: 560px) { .rollover-modal-box { padding:16px; } .rollover-actions { flex-direction:column-reverse; } .rollover-actions button { width:100%; } }
   
@@ -589,6 +590,18 @@
       <p id="academic-year-rollover-preview" class="rollover-summary" aria-live="polite"></p>
     </section>
 
+    <section id="academic-year-rollover-holiday-review" class="rollover-section rollover-warning" hidden style="display:none;">
+      <h3>暫定日の確認</h3>
+      <p class="rollover-note">次年度のうち、公式発表が未反映の暫定日です。繰越前に内閣府の最新情報と照合してください。</p>
+      <ul id="academic-year-rollover-holiday-list" class="rollover-holiday-list" aria-live="polite"></ul>
+      <p class="rollover-note"><a href="https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html" target="_blank" rel="noopener noreferrer">内閣府「国民の祝日について」</a></p>
+    </section>
+
+    <label id="academic-year-rollover-holiday-confirm-wrap" class="rollover-section rollover-warning" hidden style="display:none; align-items:flex-start; gap:8px; cursor:pointer;">
+      <input id="academic-year-rollover-holiday-confirm" type="checkbox" onchange="renderAcademicYearRolloverPreview()">
+      <span><strong>暫定日を内閣府の公式発表と照合してから、繰越を実行することを確認しました。</strong></span>
+    </label>
+
     <section class="rollover-section rollover-warning">
       <h3>実行時の安全処理</h3>
       <p class="rollover-note">実行前に復旧snapshotを作成します。作成または保存に失敗した場合、年度・時間割とも変更しません。成功後は「元に戻す」で繰越全体を取り消せます。</p>
@@ -719,6 +732,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-rollover-master-timetable-v2"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-holiday-review-node24-v1"></script>
 </body>
 </html>

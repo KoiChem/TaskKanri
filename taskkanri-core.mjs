@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '75',
   compatibilityVersion: '73',
-  buildVersion: '20260906-rollover-master-timetable-v2',
+  buildVersion: '20260906-holiday-review-node24-v1',
   schemaVersion: 6,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
