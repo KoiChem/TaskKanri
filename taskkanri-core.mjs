@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '75',
   compatibilityVersion: '73',
-  buildVersion: '20260907-bulk-calendar-layout-v1',
+  buildVersion: '20260907-bulk-calendar-layout-v2',
   schemaVersion: 7,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',

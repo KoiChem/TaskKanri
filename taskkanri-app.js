@@ -26,7 +26,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v1';
+} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v2';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -866,11 +866,9 @@ function getBulkCalendarDateTooltip(dateId, visual) {
 function renderBulkCalendar() {
   const container = document.getElementById('bulk-calendar-grid');
   if (!container) return;
-  const workspace = container.closest('.calendar-workspace');
   const isVertical = appState.bulkCalendarMonthLayout === 'vertical';
   container.classList.toggle('month-layout-horizontal', !isVertical);
   container.classList.toggle('month-layout-vertical', isVertical);
-  workspace?.classList.toggle('is-month-layout-vertical', isVertical);
   container.replaceChildren();
   const todayId = getIsoDateStr(new Date());
   for (let offset = 0; offset < 12; offset += 1) {
