@@ -257,6 +257,7 @@
   .calendar-state-option.state-short { background:var(--bg-short); border-color:#f6e05e; }
   .calendar-state-option.state-exam { background:var(--bg-exam); border-color:#d6bcfa; }
   .calendar-state-option.state-noclass { background:var(--bg-noclass); border-color:#9ae6b4; }
+  .calendar-state-option.state-holiday { background:#fff5f5; border-color:#feb2b2; }
   .calendar-state-option small { display:block; color:#718096; margin-top:2px; }
   .calendar-action-status { min-height:18px; margin:8px 0 0; color:#2d3748; font-size:12px; line-height:1.4; }
   .calendar-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:6px; flex-shrink:0; }
@@ -324,7 +325,7 @@
     <button class="btn-settings" title="授業時数マネージャー" onclick="openCountModal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14.01"></line><line x1="12" y1="14" x2="12" y2="14.01"></line><line x1="8" y1="14" x2="8" y2="14.01"></line><line x1="16" y1="18" x2="16" y2="18.01"></line><line x1="12" y1="18" x2="12" y2="18.01"></line><line x1="8" y1="18" x2="8" y2="18.01"></line></svg>
     </button>
-    <button class="btn-settings" title="日付を一括設定" onclick="openBulkCalendarModal()" aria-label="日付を一括設定">
+    <button class="btn-settings" title="日付の一括設定" onclick="openBulkCalendarModal()" aria-label="日付の一括設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="14" x2="8.01" y2="14"></line><line x1="12" y1="14" x2="12.01" y2="14"></line><line x1="16" y1="14" x2="16.01" y2="14"></line><line x1="8" y1="18" x2="8.01" y2="18"></line><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
     </button>
     <button class="btn-settings" title="各種予定登録・詳細設定" onclick="openSettingsView()">
@@ -492,7 +493,7 @@
 <div id="bulk-calendar-modal" class="modal-overlay" style="z-index: 1800;" aria-hidden="true">
   <div class="calendar-modal-box" role="dialog" aria-modal="true" aria-labelledby="bulk-calendar-title" onkeydown="handleBulkCalendarModalKeydown(event)">
     <div class="calendar-modal-header">
-      <h2 id="bulk-calendar-title" tabindex="-1">🗓️ 日付を一括設定</h2>
+      <h2 id="bulk-calendar-title" tabindex="-1">🗓️ 日付の一括設定</h2>
       <button class="btn-s" onclick="closeBulkCalendarModal()" aria-label="日付一括設定を閉じる">✕ 閉じる</button>
     </div>
     <div class="calendar-modal-body">
@@ -505,7 +506,6 @@
               <button type="button" id="bulk-selection-mode-standard" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('standard')" title="通常クリックは1日選択。Ctrl/⌘で追加、Shiftで範囲選択">標準</button>
               <button type="button" id="bulk-selection-mode-additive" class="calendar-selection-mode-btn" onclick="setBulkCalendarSelectionMode('additive')" title="通常クリックで日付を追加・解除">追加</button>
             </div>
-            <button class="btn-s" onclick="selectBulkCalendarWeekdays()">平日を選択</button>
             <button class="btn-s" onclick="clearBulkCalendarSelection()">選択解除</button>
           </div>
         </div>
@@ -513,8 +513,9 @@
       </section>
       <aside class="calendar-control-panel" aria-label="選択日の設定">
         <h3>選択日の日種別</h3>
-        <p style="font-size:11px; color:#718096; margin:0 0 6px;">日付を選び、設定したい種別を押すとすぐに反映されます。状態は重複しません。</p>
+        <p style="font-size:11px; color:#718096; margin:0 0 6px;">日付を選び、設定したい種別を押すとすぐに反映されます。休日設定は保存され、ほかの日種別がある間は表示を休止します。</p>
         <button type="button" class="calendar-state-option state-normal" data-bulk-day-state="normal" onclick="applyBulkCalendarPreset('normal')">通常に戻す<small>授業なし・考査・時程を解除</small></button>
+        <button type="button" class="calendar-state-option state-holiday" data-bulk-day-state="holiday" onclick="applyBulkCalendarHoliday()">休日に設定<small>既定名: 休日</small></button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short" onclick="applyBulkCalendarPreset('short')">短縮時程</button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="short-am" onclick="applyBulkCalendarPreset('short-am')">短縮AM<small>午後の授業枠を隠す</small></button>
         <button type="button" class="calendar-state-option state-short" data-bulk-day-state="morning" onclick="applyBulkCalendarPreset('morning')">午前時程<small>午後の授業枠を隠す</small></button>
@@ -653,6 +654,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-undo-v2"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-calendar-v1"></script>
 </body>
 </html>

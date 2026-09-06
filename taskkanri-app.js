@@ -12,18 +12,19 @@ import {
   getWeeklyRuleSlot,
   HistoryManager,
   formatStateSummary,
+  isEffectiveHoliday,
   isValidIsoDate,
+  isWeekend,
   normalizeImportedPayload,
   planAcademicYearChange,
   replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
   stripHtml
-} from './taskkanri-core.mjs?v=20260906-undo-v2';
+} from './taskkanri-core.mjs?v=20260906-calendar-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
-const WEEKDAYS = [1, 2, 3, 4, 5];
 let appState = defaultState();
 let storageService;
 let storageLike;
@@ -125,7 +126,7 @@ function getSmartDateRange() {
   return { start: getIsoDateStr(today), end: getIsoDateStr(end) };
 }
 function getPreviewText(dateId) {
-  const raw = appState.configEvents[dateId] || appState.customHolidays[dateId] || '';
+  const raw = appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? appState.customHolidays[dateId] : '');
   const text = stripHtml(raw).replace(/\s+/g, '');
   const length = appState.isLandscapeMode ? 10 : 5;
   if (typeof Intl !== 'undefined' && Intl.Segmenter) return Array.from(new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)).slice(0, length).map(item => item.segment).join('');
@@ -502,14 +503,15 @@ function showTooltip(event, dateId) {
     tooltip.appendChild(line);
     hasContent = true;
   };
-  addLine('祝:', appState.customHolidays[dateId] || '', '#fc8181');
+  const holiday = isEffectiveHoliday(dateId, appState);
+  addLine('祝:', holiday ? appState.customHolidays[dateId] : '', '#fc8181');
   addLine('', appState.configEvents[dateId] || '', '#f6ad55');
   const profile = getDayProfile(dateId);
   const noClass = profile === 'noclass-hide';
   const hideAfternoon = profile === 'exam' || profile === 'short-am' || profile === 'morning';
   getActiveSlotsForDay(date.getDay()).forEach(slot => {
     if (noClass && slot !== '朝' && slot !== '放課後') return;
-    if (appState.customHolidays[dateId] && PERIOD_SLOTS.has(slot)) return;
+    if (holiday && PERIOD_SLOTS.has(slot)) return;
     if (hideAfternoon && ['昼休み', '５限', '６限', '７限'].includes(slot)) return;
     addLine(`[${getDisplaySlot(slot)}]`, scheduleSlots(dateId)[slot] || '', '#90cdf4');
   });
@@ -588,21 +590,22 @@ function buildPanelHeader(dateId, position) {
   eventInput.type = 'text';
   eventInput.className = 'event-inline-input';
   eventInput.value = stripHtml(appState.configEvents[dateId] || '');
-  eventInput.placeholder = appState.customHolidays[dateId] ? '行事予定' : '';
+  const holiday = isEffectiveHoliday(dateId, appState);
+  eventInput.placeholder = holiday ? '行事予定' : '';
   if (top) eventInput.style.marginLeft = '15px';
   eventInput.addEventListener('input', () => updateAnnualEvent(dateId, eventInput.value));
   secondLine.appendChild(eventInput);
-  if (appState.customHolidays[dateId]) secondLine.appendChild(el('span', `祝：${stripHtml(appState.customHolidays[dateId])}`));
+  if (holiday) secondLine.appendChild(el('span', `祝：${stripHtml(appState.customHolidays[dateId])}`));
   if (!top) header.appendChild(secondLine);
   return header;
 }
-function createSlotEditor(dateId, slot, isShortChime, isExamChime) {
+function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = false) {
   const row = el('div');
   row.className = 'slot-row';
   const label = el('div', getDisplaySlot(slot));
   label.className = 'slot-label';
   const time = isExamChime ? appState.timeConfig.exam[slot] : isShortChime ? appState.timeConfig.short[slot] : appState.timeConfig.normal[slot];
-  if (time) label.appendChild(el('span', time)).className = 'time-disp';
+  if (time && !hideChime) label.appendChild(el('span', time)).className = 'time-disp';
   const input = el('div');
   input.className = 'slot-input';
   input.contentEditable = 'true';
@@ -643,13 +646,14 @@ function renderEditor(dateId, position) {
   const short = ['short', 'short-am', 'morning'].indexOf(profile) + 1;
   const exam = ['exam', 'mock-exam'].indexOf(profile) + 1;
   const noClass = ['noclass-hide', 'noclass-show'].indexOf(profile) + 1;
-  const holiday = Boolean(appState.customHolidays[dateId]);
+  const holiday = isEffectiveHoliday(dateId, appState);
+  const hideChime = isWeekend(dateId) || holiday;
   const hideClasses = noClass === 1;
   const hideAfternoon = exam === 1 || short === 2 || short === 3;
   const isShortChime = short === 1 || short === 2;
   const isExamChime = exam === 1;
   const canRender = slot => Boolean(appState.daySlotConfig?.[day]?.[slot]) && !(holiday && PERIOD_SLOTS.has(slot));
-  const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)); });
+  const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)); });
   addSlots(['朝']);
   if (!hideClasses) {
     const first = ['１限', '２限', '３限', '４限'].filter(canRender);
@@ -660,8 +664,8 @@ function renderEditor(dateId, position) {
       columns.className = 'cols-wrapper';
       const left = el('div'); left.className = 'col-half';
       const right = el('div'); right.className = 'col-half';
-      first.forEach(slot => left.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)));
-      second.forEach(slot => right.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime)));
+      first.forEach(slot => left.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
+      second.forEach(slot => right.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)));
       columns.append(left, right);
       content.appendChild(columns);
     } else {
@@ -813,7 +817,7 @@ function shiftDate(dateId, offset, position) {
   date.setDate(date.getDate() + offset);
   const nextId = getIsoDateStr(date);
   renderEditor(nextId, position);
-  if (position === 'top') setTimeout(() => executeJump(nextId), 0);
+  if (position === 'top') { clearSearch(true); requestAnimationFrame(() => scrollDateListToRow(nextId, 7)); }
 }
 
 function getBulkCalendarStateLabel(value) {
@@ -836,7 +840,7 @@ function getBulkCalendarDateTooltip(dateId, visual) {
   if (!date) return '';
   const values = [`${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${APP_CONFIG.daysStr[date.getDay()]}）`, visual.label];
   const eventText = stripHtml(appState.configEvents[dateId] || '').replace(/\s+/g, ' ').trim();
-  const holidayText = stripHtml(appState.customHolidays[dateId] || '').replace(/\s+/g, ' ').trim();
+  const holidayText = isEffectiveHoliday(dateId, appState) ? stripHtml(appState.customHolidays[dateId] || '').replace(/\s+/g, ' ').trim() : '';
   if (eventText) values.push(eventText);
   if (holidayText) values.push(holidayText);
   return values.join('\n');
@@ -943,13 +947,6 @@ function toggleBulkCalendarWeekday(year, month, dayIndex) {
   bulkCalendarRangeAnchor = '';
   renderBulkCalendar();
 }
-function selectBulkCalendarWeekdays() {
-  let date = new Date(appState.currentYear, 3, 1);
-  const end = new Date(appState.currentYear + 1, 2, 31);
-  while (date <= end) { if (WEEKDAYS.includes(date.getDay())) bulkCalendarSelection.add(getIsoDateStr(date)); date.setDate(date.getDate() + 1); }
-  bulkCalendarRangeAnchor = '';
-  renderBulkCalendar();
-}
 function clearBulkCalendarSelection() {
   bulkCalendarSelection.clear(); bulkCalendarRangeAnchor = ''; closeBulkCalendarContextMenu(); renderBulkCalendar();
 }
@@ -1012,6 +1009,15 @@ function applyBulkCalendarPreset(preset) {
   bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
   if (!commitState(state => ids.forEach(id => applyPresetToState(state, id, preset)), { historyLabel: '年間カレンダー一括設定', historyScope: 'bulk-calendar' })) { appState = before; bulkCalendarUndoSnapshot = null; return; }
   bulkCalendarStatus = `${ids.length}日を「${label}」に設定しました。`;
+  renderBulkCalendar(); refreshMainUI();
+}
+function applyBulkCalendarHoliday() {
+  const ids = Array.from(bulkCalendarSelection).filter(isAcademicDate).sort();
+  if (!ids.length) return;
+  const before = clone(appState);
+  bulkCalendarUndoSnapshot = ids.map(id => ({ id, profile: getDayProfile(id) }));
+  if (!commitState(state => ids.forEach(id => { if (!state.customHolidays[id]) state.customHolidays[id] = '休日'; }), { historyLabel: '年間カレンダー一括休日設定', historyScope: 'bulk-calendar' })) { appState = before; bulkCalendarUndoSnapshot = null; return; }
+  bulkCalendarStatus = `${ids.length}日を休日に設定しました。ほかの日種別がある日は、その種別を優先して表示します。`;
   renderBulkCalendar(); refreshMainUI();
 }
 function undoBulkCalendarChange() {
@@ -1161,7 +1167,7 @@ function scanSchedulesForCount() {
         const isExcludedByConfig = !appState.daySlotConfig?.[date.getDay()]?.[slot];
         const profile = getDayProfile(dateId);
         const isMorningOnly = ['short-am', 'morning'].includes(profile) && ['５限', '６限', '７限'].includes(slot);
-        const isHolidayPeriod = Boolean(appState.customHolidays[dateId]);
+        const isHolidayPeriod = isEffectiveHoliday(dateId, appState);
         const excluded = isExcludedByConfig || isMorningOnly || isHolidayPeriod;
         const skippedDay = profile.startsWith('noclass') || ['exam', 'mock-exam'].includes(profile);
         hits.push({ dateId, slot, plainText: stripHtml(html), originalHtml: html, checked: !excluded && !skippedDay, trashed: false, excluded, excludedReason: isHolidayPeriod ? '休日・祝日のため除外' : isMorningOnly ? '午前時程により除外' : isExcludedByConfig ? '設定により除外' : '' });
@@ -1286,7 +1292,7 @@ function renderCountGrid() {
   while (date && last && date <= last) {
     const dateId = getIsoDateStr(date); const row = el('tr'); row.className = getDayBgClass(dateId);
     const dateCell = el('td'); dateCell.appendChild(el('span', `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`)); const trashDay = el('button', '🗑️'); trashDay.type = 'button'; trashDay.className = 'btn-s'; trashDay.title = 'この日の授業を全消去/全復活'; trashDay.addEventListener('click', () => trashDayAll(dateId)); dateCell.appendChild(trashDay); row.appendChild(dateCell);
-    const eventText = stripHtml(appState.configEvents[dateId] || appState.customHolidays[dateId] || ''); const eventCell = el('td', eventText); eventCell.className = 'count-grid-event'; if (eventText) { setSafeTitle(eventCell, eventText); eventCell.setAttribute('aria-label', eventText); } row.appendChild(eventCell);
+    const eventText = stripHtml(appState.configEvents[dateId] || (isEffectiveHoliday(dateId, appState) ? appState.customHolidays[dateId] : '')); const eventCell = el('td', eventText); eventCell.className = 'count-grid-event'; if (eventText) { setSafeTitle(eventCell, eventText); eventCell.setAttribute('aria-label', eventText); } row.appendChild(eventCell);
     periodSlots.forEach(slot => {
       const cell = el('td');
       previewCountData.forEach((group, groupIndex) => group.hits.forEach((hit, hitIndex) => {
@@ -1615,12 +1621,12 @@ function initStartupDates() {
   if (today < new Date(appState.currentYear, 3, 1) || today > new Date(appState.currentYear + 1, 2, 31)) base = `${appState.currentYear}-04-01`;
   renderEditor(base, 'top');
   const next = dateFromIso(base); next.setDate(next.getDate() + 1);
-  while (next.getDay() === 0 || next.getDay() === 6 || appState.customHolidays[getIsoDateStr(next)]) next.setDate(next.getDate() + 1);
+  while (next.getDay() === 0 || next.getDay() === 6 || isEffectiveHoliday(getIsoDateStr(next), appState)) next.setDate(next.getDate() + 1);
   renderEditor(getIsoDateStr(next), 'bottom-left');
   const week = dateFromIso(base); week.setDate(week.getDate() + 7); renderEditor(getIsoDateStr(week), 'bottom-right');
   return base;
 }
-function scrollDateListToStartupRow(dateId, rowNumber = 7) {
+function scrollDateListToRow(dateId, rowNumber = 7) {
   const list = document.getElementById('date-list');
   const target = document.getElementById(`preview-${dateId}`)?.closest('.date-item');
   if (!list || !target) return;
@@ -1653,7 +1659,7 @@ function initApp() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
   document.body.className = appState.isLandscapeMode ? 'layout-landscape' : 'layout-portrait'; document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
-  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToStartupRow(startupDateId)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
+  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToRow(startupDateId)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
 }
 
@@ -1666,7 +1672,7 @@ function openDateListContextMenu(event, dateId) {
 }
 function closeDateListContextMenu(restoreFocus = false) { const menu = document.getElementById('date-list-context-menu'); if (!menu || menu.hidden) return; menu.hidden = true; if (restoreFocus) dateListContextInvoker?.focus?.(); dateListContextDateId = ''; dateListContextInvoker = null; }
 function applyDateListContextPreset(preset) { if (dateListContextDateId && DayStateEngine.applyPreset(dateListContextDateId, preset)) closeDateListContextMenu(); }
-function saveDateListContextHoliday() { if (!dateListContextDateId) return; const value = document.getElementById('date-list-context-holiday-name')?.value || ''; if (commitState(state => { const clean = sanitizeHtml(value); if (stripHtml(clean)) state.customHolidays[dateListContextDateId] = clean; else delete state.customHolidays[dateListContextDateId]; }, { historyLabel: '日別祝日の変更', historyScope: 'holiday' })) { closeDateListContextMenu(); refreshMainUI(); } }
+function saveDateListContextHoliday() { if (!dateListContextDateId) return; const value = document.getElementById('date-list-context-holiday-name')?.value || ''; if (commitState(state => { const clean = sanitizeHtml(value); state.customHolidays[dateListContextDateId] = stripHtml(clean).trim() ? clean : '休日'; }, { historyLabel: '日別祝日の変更', historyScope: 'holiday' })) { closeDateListContextMenu(); refreshMainUI(); } }
 function clearDateListContextHoliday() { if (!dateListContextDateId) return; if (commitState(state => { delete state.customHolidays[dateListContextDateId]; }, { historyLabel: '日別祝日の削除', historyScope: 'holiday' })) { closeDateListContextMenu(); refreshMainUI(); } }
 
 Object.assign(window, {
@@ -1676,8 +1682,8 @@ Object.assign(window, {
   openTodoModal, closeTodoModal, jumpToDateFromTodo, openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
   updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
-  openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, selectBulkCalendarWeekdays, setBulkCalendarSelectionMode,
-  toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, undoBulkCalendarChange,
+  openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode,
+  toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, undoBulkCalendarChange,
   openSettingsView, closeSettingsView, toggleAllTmplCb, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,

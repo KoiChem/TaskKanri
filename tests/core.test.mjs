@@ -11,7 +11,9 @@ import {
   getResolvedSlot,
   getSlotOrigin,
   getWeeklyRuleSlot,
+  isEffectiveHoliday,
   isValidIsoDate,
+  isWeekend,
   migrateToCurrent,
   normalizeImportedPayload,
   planAcademicYearChange,
@@ -90,6 +92,20 @@ test('session history is never part of the canonical export payload', () => {
   assert.equal(payload.ok, true);
   assert.equal('history' in payload.value.data, false);
   assert.equal(JSON.stringify(payload.value).includes('履歴対象'), false);
+});
+
+test('holiday settings remain stored while another day profile takes display priority', () => {
+  const state = defaultState(2026);
+  state.customHolidays['2026-04-29'] = '昭和の日';
+  assert.equal(isEffectiveHoliday('2026-04-29', state), true);
+  state.dayProfiles['2026-04-29'] = 'short';
+  assert.equal(isEffectiveHoliday('2026-04-29', state), false);
+  assert.equal(state.customHolidays['2026-04-29'], '昭和の日');
+  delete state.dayProfiles['2026-04-29'];
+  assert.equal(isEffectiveHoliday('2026-04-29', state), true);
+  assert.equal(isWeekend('2026-04-25'), true);
+  assert.equal(isWeekend('2026-04-26'), true);
+  assert.equal(isWeekend('2026-04-27'), false);
 });
 
 test('reset removes only explicit TaskKanri keys and keeps another app key', () => {

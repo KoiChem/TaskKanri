@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '72',
   compatibilityVersion: '72',
-  buildVersion: '20260906-undo-v2',
+  buildVersion: '20260906-calendar-v1',
   schemaVersion: 4,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -169,6 +169,16 @@ export function isValidIsoDate(value) {
   if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1) return false;
   const probe = new Date(Date.UTC(year, month - 1, day));
   return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
+}
+
+export function isWeekend(dateId) {
+  if (!isValidIsoDate(dateId)) return false;
+  const day = new Date(Date.UTC(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10)))).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+export function isEffectiveHoliday(dateId, state) {
+  return Boolean(state?.customHolidays?.[dateId]) && !(state?.dayProfiles?.[dateId] && state.dayProfiles[dateId] !== 'normal');
 }
 
 export function academicYearBounds(year) {
