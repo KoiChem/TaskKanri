@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-weekly-instruction-days-v1">
+<meta name="taskkanri-build-version" content="20260906-academic-rollover-v1">
 <meta name="taskkanri-schema-version" content="5">
 <title>タスク管理くん</title>
 <style>
@@ -37,9 +37,6 @@
   .date-label { font-size: var(--side-font); white-space: nowrap; color: var(--text); }
   .date-label:hover { color: var(--primary); }
   .date-preview { font-size: 11px; color: #718096; margin-left: 6px; white-space: nowrap; font-weight: bold; }
-  .date-fixed-off-mark, .fixed-off-badge { display:inline-flex; align-items:center; justify-content:center; border:1px solid #94a3b8; color:#475569; background:#f8fafc; border-radius:999px; font-weight:bold; line-height:1; }
-  .date-fixed-off-mark { margin-left:4px; min-width:16px; height:16px; font-size:10px; }
-  .fixed-off-badge { margin-left:6px; padding:3px 6px; font-size:11px; }
   
   .today-text { font-weight: bold; color: #000 !important; }
 
@@ -163,6 +160,15 @@
   .menu-box { background: white; padding: 30px; border-radius: 10px; width: 400px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
   .menu-btn { padding: 12px; font-size: 16px; cursor: pointer; border: 1px solid #cbd5e0; background: #edf2f7; border-radius: 6px; font-weight: bold; transition: 0.2s; }
   .menu-btn:hover { filter: brightness(0.95); }
+  .rollover-modal-box { width:min(620px, calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; background:#fff; padding:22px; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.25); }
+  .rollover-modal-box h2 { margin:0; color:#1e3a8a; font-size:21px; }
+  .rollover-modal-box h3 { margin:0 0 7px; font-size:15px; color:#2d3748; }
+  .rollover-section { margin-top:14px; padding:12px; border:1px solid #cbd5e0; border-radius:7px; background:#f8fafc; }
+  .rollover-summary { white-space:pre-line; margin:0; font-size:13px; line-height:1.55; color:#2d3748; }
+  .rollover-note { margin:6px 0 0; font-size:12px; line-height:1.5; color:#4a5568; }
+  .rollover-warning { color:#9c4221; background:#fffaf0; border-color:#f6ad55; }
+  .rollover-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  @media (max-width: 560px) { .rollover-modal-box { padding:16px; } .rollover-actions { flex-direction:column-reverse; } .rollover-actions button { width:100%; } }
   
   .todo-row { cursor: pointer; transition: 0.2s; }
   .todo-row:hover { background-color: #ebf8ff !important; }
@@ -561,13 +567,51 @@
   </div>
 </div>
 
+<div id="academic-year-rollover-modal" class="modal-overlay" style="z-index: 2100;" aria-hidden="true">
+  <div class="rollover-modal-box" role="dialog" aria-modal="true" aria-labelledby="academic-year-rollover-title" onkeydown="handleAcademicYearRolloverKeydown(event)">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <h2 id="academic-year-rollover-title" tabindex="-1">次年度への繰越</h2>
+      <button type="button" class="btn-s" onclick="closeAcademicYearRolloverModal()" aria-label="年度繰越を閉じる">✕ 閉じる</button>
+    </div>
+    <p id="academic-year-rollover-heading" style="margin:12px 0 0; font-weight:bold; color:#2d3748;"></p>
+
+    <section class="rollover-section">
+      <h3>繰越内容</h3>
+      <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+        <input id="academic-year-rollover-weekly" type="checkbox" onchange="renderAcademicYearRolloverPreview()">
+        <span><strong>週間授業規則を次年度にも作成する</strong><br><span class="rollover-note">年度ごとに担当時間割が変わる場合は、選択せずに進んでください。</span></span>
+      </label>
+      <p class="rollover-note">日別変更・年間行事・日別状態・祝日・休業日は繰り越しません。元年度のデータは削除されず、次年度にある規則も上書きしません。</p>
+    </section>
+
+    <section class="rollover-section">
+      <h3>実行前の確認</h3>
+      <p id="academic-year-rollover-preview" class="rollover-summary" aria-live="polite"></p>
+    </section>
+
+    <section class="rollover-section rollover-warning">
+      <h3>実行時の安全処理</h3>
+      <p class="rollover-note">実行前に復旧snapshotを作成します。作成または保存に失敗した場合、年度・時間割とも変更しません。成功後は「元に戻す」で繰越全体を取り消せます。</p>
+    </section>
+
+    <div class="rollover-actions">
+      <button type="button" class="menu-btn" onclick="closeAcademicYearRolloverModal()">キャンセル</button>
+      <button id="academic-year-rollover-execute" type="button" class="menu-btn" style="background:#1e3a8a; color:#fff; border-color:#1e3a8a;" onclick="executeAcademicYearRollover()">次年度へ繰り越す</button>
+    </div>
+  </div>
+</div>
+
 <div id="settings-view">
   <button class="menu-btn" onclick="closeSettingsView()" style="margin-bottom:15px;">← メイン画面に戻る</button>
   
   <div data-settings-section="basic" style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
-    <h3>1. 基本設定 <button class="btn-save" onclick="saveBasicSettings()">適用(リロード)</button></h3>
+    <h3>1. 基本設定 <button class="btn-save" onclick="saveBasicSettings()">年度を切り替える</button></h3>
     <div style="margin-bottom:10px;">
       年度: <input type="number" id="academic-year-input" style="padding:5px; font-size:16px; width:80px;"> (4月始まり)
+    </div>
+    <div style="margin:-2px 0 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn-s" onclick="openAcademicYearRolloverModal()">次年度へ繰り越す…</button>
+      <span style="font-size:12px; color:#4a5568;">年度切替はデータを複製しません。</span>
     </div>
     <div style="display:flex; align-items:center; gap:15px;">
       <span style="font-weight:bold;">画面レイアウト:</span>
@@ -650,7 +694,7 @@
     </div>
 
     <div style="flex:1; background:#fffaf0; padding:15px; border-radius:8px; border:1px solid #ed8936;">
-      <h3 style="margin:0 0 5px 0; color:#c05621;">8. 破損データの復旧</h3>
+      <h3 style="margin:0 0 5px 0; color:#c05621;">7. 破損データの復旧</h3>
       <p id="storage-guard-status" style="font-size:13px; margin:0 0 6px; color:#744210;">隔離データはありません。</p>
       <div id="quarantine-list" class="quarantine-list"></div>
       <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
@@ -661,7 +705,7 @@
     </div>
 
     <div style="flex:1; background:#fff5f5; padding:15px; border-radius:8px; border:1px solid #feb2b2;">
-      <h3 style="margin:0 0 5px 0; color:#c53030;">9. データ初期化（リセット）</h3>
+      <h3 style="margin:0 0 5px 0; color:#c53030;">8. データ初期化（リセット）</h3>
       <p style="font-size:13px; margin-top:0; color:#742a2a;">すべてのスケジュールや設定を消去し、完全に初期状態に戻します。</p>
       <button class="btn-save" style="background:#e53e3e; margin-top:5px;" onclick="openResetModal()">全データを初期化する</button>
     </div>
@@ -669,6 +713,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-weekly-instruction-days-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-academic-rollover-v1"></script>
 </body>
 </html>

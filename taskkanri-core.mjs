@@ -7,9 +7,9 @@
  */
 
 export const APP_CONFIG = Object.freeze({
-  displayVersion: '73',
+  displayVersion: '74',
   compatibilityVersion: '73',
-  buildVersion: '20260906-weekly-instruction-days-v1',
+  buildVersion: '20260906-academic-rollover-v1',
   schemaVersion: 5,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -255,6 +255,147 @@ export function planAcademicYearChange(state, nextYear) {
       nextCountDateRange: automaticRange ? clone(nextBounds) : clone(range)
     }
   };
+}
+
+function isoDateFromUtcParts(year, month, day) {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function shiftIsoDateByYears(dateId, years) {
+  if (!isValidIsoDate(dateId) || !Number.isInteger(years)) return null;
+  const shifted = isoDateFromUtcParts(Number(dateId.slice(0, 4)) + years, Number(dateId.slice(5, 7)), Number(dateId.slice(8, 10)));
+  return isValidIsoDate(shifted) ? shifted : null;
+}
+
+function shiftIsoDateByDays(dateId, days) {
+  if (!isValidIsoDate(dateId) || !Number.isInteger(days)) return null;
+  const value = new Date(Date.UTC(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10))));
+  value.setUTCDate(value.getUTCDate() + days);
+  return isoDateFromUtcParts(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+}
+
+function intersectIsoRanges(first, second) {
+  const from = first.from > second.from ? first.from : second.from;
+  const to = first.to < second.to ? first.to : second.to;
+  return from <= to ? { from, to } : null;
+}
+
+function subtractOccupiedIsoRanges(range, occupied) {
+  let remaining = [{ ...range }];
+  for (const item of occupied) {
+    const next = [];
+    for (const part of remaining) {
+      const overlap = intersectIsoRanges(part, item);
+      if (!overlap) {
+        next.push(part);
+        continue;
+      }
+      if (part.from < overlap.from) next.push({ from: part.from, to: shiftIsoDateByDays(overlap.from, -1) });
+      if (overlap.to < part.to) next.push({ from: shiftIsoDateByDays(overlap.to, 1), to: part.to });
+    }
+    remaining = next;
+    if (!remaining.length) break;
+  }
+  return remaining;
+}
+
+function countDatesWithinAcademicYear(map, year) {
+  return Object.keys(map || {}).filter(dateId => isAcademicYearDate(dateId, year)).length;
+}
+
+function appendWeeklyRuleInFreeRanges(state, rule) {
+  const next = clone(state);
+  const current = next.weeklyRules?.[rule.day]?.[rule.slot] || [];
+  const occupied = current.filter(segment => segment.from <= rule.to && segment.to >= rule.from);
+  const freeRanges = subtractOccupiedIsoRanges({ from: rule.from, to: rule.to }, occupied);
+  if (!freeRanges.length) return { state: next, added: [], conflicted: occupied.length > 0 };
+  if (!next.weeklyRules[rule.day]) next.weeklyRules[rule.day] = {};
+  next.weeklyRules[rule.day][rule.slot] = [...current, ...freeRanges.map(range => ({ ...range, content: rule.content }))]
+    .sort((left, right) => left.from.localeCompare(right.from));
+  return { state: next, added: freeRanges, conflicted: occupied.length > 0 };
+}
+
+/**
+ * Creates a non-mutating next-academic-year plan.  Weekly rules are opt-in;
+ * one-day changes, events, profiles, and holidays intentionally never move.
+ */
+export function planAcademicYearRollover(state, { sourceYear, targetYear, copyWeeklyRules = false } = {}) {
+  const normalized = normalizeState(state);
+  if (!normalized.ok) return normalized;
+  const current = normalized.value;
+  const fromYear = sourceYear ?? current.currentYear;
+  const toYear = targetYear ?? fromYear + 1;
+  if (!Number.isInteger(fromYear) || !Number.isInteger(toYear) || fromYear < 2000 || fromYear > 2100 || toYear < 2000 || toYear > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
+  if (fromYear !== current.currentYear) return fail('繰越元は現在表示中の年度にしてください', 'sourceYear');
+  if (toYear !== fromYear + 1) return fail('繰越先は次年度のみ指定できます', 'targetYear');
+  const sourceBounds = academicYearBounds(fromYear);
+  const targetBounds = academicYearBounds(toYear);
+  let plannedState = clone(current);
+  const plannedWeeklyRules = [];
+  let candidateCount = 0;
+  let copiedCount = 0;
+  let conflictCount = 0;
+  let skippedCount = 0;
+
+  if (copyWeeklyRules) {
+    for (const [day, slots] of Object.entries(current.weeklyRules)) {
+      for (const [slot, segments] of Object.entries(slots)) {
+        for (const segment of segments) {
+          const sourceRange = intersectIsoRanges(segment, { from: sourceBounds.start, to: sourceBounds.end });
+          if (!sourceRange) continue;
+          candidateCount += 1;
+          const from = shiftIsoDateByYears(sourceRange.from, 1);
+          const to = shiftIsoDateByYears(sourceRange.to, 1);
+          if (!from || !to) return fail(`うるう日のため ${sourceRange.from}〜${sourceRange.to} を次年度へ安全に繰り越せません`, 'weeklyRules');
+          const appended = appendWeeklyRuleInFreeRanges(plannedState, { day, slot, from, to, content: segment.content });
+          plannedState = appended.state;
+          if (appended.conflicted) conflictCount += 1;
+          if (!appended.added.length) skippedCount += 1;
+          copiedCount += appended.added.length;
+          appended.added.forEach(range => plannedWeeklyRules.push({ day, slot, ...range, content: segment.content }));
+        }
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      sourceYear: fromYear,
+      targetYear: toYear,
+      sourceBounds,
+      targetBounds,
+      copyWeeklyRules: Boolean(copyWeeklyRules),
+      plannedWeeklyRules,
+      candidateCount,
+      copiedCount,
+      conflictCount,
+      skippedCount,
+      nextCountDateRange: clone(targetBounds),
+      excludedCounts: {
+        dateOverrides: countDatesWithinAcademicYear(current.dateOverrides, fromYear),
+        configEvents: countDatesWithinAcademicYear(current.configEvents, fromYear),
+        dayProfiles: countDatesWithinAcademicYear(current.dayProfiles, fromYear),
+        customHolidays: countDatesWithinAcademicYear(current.customHolidays, fromYear)
+      },
+      nextWeeklyRules: copyWeeklyRules ? plannedState.weeklyRules : null
+    }
+  };
+}
+
+export function applyAcademicYearRollover(state, plan) {
+  if (!plan?.ok || !plan.value) return fail('年度繰越プランが不正です');
+  const normalized = normalizeState(state);
+  if (!normalized.ok) return normalized;
+  const current = normalized.value;
+  const value = plan.value;
+  if (current.currentYear !== value.sourceYear) return fail('年度繰越プランが現在の年度と一致しません');
+  if (value.targetYear !== value.sourceYear + 1) return fail('繰越先は次年度のみ指定できます');
+  const next = clone(current);
+  next.currentYear = value.targetYear;
+  next.countDateRange = clone(value.nextCountDateRange);
+  if (value.copyWeeklyRules) next.weeklyRules = clone(value.nextWeeklyRules);
+  return normalizeState(next);
 }
 
 function validTime(value) {

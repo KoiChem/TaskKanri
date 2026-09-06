@@ -17,13 +17,15 @@ import {
   isSlotVisibleForDate,
   isValidIsoDate,
   normalizeImportedPayload,
+  applyAcademicYearRollover,
   planAcademicYearChange,
+  planAcademicYearRollover,
   replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260906-weekly-instruction-days-v1';
+} from './taskkanri-core.mjs?v=20260906-academic-rollover-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -52,6 +54,7 @@ let initialized = false;
 const historyManager = new HistoryManager();
 const settingsDirtySections = new Set();
 let isHydratingSettings = false;
+let academicYearRolloverInvoker = null;
 
 function q(selector, root = document) { return root.querySelector(selector); }
 function qa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); }
@@ -107,7 +110,7 @@ function getDayStateVisual(dateId) {
     normal: ['', '', '通常授業']
   };
   const policy = getDateSchedulePolicy(dateId, appState);
-  if (policy.isFixedOffActive) return { className: 'day-state-fixed-off', shortLabel: '休', label: '固定休業日' };
+  if (policy.isFixedOffActive) return { className: 'day-state-fixed-off', shortLabel: '', label: '固定休業日' };
   const [className, shortLabel, label] = display[policy.profile];
   return { className, shortLabel, label };
 }
@@ -367,13 +370,6 @@ function createDateItem(dateId, searching = false) {
   label.className = dateId === getIsoDateStr(new Date()) ? 'date-label today-text' : 'date-label';
   wrapper.appendChild(label);
   const visual = getDayStateVisual(dateId);
-  if (visual.shortLabel === '休') {
-    const fixedOff = el('span', '休');
-    fixedOff.className = 'date-fixed-off-mark';
-    fixedOff.title = '固定休業日';
-    fixedOff.setAttribute('aria-label', '固定休業日');
-    wrapper.appendChild(fixedOff);
-  }
   if (!searching) {
     const preview = el('span', getPreviewText(dateId));
     preview.className = 'date-preview';
@@ -588,13 +584,6 @@ function buildPanelHeader(dateId, position) {
   dateLabel.className = `display-date ${visual.className}`;
   dateLabel.title = visual.label;
   firstLine.appendChild(dateLabel);
-  if (visual.shortLabel === '休') {
-    const fixedOff = el('span', '固定休業日');
-    fixedOff.className = 'fixed-off-badge';
-    fixedOff.title = '固定休業日';
-    fixedOff.setAttribute('aria-label', '固定休業日');
-    firstLine.appendChild(fixedOff);
-  }
   if (top) firstLine.appendChild(el('span'));
   if (top) {
     firstLine.lastChild.className = 'digital-clock-display';
@@ -919,7 +908,7 @@ function renderBulkCalendar() {
       dateButton.title = tooltip;
       dateButton.classList.toggle('is-selected', bulkCalendarSelection.has(dateId));
       dateButton.appendChild(el('span', String(day)));
-      const stateMark = el('span', visual.shortLabel || '\u00a0'); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark);
+      if (visual.shortLabel) { const stateMark = el('span', visual.shortLabel); stateMark.className = 'calendar-state-mark'; dateButton.appendChild(stateMark); }
       if (dateId === todayId) { const todayMark = el('span'); todayMark.className = 'calendar-today-mark'; todayMark.setAttribute('aria-label', '今日'); dateButton.appendChild(todayMark); }
       dateButton.addEventListener('click', event => toggleBulkCalendarDate(dateId, event));
       days.appendChild(dateButton);
@@ -1576,6 +1565,90 @@ function parseTextareaMap(value, fieldLabel) {
   }
   return result;
 }
+function academicYearRolloverStorageUsageKb() {
+  const bytes = (storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike?.getItem(key)?.length || 0) + key.length) * 2, 0);
+  return (bytes / 1024).toFixed(2);
+}
+function buildAcademicYearRolloverPlan() {
+  const copyWeeklyRules = Boolean(document.getElementById('academic-year-rollover-weekly')?.checked);
+  return planAcademicYearRollover(appState, {
+    sourceYear: appState.currentYear,
+    targetYear: appState.currentYear + 1,
+    copyWeeklyRules
+  });
+}
+function renderAcademicYearRolloverPreview() {
+  const preview = document.getElementById('academic-year-rollover-preview');
+  const heading = document.getElementById('academic-year-rollover-heading');
+  const execute = document.getElementById('academic-year-rollover-execute');
+  const plan = buildAcademicYearRolloverPlan();
+  if (!plan.ok) {
+    if (preview) preview.textContent = `繰越を開始できません。${plan.error}`;
+    if (execute) execute.disabled = true;
+    return null;
+  }
+  const value = plan.value;
+  if (heading) heading.textContent = `${value.sourceYear}年度から${value.targetYear}年度へ繰り越します`;
+  const excluded = value.excludedCounts;
+  const lines = [
+    value.copyWeeklyRules
+      ? `週間授業規則: ${value.candidateCount}件を確認し、${value.copiedCount}件を追加予定です。`
+      : '週間授業規則: 作成しません。',
+    value.copyWeeklyRules && value.conflictCount ? `既存の次年度規則との競合: ${value.conflictCount}件（既存を優先し、空いている期間だけ追加）` : '',
+    value.copyWeeklyRules && value.skippedCount ? `競合により追加しない規則: ${value.skippedCount}件` : '',
+    `日別変更・行事・日別状態・祝日: 繰り越しません（日別変更 ${excluded.dateOverrides}日 / 行事 ${excluded.configEvents}日 / 日別状態 ${excluded.dayProfiles}日 / 祝日 ${excluded.customHolidays}日）。`,
+    `時数集計期間: ${value.nextCountDateRange.start} ～ ${value.nextCountDateRange.end} に設定します。開始番号は変更しません。`,
+    `現在のTaskKanri保存領域: 約 ${academicYearRolloverStorageUsageKb()} KB。実行前に復旧snapshotを作成します。`
+  ].filter(Boolean);
+  if (preview) preview.textContent = lines.join('\n');
+  if (execute) { execute.disabled = false; execute.textContent = `${value.targetYear}年度へ繰り越す`; }
+  return plan;
+}
+function openAcademicYearRolloverModal() {
+  if (settingsDirtySections.size) { showAlert('保存していない設定があります。先に保存するか、設定画面を開き直してから年度繰越を開始してください。'); return; }
+  if (!storageService || storageService.isReadOnly()) { notifySaveFailure({ error: `読み取り専用相当です: ${storageService?.readOnlyReason?.() || ''}` }); return; }
+  academicYearRolloverInvoker = document.activeElement;
+  const weekly = document.getElementById('academic-year-rollover-weekly');
+  if (weekly) weekly.checked = false;
+  const modal = document.getElementById('academic-year-rollover-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+  renderAcademicYearRolloverPreview();
+  setTimeout(() => document.getElementById('academic-year-rollover-title')?.focus(), 0);
+}
+function closeAcademicYearRolloverModal() {
+  const modal = document.getElementById('academic-year-rollover-modal');
+  if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+  academicYearRolloverInvoker?.focus?.();
+  academicYearRolloverInvoker = null;
+}
+function handleAcademicYearRolloverKeydown(event) {
+  if (event.key === 'Escape') { event.preventDefault(); closeAcademicYearRolloverModal(); return; }
+  if (event.key !== 'Tab') return;
+  const dialog = document.querySelector('#academic-year-rollover-modal [role="dialog"]');
+  const focusables = qa('button:not([disabled]), input:not([disabled])', dialog).filter(node => node.offsetParent !== null);
+  if (!focusables.length) return;
+  if (event.shiftKey && document.activeElement === focusables[0]) { event.preventDefault(); focusables.at(-1).focus(); }
+  else if (!event.shiftKey && document.activeElement === focusables.at(-1)) { event.preventDefault(); focusables[0].focus(); }
+}
+function executeAcademicYearRollover() {
+  const plan = buildAcademicYearRolloverPlan();
+  if (!plan.ok) { showAlert(plan.error); return; }
+  const value = plan.value;
+  const snapshot = storageService.createRecoverySnapshot();
+  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
+  const applied = applyAcademicYearRollover(appState, plan);
+  if (!applied.ok) { showAlert(applied.error); return; }
+  const copied = value.copyWeeklyRules ? `${value.copiedCount}件の週間授業規則` : '週間授業規則を作成せず';
+  if (!commitState(state => Object.assign(state, applied.value), { refresh: true, historyLabel: `年度繰越 ${value.sourceYear}→${value.targetYear}`, historyScope: 'academic-year-rollover' })) return;
+  closeAcademicYearRolloverModal();
+  settingsDirtySections.clear();
+  const settings = document.getElementById('settings-view');
+  if (settings) settings.style.display = 'none';
+  refreshMainUI();
+  showAlert(`${value.targetYear}年度へ繰り越しました（${copied}）。「元に戻す」で繰越全体を取り消せます。復旧snapshot: ${snapshot.key}`);
+}
 function saveBasicSettings() {
   const year = Number(document.getElementById('academic-year-input')?.value); const layout = document.querySelector('input[name="layout-mode"]:checked')?.value;
   if (!Number.isInteger(year) || year < 2000 || year > 2100 || !['portrait', 'landscape'].includes(layout)) { showAlert('年度または画面レイアウトが不正です。'); return; }
@@ -1784,6 +1857,7 @@ Object.assign(window, {
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, undoBulkCalendarChange,
   openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
+  openAcademicYearRolloverModal, closeAcademicYearRolloverModal, handleAcademicYearRolloverKeydown, renderAcademicYearRolloverPreview, executeAcademicYearRollover,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
   updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip, checkAlarms

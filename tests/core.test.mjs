@@ -20,7 +20,9 @@ import {
   migrateToCurrent,
   normalizeInstructionDayConfig,
   normalizeImportedPayload,
+  applyAcademicYearRollover,
   planAcademicYearChange,
+  planAcademicYearRollover,
   replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
@@ -426,6 +428,68 @@ test('canonical dates and academic-year plans reject impossible ranges and retai
   assert.deepEqual(explicit.value.nextCountDateRange, state.countDateRange);
   assert.equal(explicit.value.rangeOutside, true);
   assert.equal(state.dayProfiles['2027-04-03'], 'exam', 'planning is non-mutating, so cancel is safe');
+});
+
+test('academic year rollover defaults to no weekly-rule copy and leaves dated data intact', () => {
+  const state = defaultState(2026);
+  state.weeklyRules = { 1: { '１限': [{ from: '2026-04-01', to: '2027-03-31', content: '化学' }] } };
+  state.dateOverrides = { '2026-04-06': { slots: { '１限': { action: 'replace', content: '実験', source: 'user' } } } };
+  state.configEvents['2026-04-07'] = '行事';
+  state.dayProfiles['2026-04-08'] = 'exam';
+  state.customHolidays['2026-05-03'] = '祝日';
+  const before = JSON.parse(JSON.stringify(state));
+  const plan = planAcademicYearRollover(state);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.value.copyWeeklyRules, false);
+  assert.equal(plan.value.candidateCount, 0);
+  assert.equal(plan.value.copiedCount, 0);
+  assert.equal(plan.value.nextWeeklyRules, null);
+  assert.deepEqual(state, before, 'planning never mutates the source state');
+  const applied = applyAcademicYearRollover(state, plan);
+  assert.equal(applied.ok, true);
+  assert.equal(applied.value.currentYear, 2027);
+  assert.deepEqual(applied.value.countDateRange, academicYearBounds(2027));
+  assert.deepEqual(applied.value.weeklyRules, state.weeklyRules, 'unchecked weekly rules are untouched');
+  assert.deepEqual(applied.value.dateOverrides, state.dateOverrides);
+  assert.deepEqual(applied.value.configEvents, state.configEvents);
+  assert.deepEqual(applied.value.dayProfiles, state.dayProfiles);
+  assert.deepEqual(applied.value.customHolidays, state.customHolidays);
+});
+
+test('academic year rollover copies opted-in weekly rules into free target periods without overwrite', () => {
+  const state = defaultState(2026);
+  state.weeklyRules = { 1: { '１限': [
+    { from: '2026-04-01', to: '2027-03-31', content: '化学' },
+    { from: '2027-09-01', to: '2027-09-30', content: '次年度の既存規則' }
+  ] } };
+  const plan = planAcademicYearRollover(state, { sourceYear: 2026, targetYear: 2027, copyWeeklyRules: true });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.value.candidateCount, 1);
+  assert.equal(plan.value.copiedCount, 2);
+  assert.equal(plan.value.conflictCount, 1);
+  assert.equal(plan.value.skippedCount, 0);
+  const applied = applyAcademicYearRollover(state, plan);
+  assert.equal(applied.ok, true);
+  assert.deepEqual(applied.value.weeklyRules[1]['１限'].map(item => [item.from, item.to, item.content]), [
+    ['2026-04-01', '2027-03-31', '化学'],
+    ['2027-04-01', '2027-08-31', '化学'],
+    ['2027-09-01', '2027-09-30', '次年度の既存規則'],
+    ['2027-10-01', '2028-03-31', '化学']
+  ]);
+  assert.deepEqual(state.weeklyRules[1]['１限'].map(item => [item.from, item.to, item.content]), [
+    ['2026-04-01', '2027-03-31', '化学'],
+    ['2027-09-01', '2027-09-30', '次年度の既存規則']
+  ], 'the source state remains unchanged');
+});
+
+test('academic year rollover rejects impossible leap-day shifts and non-next-year targets', () => {
+  const state = defaultState(2027);
+  state.weeklyRules = { 1: { '１限': [{ from: '2028-02-29', to: '2028-02-29', content: 'うるう日授業' }] } };
+  const leap = planAcademicYearRollover(state, { sourceYear: 2027, targetYear: 2028, copyWeeklyRules: true });
+  assert.equal(leap.ok, false);
+  assert.match(leap.error, /うるう日/);
+  const notNext = planAcademicYearRollover(state, { sourceYear: 2027, targetYear: 2029, copyWeeklyRules: false });
+  assert.equal(notNext.ok, false);
 });
 
 test('schema 3 schedules become sparse legacy overrides without inferred weekly rules', () => {
