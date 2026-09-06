@@ -12,16 +12,18 @@ import {
   getWeeklyRuleSlot,
   HistoryManager,
   formatStateSummary,
+  getDateSchedulePolicy,
   isEffectiveHoliday,
+  isSlotVisibleForDate,
   isValidIsoDate,
-  isWeekend,
   normalizeImportedPayload,
   planAcademicYearChange,
   replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
-  stripHtml
-} from './taskkanri-core.mjs?v=20260906-slot-width-v1';
+  stripHtml,
+  weekdayForDateId
+} from './taskkanri-core.mjs?v=20260906-weekly-instruction-days-v1';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -48,6 +50,8 @@ let wakeLock = null;
 let titleBlinkerId = null;
 let initialized = false;
 const historyManager = new HistoryManager();
+const settingsDirtySections = new Set();
+let isHydratingSettings = false;
 
 function q(selector, root = document) { return root.querySelector(selector); }
 function qa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); }
@@ -84,8 +88,8 @@ function getDisplaySlot(slot) {
   if (slot === '放課後') return '放課';
   return slot;
 }
-function getActiveSlotsForDay(dayIndex) {
-  return APP_CONFIG.slotsAll.filter(slot => Boolean(appState.daySlotConfig?.[dayIndex]?.[slot]));
+function getActiveSlotsForDate(dateId) {
+  return APP_CONFIG.slotsAll.filter(slot => isSlotVisibleForDate(dateId, slot, appState));
 }
 function scheduleSlots(dateId, state = appState) { return Object.fromEntries(APP_CONFIG.slotsAll.map(slot => [slot, getResolvedSlot(dateId, slot, state)])); }
 function resolvedSlot(dateId, slot, state = appState) { return getResolvedSlot(dateId, slot, state); }
@@ -102,18 +106,22 @@ function getDayStateVisual(dateId) {
     short: ['day-state-short', '短', '短縮時程'], 'short-am': ['day-state-short', '短AM', '短縮AM'], morning: ['day-state-short', '午前', '午前時程'],
     normal: ['', '', '通常授業']
   };
-  const [className, shortLabel, label] = display[getDayProfile(dateId)];
+  const policy = getDateSchedulePolicy(dateId, appState);
+  if (policy.isFixedOffActive) return { className: 'day-state-fixed-off', shortLabel: '休', label: '固定休業日' };
+  const [className, shortLabel, label] = display[policy.profile];
   return { className, shortLabel, label };
 }
 function getDayBgClass(dateId) {
   const date = dateFromIso(dateId);
   if (!date) return '';
-  const profile = getDayProfile(dateId);
+  const policy = getDateSchedulePolicy(dateId, appState);
+  const profile = policy.profile;
   if (profile.startsWith('noclass')) return 'bg-no-class';
   if (profile === 'exam' || profile === 'mock-exam') return 'bg-exam';
   if (['short', 'short-am', 'morning'].includes(profile)) return 'bg-short';
   if (appState.customHolidays[dateId] || date.getDay() === 0) return 'bg-sun-hol';
   if (date.getDay() === 6) return 'bg-sat';
+  if (policy.isFixedOffActive) return 'bg-fixed-off';
   return '';
 }
 function getSmartDateRange() {
@@ -358,6 +366,14 @@ function createDateItem(dateId, searching = false) {
   const label = el('span', formatDateInfo(date).label);
   label.className = dateId === getIsoDateStr(new Date()) ? 'date-label today-text' : 'date-label';
   wrapper.appendChild(label);
+  const visual = getDayStateVisual(dateId);
+  if (visual.shortLabel === '休') {
+    const fixedOff = el('span', '休');
+    fixedOff.className = 'date-fixed-off-mark';
+    fixedOff.title = '固定休業日';
+    fixedOff.setAttribute('aria-label', '固定休業日');
+    wrapper.appendChild(fixedOff);
+  }
   if (!searching) {
     const preview = el('span', getPreviewText(dateId));
     preview.className = 'date-preview';
@@ -509,7 +525,7 @@ function showTooltip(event, dateId) {
   const profile = getDayProfile(dateId);
   const noClass = profile === 'noclass-hide';
   const hideAfternoon = profile === 'exam' || profile === 'short-am' || profile === 'morning';
-  getActiveSlotsForDay(date.getDay()).forEach(slot => {
+  getActiveSlotsForDate(dateId).forEach(slot => {
     if (noClass && slot !== '朝' && slot !== '放課後') return;
     if (holiday && PERIOD_SLOTS.has(slot)) return;
     if (hideAfternoon && ['昼休み', '５限', '６限', '７限'].includes(slot)) return;
@@ -572,6 +588,13 @@ function buildPanelHeader(dateId, position) {
   dateLabel.className = `display-date ${visual.className}`;
   dateLabel.title = visual.label;
   firstLine.appendChild(dateLabel);
+  if (visual.shortLabel === '休') {
+    const fixedOff = el('span', '固定休業日');
+    fixedOff.className = 'fixed-off-badge';
+    fixedOff.title = '固定休業日';
+    fixedOff.setAttribute('aria-label', '固定休業日');
+    firstLine.appendChild(fixedOff);
+  }
   if (top) firstLine.appendChild(el('span'));
   if (top) {
     firstLine.lastChild.className = 'digital-clock-display';
@@ -641,18 +664,18 @@ function renderEditor(dateId, position) {
   target.appendChild(buildPanelHeader(dateId, targetPosition));
   const content = el('div');
   setStyle(content, { flex: '1', overflowY: 'auto', paddingRight: '5px', display: 'flex', flexDirection: 'column' });
-  const day = date.getDay();
   const profile = getDayProfile(dateId);
   const short = ['short', 'short-am', 'morning'].indexOf(profile) + 1;
   const exam = ['exam', 'mock-exam'].indexOf(profile) + 1;
   const noClass = ['noclass-hide', 'noclass-show'].indexOf(profile) + 1;
-  const holiday = isEffectiveHoliday(dateId, appState);
-  const hideChime = isWeekend(dateId) || holiday;
+  const policy = getDateSchedulePolicy(dateId, appState);
+  const holiday = policy.isEffectiveHoliday;
+  const hideChime = policy.hideChime;
   const hideClasses = noClass === 1;
   const hideAfternoon = exam === 1 || short === 2 || short === 3;
   const isShortChime = short === 1 || short === 2;
   const isExamChime = exam === 1;
-  const canRender = slot => Boolean(appState.daySlotConfig?.[day]?.[slot]) && !(holiday && PERIOD_SLOTS.has(slot));
+  const canRender = slot => isSlotVisibleForDate(dateId, slot, appState);
   const addSlots = slots => slots.forEach(slot => { if (canRender(slot)) content.appendChild(createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime)); });
   addSlots(['朝']);
   if (!hideClasses) {
@@ -738,7 +761,6 @@ function restoreBaseSlot(dateId, slot) {
   if (!showConfirm(`${dateId} の${getDisplaySlot(slot)}を基本時間割に戻しますか？`)) return;
   if (commitState(state => { delete state.dateOverrides?.[dateId]?.slots?.[slot]; if (state.dateOverrides?.[dateId] && !Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId]; }, { refresh: true, historyLabel: '基本時間割に戻す', historyScope: 'schedule' })) updatePreviewUI(dateId);
 }
-function weekdayForDateId(dateId) { return dateFromIso(dateId)?.getDay() ?? 0; }
 function changeFollowingWeekly(dateId, slot, htmlValue) {
   const content = sanitizeHtml(htmlValue);
   if (!stripHtml(content).trim()) { showAlert('「この日以降」の基本時間割には空でない内容が必要です。'); return; }
@@ -1165,13 +1187,15 @@ function scanSchedulesForCount() {
       const date = dateFromIso(dateId); if (!date) return;
       targetSlots.forEach(slot => {
         const html = scheduleSlots(dateId)[slot]; if (!html || getFirstWord(html) !== condition.word.trim()) return;
+        const policy = getDateSchedulePolicy(dateId, appState);
         const isExcludedByConfig = !appState.daySlotConfig?.[date.getDay()]?.[slot];
         const profile = getDayProfile(dateId);
         const isMorningOnly = ['short-am', 'morning'].includes(profile) && ['５限', '６限', '７限'].includes(slot);
-        const isHolidayPeriod = isEffectiveHoliday(dateId, appState);
-        const excluded = isExcludedByConfig || isMorningOnly || isHolidayPeriod;
+        const isHolidayPeriod = policy.isEffectiveHoliday;
+        const isFixedOffPeriod = policy.isFixedOffActive;
+        const excluded = isExcludedByConfig || isMorningOnly || isHolidayPeriod || isFixedOffPeriod;
         const skippedDay = profile.startsWith('noclass') || ['exam', 'mock-exam'].includes(profile);
-        hits.push({ dateId, slot, plainText: stripHtml(html), originalHtml: html, checked: !excluded && !skippedDay, trashed: false, excluded, excludedReason: isHolidayPeriod ? '休日・祝日のため除外' : isMorningOnly ? '午前時程により除外' : isExcludedByConfig ? '設定により除外' : '' });
+        hits.push({ dateId, slot, plainText: stripHtml(html), originalHtml: html, checked: !excluded && !skippedDay, trashed: false, excluded, excludedReason: policy.countExclusionReason || (isMorningOnly ? '午前時程により除外' : isExcludedByConfig ? '設定により除外' : '') });
       });
     });
     return { hits };
@@ -1437,16 +1461,57 @@ function trashDayAll(dateId) {
 function toggleDayRow(dayIndex) {
   const checkboxes = qa(`#day-slot-tbody input[data-day="${dayIndex}"][data-slot]`); const all = checkboxes.length && checkboxes.every(input => input.checked);
   checkboxes.forEach(input => { input.checked = !all; input.dispatchEvent(new Event('change')); });
+  if (checkboxes.length) settingsDirtySections.add('schedule');
 }
 function syncTmplState(day, slot, checked) {
-  qa('#weekly-tbody input[data-day][data-slot]').filter(input => input.dataset.day === String(day) && input.dataset.slot === slot && input.type === 'text').forEach(input => { input.disabled = !checked; input.classList.toggle('tmpl-disabled', !checked); });
+  qa('#weekly-tbody input[data-day][data-slot]').filter(input => input.dataset.day === String(day) && input.dataset.slot === slot && input.type === 'text').forEach(input => {
+    input.disabled = !checked;
+    input.classList.toggle('tmpl-disabled', !checked);
+    input.title = checked ? '' : '表示コマ設定で無効（保存済み内容は保持）';
+  });
+}
+function isInstructionDayDraft(day) {
+  const input = document.querySelector(`#day-slot-tbody input[data-instruction-day="${day}"]`);
+  return input ? input.checked : Boolean(appState.instructionDayConfig?.[day]);
+}
+function syncInstructionDayState(day, checked) {
+  const row = document.querySelector(`#day-slot-tbody tr[data-day-row="${day}"]`);
+  if (row) {
+    row.classList.toggle('instruction-day-off', !checked);
+    const status = row.querySelector('.instruction-day-status');
+    if (status) status.textContent = checked ? '授業' : '休業';
+    qa('input[data-slot]', row).forEach(input => {
+      const disabled = !checked && PERIOD_SLOTS.has(input.dataset.slot);
+      input.disabled = disabled;
+      input.title = disabled ? '固定休業日のため非表示（設定は保持）' : input.dataset.slot;
+    });
+  }
+  const header = document.querySelector(`#weekly-thead [data-weekly-day-header="${day}"]`);
+  if (header) {
+    header.textContent = `${APP_CONFIG.daysStr[day]}${checked ? '' : '（休）'}`;
+    header.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日${checked ? '' : '・固定休業日'}`);
+  }
 }
 function renderSettingsTables() {
   const dayBody = document.getElementById('day-slot-tbody'); if (dayBody) {
     dayBody.replaceChildren();
     [1, 2, 3, 4, 5, 6, 0].forEach(day => {
-      const row = el('tr'); const label = el('td', APP_CONFIG.daysStr[day]); label.addEventListener('click', () => toggleDayRow(day)); row.appendChild(label);
-      APP_CONFIG.slotsAll.forEach(slot => { const cell = el('td'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.dataset.day = String(day); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[day][slot]); checkbox.title = slot; checkbox.addEventListener('change', () => syncTmplState(day, slot, checkbox.checked)); cell.appendChild(checkbox); row.appendChild(cell); });
+      const instructionDay = Boolean(appState.instructionDayConfig?.[day]);
+      const row = el('tr'); row.dataset.dayRow = String(day);
+      const label = el('th', APP_CONFIG.daysStr[day]); label.scope = 'row';
+      const allToggle = el('button', '全反転'); allToggle.type = 'button'; allToggle.className = 'btn-s day-slot-all-toggle'; allToggle.title = `${APP_CONFIG.daysStr[day]}曜日の表示枠を全反転`;
+      allToggle.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日の表示枠を全反転`); allToggle.addEventListener('click', () => toggleDayRow(day));
+      label.appendChild(allToggle); row.appendChild(label);
+      const instructionCell = el('td'); const instructionLabel = el('label'); instructionLabel.className = 'instruction-day-control';
+      const instruction = el('input'); instruction.type = 'checkbox'; instruction.dataset.instructionDay = String(day); instruction.checked = instructionDay;
+      instruction.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日を授業日にする`);
+      const status = el('span', instructionDay ? '授業' : '休業'); status.className = 'instruction-day-status';
+      instruction.addEventListener('change', () => syncInstructionDayState(day, instruction.checked)); instructionLabel.append(instruction, status); instructionCell.appendChild(instructionLabel); row.appendChild(instructionCell);
+      APP_CONFIG.slotsAll.forEach(slot => {
+        const cell = el('td'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.dataset.day = String(day); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[day][slot]);
+        checkbox.disabled = !instructionDay && PERIOD_SLOTS.has(slot); checkbox.title = checkbox.disabled ? '固定休業日のため非表示（設定は保持）' : slot;
+        checkbox.addEventListener('change', () => syncTmplState(day, slot, checkbox.checked)); cell.appendChild(checkbox); row.appendChild(cell);
+      });
       dayBody.appendChild(row);
     });
   }
@@ -1456,11 +1521,13 @@ function renderSettingsTables() {
   }
   const weeklyBody = document.getElementById('weekly-tbody'); if (weeklyBody) {
     weeklyBody.replaceChildren();
-    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const box = el('div'); box.style.display = 'flex'; box.style.alignItems = 'center'; const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.className = 'tmpl-cb'; checkbox.dataset.day = String(dayIndex); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[dayIndex][slot]); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.weeklyTemplate[dayIndex]?.[slot] || ''); input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); checkbox.addEventListener('change', () => { input.disabled = !checkbox.checked; input.classList.toggle('tmpl-disabled', input.disabled); }); box.append(checkbox, input); cell.appendChild(box); row.appendChild(cell); } weeklyBody.appendChild(row); });
+    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.weeklyTemplate[dayIndex]?.[slot] || ''); input.disabled = !appState.daySlotConfig[dayIndex][slot]; input.classList.toggle('tmpl-disabled', input.disabled); input.title = input.disabled ? '表示コマ設定で無効（保存済み内容は保持）' : ''; cell.appendChild(input); row.appendChild(cell); } weeklyBody.appendChild(row); });
     qa('#weekly-tbody input[type="text"]').forEach(input => input.addEventListener('keydown', handleTableNav));
   }
+  [1, 2, 3, 4, 5, 6, 0].forEach(day => syncInstructionDayState(day, isInstructionDayDraft(day)));
 }
 function openSettingsView() {
+  isHydratingSettings = true;
   const year = document.getElementById('academic-year-input'); if (year) year.value = String(appState.currentYear);
   const range = getSmartDateRange(); const start = document.getElementById('tmpl-start'); const end = document.getElementById('tmpl-end'); if (start) start.value = range.start; if (end) end.value = range.end;
   const layout = document.querySelector(`input[name="layout-mode"][value="${appState.isLandscapeMode ? 'landscape' : 'portrait'}"]`); if (layout) layout.checked = true;
@@ -1477,10 +1544,18 @@ function openSettingsView() {
   const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
   const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
   const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
-  renderQuarantineUI(); document.getElementById('settings-view').style.display = 'block';
+  renderQuarantineUI(); settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block'; isHydratingSettings = false;
 }
-function closeSettingsView() { document.getElementById('settings-view').style.display = 'none'; refreshMainUI(); }
-function toggleAllTmplCb() { const boxes = qa('.tmpl-cb:not(:disabled)'); const all = boxes.length && boxes.every(box => box.checked); boxes.forEach(box => { box.checked = !all; box.dispatchEvent(new Event('change')); }); }
+function markSettingsDirty(target) {
+  if (isHydratingSettings || !(target instanceof Element)) return;
+  const section = target.closest('[data-settings-section]')?.dataset.settingsSection;
+  if (section) settingsDirtySections.add(section);
+}
+function clearSettingsDirty(section) { settingsDirtySections.delete(section); }
+function closeSettingsView() {
+  if (settingsDirtySections.size && !showConfirm('保存していない変更があります。破棄してメイン画面に戻りますか？')) return;
+  settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'none'; refreshMainUI();
+}
 function handleTableNav(event) {
   if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)) return;
   event.preventDefault();
@@ -1516,24 +1591,39 @@ function saveBasicSettings() {
     ].join('\n');
     if (!showConfirm(message)) return;
   }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; refreshMainUI(); showAlert('基本設定を保存しました。'); }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
 }
 function saveTimeConfig() {
-  const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig);
+  const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig); const instructionDays = clone(appState.instructionDayConfig);
   qa('input[data-time-group]').forEach(input => { next[input.dataset.timeGroup][input.dataset.slot] = input.value; });
-  qa('#day-slot-tbody input[type="checkbox"]').forEach(input => { slots[input.dataset.day][input.dataset.slot] = input.checked; });
-  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; }, { historyLabel: '時程・使用時限の変更', historyScope: 'settings' })) { closeSettingsView(); showAlert('時程設定を保存しました。'); }
+  qa('#day-slot-tbody input[data-slot]').forEach(input => { slots[input.dataset.day][input.dataset.slot] = input.checked; });
+  qa('#day-slot-tbody input[data-instruction-day]').forEach(input => { instructionDays[input.dataset.instructionDay] = input.checked; });
+  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; state.instructionDayConfig = instructionDays; }, { historyLabel: '授業日・時程・使用時限の変更', historyScope: 'settings' })) { clearSettingsDirty('schedule'); refreshMainUI(); showAlert('授業日・表示コマ・チャイムを保存しました。'); }
+}
+function collectWeeklyTemplateFromInputs() {
+  const weekly = clone(appState.weeklyTemplate);
+  qa('#weekly-tbody input[type="text"]').forEach(input => {
+    if (input.disabled) return;
+    const day = input.dataset.day; const slot = input.dataset.slot; const clean = sanitizeHtml(input.value);
+    if (stripHtml(clean)) {
+      if (!weekly[day]) weekly[day] = {};
+      weekly[day][slot] = clean;
+    } else if (weekly[day]) {
+      delete weekly[day][slot];
+      if (!Object.keys(weekly[day]).length) delete weekly[day];
+    }
+  });
+  return weekly;
 }
 function saveWeekly() {
-  const weekly = {};
-  qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; const clean = sanitizeHtml(input.value); if (stripHtml(clean)) weekly[input.dataset.day][input.dataset.slot] = clean; });
-  if (commitState(state => { state.weeklyTemplate = weekly; }, { historyLabel: '基本時間割の下書き保存', historyScope: 'weekly-template' })) showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。');
+  const weekly = collectWeeklyTemplateFromInputs();
+  if (commitState(state => { state.weeklyTemplate = weekly; }, { historyLabel: '基本時間割の下書き保存', historyScope: 'weekly-template' })) { clearSettingsDirty('weekly'); showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。'); }
 }
 function applyWeeklyRange() {
   const start = document.getElementById('tmpl-start')?.value; const end = document.getElementById('tmpl-end')?.value;
   if (!isValidIsoDate(start) || !isValidIsoDate(end) || start > end) { showAlert('適用期間の日付が不正です。'); return; }
-  const weekly = {}; qa('#weekly-tbody input[type="text"]:not(:disabled)').forEach(input => { if (!weekly[input.dataset.day]) weekly[input.dataset.day] = {}; weekly[input.dataset.day][input.dataset.slot] = sanitizeHtml(input.value); });
-  const rules = Object.entries(weekly).flatMap(([day, slots]) => Object.entries(slots).filter(([, value]) => stripHtml(value).trim()).map(([slot, content]) => ({ day, slot, content })));
+  const weekly = collectWeeklyTemplateFromInputs();
+  const rules = qa('#weekly-tbody input[type="text"]:not(:disabled)').map(input => ({ day: input.dataset.day, slot: input.dataset.slot, content: sanitizeHtml(input.value) })).filter(rule => stripHtml(rule.content).trim());
   const overlap = rules.reduce((total, rule) => total + (appState.weeklyRules[rule.day]?.[rule.slot] || []).filter(segment => segment.from <= end && segment.to >= start).length, 0);
   const overrides = Object.entries(appState.dateOverrides).filter(([dateId]) => dateId >= start && dateId <= end).reduce((total, [, day]) => total + Object.keys(day.slots).length, 0);
   const message = [`対象期間: ${start} ～ ${end}`, `登録する規則: ${rules.length}コマ`, `重なる既存規則: ${overlap}件（安全に分割・置換します）`, `日別変更: ${overrides}件（基本時間割より優先され、そのまま残ります）`, '基本時間割として適用しますか？'].join('\n');
@@ -1542,13 +1632,13 @@ function applyWeeklyRange() {
   if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
   let next = clone(appState); next.weeklyTemplate = weekly;
   for (const rule of rules) { const result = replaceWeeklyRuleRange(next, rule.day, rule.slot, start, end, rule.content); if (!result.ok) { showAlert(result.error); return; } next = result.value; }
-  if (commitState(state => Object.assign(state, next), { historyLabel: '基本時間割の適用', historyScope: 'weekly-rule' })) { showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
+  if (commitState(state => Object.assign(state, next), { historyLabel: '基本時間割の適用', historyScope: 'weekly-rule' })) { clearSettingsDirty('weekly'); showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
 }
 function saveAnnual() {
-  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = parsed; }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { clearSettingsDirty('events'); showAlert('年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 function saveHolidays() {
-  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; }, { historyLabel: '祝日設定の保存', historyScope: 'holiday' })) { showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
+  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '祝日設定'); if (commitState(state => { state.customHolidays = parsed; }, { historyLabel: '祝日設定の保存', historyScope: 'holiday' })) { clearSettingsDirty('holidays'); showAlert('祝日設定を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
 }
 
 function exportData() {
@@ -1622,7 +1712,12 @@ function initStartupDates() {
   if (today < new Date(appState.currentYear, 3, 1) || today > new Date(appState.currentYear + 1, 2, 31)) base = `${appState.currentYear}-04-01`;
   renderEditor(base, 'top');
   const next = dateFromIso(base); next.setDate(next.getDate() + 1);
-  while (next.getDay() === 0 || next.getDay() === 6 || isEffectiveHoliday(getIsoDateStr(next), appState)) next.setDate(next.getDate() + 1);
+  while (true) {
+    const nextId = getIsoDateStr(next);
+    const policy = getDateSchedulePolicy(nextId, appState);
+    if (!policy.isFixedOffActive && !policy.isEffectiveHoliday) break;
+    next.setDate(next.getDate() + 1);
+  }
   renderEditor(getIsoDateStr(next), 'bottom-left');
   const week = dateFromIso(base); week.setDate(week.getDate() + 7); renderEditor(getIsoDateStr(week), 'bottom-right');
   return base;
@@ -1645,6 +1740,9 @@ function initApp() {
   document.documentElement.style.setProperty('--bg-exam', APP_CONFIG.theme.exam); document.documentElement.style.setProperty('--bg-short', APP_CONFIG.theme.short); document.documentElement.style.setProperty('--bg-noclass', APP_CONFIG.theme.noclass);
   document.documentElement.dataset.taskkanriBuild = APP_CONFIG.buildVersion; document.documentElement.dataset.taskkanriSchema = String(APP_CONFIG.schemaVersion);
   initializeStorage(); bindEditorEvents();
+  const settingsView = document.getElementById('settings-view');
+  settingsView?.addEventListener('input', event => markSettingsDirty(event.target));
+  settingsView?.addEventListener('change', event => markSettingsDirty(event.target));
   document.getElementById('search-input')?.addEventListener('input', event => { event.currentTarget.style.height = '28px'; event.currentTarget.style.height = `${Math.min(70, event.currentTarget.scrollHeight)}px`; executeSearch(); });
   document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
   document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
@@ -1685,7 +1783,7 @@ Object.assign(window, {
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, undoBulkCalendarChange,
-  openSettingsView, closeSettingsView, toggleAllTmplCb, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
+  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
   updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip, checkAlarms

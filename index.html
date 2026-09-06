@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260906-slot-width-v1">
-<meta name="taskkanri-schema-version" content="4">
+<meta name="taskkanri-build-version" content="20260906-weekly-instruction-days-v1">
+<meta name="taskkanri-schema-version" content="5">
 <title>タスク管理くん</title>
 <style>
   :root { 
@@ -27,6 +27,7 @@
   
   .bg-sat { background-color: #e6f2ff; }
   .bg-sun-hol { background-color: #ffe6e6; }
+  .bg-fixed-off { background-color: #f1f5f9; }
   .bg-no-class { background-color: var(--bg-noclass); } 
   .bg-exam { background-color: var(--bg-exam); } 
   .bg-short { background-color: var(--bg-short); } 
@@ -36,6 +37,9 @@
   .date-label { font-size: var(--side-font); white-space: nowrap; color: var(--text); }
   .date-label:hover { color: var(--primary); }
   .date-preview { font-size: 11px; color: #718096; margin-left: 6px; white-space: nowrap; font-weight: bold; }
+  .date-fixed-off-mark, .fixed-off-badge { display:inline-flex; align-items:center; justify-content:center; border:1px solid #94a3b8; color:#475569; background:#f8fafc; border-radius:999px; font-weight:bold; line-height:1; }
+  .date-fixed-off-mark { margin-left:4px; min-width:16px; height:16px; font-size:10px; }
+  .fixed-off-badge { margin-left:6px; padding:3px 6px; font-size:11px; }
   
   .today-text { font-weight: bold; color: #000 !important; }
 
@@ -169,11 +173,21 @@
   
   .tmpl-table { border-collapse: collapse; width: 100%; font-size: 14px; margin-bottom: 10px; background: #fff; }
   .tmpl-table th, .tmpl-table td { border: 1px solid #ccc; padding: 4px; }
-  .tmpl-table th[onclick]:hover { background: #e2e8f0 !important; } 
   .tmpl-table input[type="text"] { width: 100%; border: none; padding: 6px; outline: none; text-align: center; }
   .tmpl-table input[type="text"]:focus { background: #ebf8ff; box-shadow: inset 0 0 0 2px var(--primary); }
   
   .tmpl-disabled { background: repeating-linear-gradient(45deg, #f7fafc, #f7fafc 5px, #edf2f7 5px, #edf2f7 10px) !important; color: #a0aec0; cursor: not-allowed; }
+  .day-slot-scroll { overflow-x:auto; }
+  .day-slot-table { min-width:680px; }
+  .day-slot-table th { white-space:nowrap; }
+  .day-slot-all-toggle { display:block; margin:3px auto 0; font-size:10px; padding:2px 4px; }
+  .instruction-day-control { display:flex; align-items:center; justify-content:center; gap:3px; cursor:pointer; white-space:nowrap; }
+  .instruction-day-status { font-size:11px; font-weight:bold; }
+  .instruction-day-off td { background:#f8fafc; }
+  .instruction-day-off input[data-slot]:disabled { opacity:.55; cursor:not-allowed; }
+  .settings-schedule-grid { display:grid; grid-template-columns:minmax(0, 2fr) minmax(280px, 1fr); gap:15px; align-items:start; }
+  .settings-schedule-grid h4 { margin:0 0 8px; color:#2d3748; }
+  @media (max-width: 860px) { .settings-schedule-grid { grid-template-columns:1fr; } }
   
   .time-table { width: 100%; font-size: 14px; border-collapse: collapse; background: #fff; }
   .time-table th, .time-table td { border: 1px solid #cbd5e0; padding: 4px; text-align: center; }
@@ -548,9 +562,9 @@
 </div>
 
 <div id="settings-view">
-  <button class="menu-btn" onclick="closeSettingsView()" style="margin-bottom:15px;">← 変更を適用して戻る</button>
+  <button class="menu-btn" onclick="closeSettingsView()" style="margin-bottom:15px;">← メイン画面に戻る</button>
   
-  <div style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
+  <div data-settings-section="basic" style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
     <h3>1. 基本設定 <button class="btn-save" onclick="saveBasicSettings()">適用(リロード)</button></h3>
     <div style="margin-bottom:10px;">
       年度: <input type="number" id="academic-year-input" style="padding:5px; font-size:16px; width:80px;"> (4月始まり)
@@ -562,44 +576,45 @@
     </div>
   </div>
 
-  <div style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
+  <div data-settings-section="schedule" style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <h3 style="margin:0;">2. 曜日ごとの表示コマ ＆ チャイム設定</h3>
-      <button class="btn-save" onclick="saveTimeConfig()">全て保存</button>
+      <h3 style="margin:0;">2. 授業日・表示コマ・チャイム設定</h3>
+      <button class="btn-save" onclick="saveTimeConfig()">授業日・表示コマ・チャイムを保存</button>
     </div>
     
-    <div style="display:flex; gap:15px; align-items:flex-start; flex-wrap:wrap;">
-      <div style="flex:2; min-width:300px;">
-        <p style="font-size:13px; margin-top:0;">カレンダーに表示するコマ（時間数）を設定できます。<br>※ここでオフにしたコマは、下のテンプレートや時数マネージャーでも自動的に無効化・除外されます。</p>
-        <table class="tmpl-table">
+    <p style="font-size:13px; margin-top:0;">固定休業日は1〜7限とチャイムを表示しません。朝・昼・放課後は表示コマ設定に従います。予定やコマ設定は削除されず、授業日に戻すと復元されます。</p>
+    <div class="settings-schedule-grid">
+      <section>
+        <h4>曜日ごとの授業日と表示コマ</h4>
+        <div class="day-slot-scroll">
+        <table class="tmpl-table day-slot-table">
           <thead>
             <tr style="background:#edf2f7;">
-              <th>曜日</th><th>朝</th><th>１</th><th>２</th><th>３</th><th>４</th><th>昼</th><th>５</th><th>６</th><th>７</th><th>放</th>
+              <th>曜日</th><th>授業日</th><th>朝</th><th>１</th><th>２</th><th>３</th><th>４</th><th>昼</th><th>５</th><th>６</th><th>７</th><th>放</th>
             </tr>
           </thead>
           <tbody id="day-slot-tbody"></tbody>
         </table>
-      </div>
+        </div>
+      </section>
 
-      <div style="flex:1; min-width:200px;">
+      <section>
+        <h4>チャイム時刻</h4>
         <table class="time-table">
           <thead><tr style="background:#edf2f7;"><th>時限</th><th>通常時程</th><th>短縮時程</th><th>考査時程</th></tr></thead>
           <tbody id="time-config-tbody"></tbody>
         </table>
-      </div>
+      </section>
     </div>
   </div>
   
-  <div style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
+  <div data-settings-section="weekly" style="background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:15px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <h3 style="margin:0;">3. 基本時間割</h3>
       <button class="btn-save" onclick="saveWeekly()">基本時間割を保存</button>
     </div>
-    <div style="margin-bottom: 10px;">
-      <button class="btn-s" onclick="toggleAllTmplCb()">☑ 全てのチェックを反転</button>
-    </div>
     <table class="tmpl-table">
-      <thead><tr style="background:#edf2f7;"><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th style="color:#e53e3e;">日</th></tr></thead>
+      <thead id="weekly-thead"><tr style="background:#edf2f7;"><th>時限</th><th data-weekly-day-header="1">月</th><th data-weekly-day-header="2">火</th><th data-weekly-day-header="3">水</th><th data-weekly-day-header="4">木</th><th data-weekly-day-header="5">金</th><th data-weekly-day-header="6">土</th><th data-weekly-day-header="0" style="color:#e53e3e;">日</th></tr></thead>
       <tbody id="weekly-tbody"></tbody>
     </table>
     
@@ -617,11 +632,11 @@
   </div>
 
   <div style="display:flex; gap:15px;">
-    <div style="flex:1; background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
+    <div data-settings-section="events" style="flex:1; background:#f7fafc; padding:15px; border-radius:8px; border:1px solid #e2e8f0;">
       <h3>4. 年間行事 (YYMMDD:行事名) <button class="btn-save" onclick="saveAnnual()">保存</button></h3>
       <textarea id="annual-text-ui"></textarea>
     </div>
-    <div style="flex:1; background:#fff5f5; padding:15px; border-radius:8px; border:1px solid #feb2b2;">
+    <div data-settings-section="holidays" style="flex:1; background:#fff5f5; padding:15px; border-radius:8px; border:1px solid #feb2b2;">
       <h3>5. 祝日設定 (YYMMDD:祝日名) <button class="btn-save" onclick="saveHolidays()">保存</button></h3>
       <textarea id="holiday-text-ui"></textarea>
     </div>
@@ -654,6 +669,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260906-slot-width-v1"></script>
+<script type="module" src="taskkanri-app.js?v=20260906-weekly-instruction-days-v1"></script>
 </body>
 </html>

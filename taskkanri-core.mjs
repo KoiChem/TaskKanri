@@ -7,11 +7,11 @@
  */
 
 export const APP_CONFIG = Object.freeze({
-  displayVersion: '72',
-  compatibilityVersion: '72',
-  buildVersion: '20260906-slot-width-v1',
-  schemaVersion: 4,
-  supportedSchemaVersions: Object.freeze([1, 2, 3, 4]),
+  displayVersion: '73',
+  compatibilityVersion: '73',
+  buildVersion: '20260906-weekly-instruction-days-v1',
+  schemaVersion: 5,
+  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -48,9 +48,10 @@ const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIX
 const STATE_KEYS = Object.freeze([
   'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents',
   'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
-  'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig'
+  'bulkCalendarSelectionMode', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
+const PERIOD_SLOT_SET = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
 const TIME_GROUPS = Object.freeze(['normal', 'short', 'exam']);
 export const DAY_PROFILES = Object.freeze(['normal', 'short', 'short-am', 'morning', 'exam', 'mock-exam', 'noclass-hide', 'noclass-show']);
 const DAY_PROFILE_SET = new Set(DAY_PROFILES);
@@ -136,6 +137,12 @@ export function defaultDaySlotConfig() {
   return result;
 }
 
+export function defaultInstructionDayConfig() {
+  const result = {};
+  for (let day = 0; day < 7; day += 1) result[day] = day >= 1 && day <= 5;
+  return result;
+}
+
 export function defaultTimeConfig() {
   return clone(APP_CONFIG.defaultTime);
 }
@@ -157,7 +164,8 @@ export function defaultState(year = 2026) {
     bulkCalendarSelectionMode: 'standard',
     countSettings: [{ word: '', mode: 'down', start: 1 }],
     countDateRange: { start: '', end: '' },
-    daySlotConfig: defaultDaySlotConfig()
+    daySlotConfig: defaultDaySlotConfig(),
+    instructionDayConfig: defaultInstructionDayConfig()
   };
 }
 
@@ -172,13 +180,44 @@ export function isValidIsoDate(value) {
 }
 
 export function isWeekend(dateId) {
-  if (!isValidIsoDate(dateId)) return false;
-  const day = new Date(Date.UTC(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10)))).getUTCDay();
+  const day = weekdayForDateId(dateId);
   return day === 0 || day === 6;
+}
+
+export function weekdayForDateId(dateId) {
+  if (!isValidIsoDate(dateId)) return null;
+  return new Date(Date.UTC(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10)))).getUTCDay();
 }
 
 export function isEffectiveHoliday(dateId, state) {
   return Boolean(state?.customHolidays?.[dateId]) && !(state?.dayProfiles?.[dateId] && state.dayProfiles[dateId] !== 'normal');
+}
+
+export function getDateSchedulePolicy(dateId, state) {
+  const weekday = weekdayForDateId(dateId);
+  const profile = state?.dayProfiles?.[dateId] || 'normal';
+  const hasExplicitProfile = profile !== 'normal';
+  const effectiveHoliday = isEffectiveHoliday(dateId, state);
+  const configured = weekday !== null && state?.instructionDayConfig?.[weekday] !== false;
+  const fixedOffActive = weekday !== null && !hasExplicitProfile && !effectiveHoliday && !configured;
+  return {
+    weekday,
+    profile,
+    hasExplicitProfile,
+    isConfiguredInstructionDay: configured,
+    isFixedOffActive: fixedOffActive,
+    isEffectiveHoliday: effectiveHoliday,
+    hidePeriodSlots: effectiveHoliday || fixedOffActive,
+    hideChime: effectiveHoliday || fixedOffActive,
+    countExclusionReason: effectiveHoliday ? '休日・祝日のため除外' : fixedOffActive ? '固定休業日のため除外' : ''
+  };
+}
+
+export function isSlotVisibleForDate(dateId, slot, state) {
+  if (!SLOT_SET.has(slot)) return false;
+  const policy = getDateSchedulePolicy(dateId, state);
+  if (policy.weekday === null || !state?.daySlotConfig?.[policy.weekday]?.[slot]) return false;
+  return !(policy.hidePeriodSlots && PERIOD_SLOT_SET.has(slot));
 }
 
 export function academicYearBounds(year) {
@@ -644,6 +683,17 @@ function normalizeDaySlotConfig(value) {
   return { ok: true, value: result };
 }
 
+export function normalizeInstructionDayConfig(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'instructionDayConfig');
+  const result = defaultInstructionDayConfig();
+  for (const [day, raw] of Object.entries(value)) {
+    if (!/^[0-6]$/.test(day)) return fail('曜日データが不正です', `instructionDayConfig.${day}`);
+    if (typeof raw !== 'boolean') return fail('boolean値が必要です', `instructionDayConfig.${day}`);
+    result[day] = raw;
+  }
+  return { ok: true, value: result };
+}
+
 function normalizeCountSettings(value) {
   if (!Array.isArray(value)) return fail('配列が必要です', 'countSettings');
   const result = [];
@@ -699,7 +749,7 @@ export function normalizeState(input) {
     if (!['standard', 'additive'].includes(input.bulkCalendarSelectionMode)) return fail('standard/additiveのいずれかが必要です', 'bulkCalendarSelectionMode');
     state.bulkCalendarSelectionMode = input.bulkCalendarSelectionMode;
   }
-  for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema 4では${legacyField}は使用できません`);
+  for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema 5では${legacyField}は使用できません`);
   if (own(input, 'weeklyTemplate')) {
     const normalized = normalizeWeeklyTemplate(input.weeklyTemplate);
     if (!normalized.ok) return normalized;
@@ -749,6 +799,11 @@ export function normalizeState(input) {
     const normalized = normalizeDaySlotConfig(input.daySlotConfig);
     if (!normalized.ok) return normalized;
     state.daySlotConfig = normalized.value;
+  }
+  if (own(input, 'instructionDayConfig')) {
+    const normalized = normalizeInstructionDayConfig(input.instructionDayConfig);
+    if (!normalized.ok) return normalized;
+    state.instructionDayConfig = normalized.value;
   }
   return { ok: true, value: state };
 }
@@ -854,10 +909,18 @@ function migrateSchema3State(data) {
   return { ok: true, value: migrated };
 }
 
+function migrateSchema4State(data) {
+  const migrated = clone(data);
+  if (own(migrated, 'instructionDayConfig')) return fail('schemaVersion 4ではinstructionDayConfigは使用できません', 'instructionDayConfig');
+  migrated.instructionDayConfig = defaultInstructionDayConfig();
+  return { ok: true, value: migrated };
+}
+
 const MIGRATION_REGISTRY = Object.freeze({
   1: migrateSchema1State,
   2: migrateSchema2State,
-  3: migrateSchema3State
+  3: migrateSchema3State,
+  4: migrateSchema4State
 });
 
 export function migrateToCurrent(data, sourceSchemaVersion) {
@@ -897,8 +960,8 @@ export function normalizeImportedPayload(rawOrObject) {
   }
   const recognized = STATE_KEYS.some(key => own(data, key)) || ['scheduleData', 'configWeekly', 'teacherSchedule', 'academicYear', 'noClassData', 'shortData', 'examData'].some(key => own(data, key));
   if (!recognized) return fail('TaskKanriの既知形式ではありません');
-  if (schemaVersion === 3 && ['noClassData', 'shortData', 'examData'].some(field => own(data, field))) {
-    return fail('schemaVersion 3では旧日別状態は使用できません', 'dayProfiles');
+  if (schemaVersion >= 3 && ['noClassData', 'shortData', 'examData'].some(field => own(data, field))) {
+    return fail(`schemaVersion ${schemaVersion}では旧日別状態は使用できません`, 'dayProfiles');
   }
   const migrated = migrateToCurrent(data, schemaVersion);
   if (!migrated.ok) return migrated;
