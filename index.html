@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v4">
+<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v5">
 <meta name="taskkanri-schema-version" content="7">
 <title>タスク管理くん</title>
 <style>
@@ -245,22 +245,22 @@
   .calendar-selection-mode-label { font-size:11px; color:#4a5568; white-space:nowrap; margin-right:2px; }
   .calendar-selection-mode-btn { padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; background:#fff; color:#4a5568; cursor:pointer; font:inherit; font-size:11px; white-space:nowrap; }
   .calendar-selection-mode-btn.is-active { background:#3182ce; color:#fff; border-color:#2b6cb0; }
-  .calendar-year-grid { --calendar-month-head-height:24px; --calendar-week-head-height:18px; --calendar-day-cell-height:clamp(22px, 3.2vh, 28px); flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, max-content); gap:6px; align-content:space-between; }
+  .calendar-year-grid { --calendar-month-head-height:22px; --calendar-week-head-height:17px; flex:1; min-height:0; height:100%; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); grid-template-rows:repeat(3, minmax(0, 1fr)); column-gap:6px; row-gap:2px; }
   /* 縦並びは 4→5→6→7月と列を下へ進め、8月・12月から次の列を始める。 */
-  .calendar-year-grid.month-layout-vertical { --calendar-day-cell-height:clamp(18px, 2.6vh, 21px); grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, max-content); grid-auto-flow:column; align-content:space-between; }
-  .calendar-month { min-width:0; align-self:start; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:var(--calendar-month-head-height) var(--calendar-week-head-height) auto; }
-  .calendar-month-head { box-sizing:border-box; min-height:0; height:var(--calendar-month-head-height); display:flex; align-items:center; justify-content:space-between; gap:4px; padding:2px 5px; background:#edf2f7; font-weight:bold; font-size:12px; }
-  .calendar-month-head .btn-s { min-height:17px; padding:1px 4px; font-size:9px; line-height:1; }
+  .calendar-year-grid.month-layout-vertical { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); grid-auto-flow:column; }
+  .calendar-month { box-sizing:border-box; min-width:0; min-height:0; align-self:stretch; border:1px solid #cbd5e0; border-radius:6px; overflow:hidden; background:#fff; display:grid; grid-template-rows:var(--calendar-month-head-height) var(--calendar-week-head-height) minmax(0, 1fr); }
+  .calendar-month-head { box-sizing:border-box; min-height:0; height:var(--calendar-month-head-height); display:flex; align-items:center; justify-content:space-between; gap:4px; padding:2px 5px; background:#edf2f7; font-weight:bold; font-size:13px; }
+  .calendar-month-head .btn-s { min-height:17px; padding:1px 4px; font-size:10px; line-height:1; }
   .calendar-week-head, .calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); }
   .calendar-week-head { min-height:0; height:var(--calendar-week-head-height); }
-  .calendar-days { min-height:0; grid-template-rows:repeat(6, var(--calendar-day-cell-height)); }
-  .calendar-weekday-btn { min-height:0; height:var(--calendar-week-head-height); padding:0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:9px; line-height:1; }
+  .calendar-days { min-height:0; height:100%; grid-template-rows:repeat(6, minmax(20px, 1fr)); }
+  .calendar-weekday-btn { min-height:0; height:var(--calendar-week-head-height); padding:0; border:0; border-bottom:1px solid #edf2f7; background:#fff; color:#718096; cursor:pointer; font:inherit; font-size:10px; line-height:1; }
   .calendar-weekday-btn:hover { background:#ebf8ff; }
   .calendar-weekday-btn:focus-visible { outline:2px solid #3182ce; outline-offset:-2px; z-index:1; }
   .calendar-weekday-btn.is-all-selected { background:#bee3f8; color:#1e3a8a; font-weight:bold; }
   .calendar-weekday-btn:nth-child(6) { color:#3182ce; }
   .calendar-weekday-btn:last-child { color:#e53e3e; }
-  .calendar-day-spacer, .calendar-date-cell { box-sizing:border-box; min-height:0; block-size:var(--calendar-day-cell-height); }
+  .calendar-day-spacer, .calendar-date-cell { box-sizing:border-box; min-height:20px; }
   .calendar-day-spacer { background:#f8fafc; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; }
   .calendar-date-cell { border:0; border-right:1px solid #f1f5f9; border-bottom:1px solid #f1f5f9; background:#fff; color:var(--text); cursor:pointer; padding:0; text-align:center; font:inherit; font-size:12px; line-height:1; position:relative; overflow:hidden; }
   .calendar-date-cell.bg-sat { background-color:#e6f2ff; }
@@ -270,8 +270,8 @@
   .calendar-date-cell.bg-no-class { background-color:var(--bg-noclass); }
   .calendar-date-cell:hover { filter:brightness(.96); outline:2px solid #90cdf4; outline-offset:-2px; z-index:1; }
   .calendar-date-cell.is-selected { outline:3px solid #3182ce; outline-offset:-3px; z-index:1; font-weight:bold; }
-  .calendar-date-number { position:absolute; top:1px; left:0; right:0; font-size:11px; line-height:11px; }
-  .calendar-date-cell .calendar-state-mark { position:absolute; right:1px; bottom:1px; left:1px; height:8px; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:8px; line-height:8px; pointer-events:none; }
+  .calendar-date-number { position:absolute; top:1px; left:0; right:0; font-size:13px; line-height:12px; }
+  .calendar-date-cell .calendar-state-mark { position:absolute; right:1px; bottom:0; left:1px; height:9px; color:#4a5568; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:9px; line-height:9px; pointer-events:none; }
   .calendar-date-cell .calendar-today-mark { position:absolute; top:1px; right:2px; width:4px; height:4px; background:#3182ce; border-radius:50%; }
   .calendar-control-panel { width:245px; flex:0 0 245px; overflow:hidden; border:1px solid #cbd5e0; border-radius:6px; padding:7px; box-sizing:border-box; background:#f8fafc; }
   .calendar-control-panel h3 { margin:0; font-size:14px; line-height:18px; }
@@ -313,7 +313,7 @@
   @media (orientation: portrait) {
     .calendar-modal-body { flex-direction:column; gap:8px; }
     .calendar-workspace { flex:1; }
-    .calendar-year-grid.month-layout-horizontal { --calendar-day-cell-height:clamp(18px, 2.6vh, 21px); grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, max-content); align-content:space-between; }
+    .calendar-year-grid.month-layout-horizontal { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:repeat(4, minmax(0, 1fr)); }
     .calendar-control-panel { width:auto; flex:0 0 170px; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); grid-template-rows:18px 20px repeat(3, 28px) 18px; gap:3px; padding:6px; overflow:hidden; }
     .calendar-control-panel h3, .calendar-control-hint, .calendar-action-status { grid-column:1 / -1; margin:0; }
     .calendar-control-hint { height:20px; line-height:20px; }
@@ -321,10 +321,6 @@
     .calendar-action-status { height:18px; min-height:18px; line-height:18px; }
   }
   @media (max-height:700px) {
-    .calendar-year-grid { --calendar-month-head-height:20px; --calendar-week-head-height:16px; }
-    .calendar-year-grid.month-layout-horizontal, .calendar-year-grid.month-layout-vertical { --calendar-day-cell-height:17px; }
-  }
-  @media (max-height:640px) {
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
@@ -761,6 +757,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v4"></script>
+<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v5"></script>
 </body>
 </html>
