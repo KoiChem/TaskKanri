@@ -122,7 +122,7 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 /* Paint a smaller rectangle inside each unchanged 44px day target. */
 .date-button{border-radius:0;margin:0;isolation:isolate;background:transparent!important;box-shadow:none!important;outline:none!important;--day-fill:transparent}
 .date-button span{position:relative}
-.date-button::before{content:'';position:absolute;width:36px;height:32px;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--day-fill);z-index:-1}
+.date-button::before{content:'';position:absolute;width:45px;height:40px;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--day-fill);z-index:-1}
 .date-button.bg-sun-hol{--day-fill:#ffeded}
 .date-button.bg-sat{--day-fill:#edf6ff}
 .date-button.bg-fixed-off{--day-fill:#f5f8fb}
@@ -130,7 +130,17 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .date-button.bg-short{--day-fill:#ffffea}
 .date-button.bg-exam{--day-fill:#f6edff}
 .date-button.no-agenda,.date-button.no-agenda[aria-pressed=true]{font-size:8px;color:#a9b2bf}
-.date-button[aria-pressed=true]::before{box-shadow:inset 0 0 0 2px var(--blue)}
+.date-button[aria-pressed=true]::after{content:'';position:absolute;width:45px;height:40px;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;background:
+ linear-gradient(var(--blue),var(--blue)) left top / 6px 2px,
+ linear-gradient(var(--blue),var(--blue)) left top / 2px 6px,
+ linear-gradient(var(--blue),var(--blue)) right top / 6px 2px,
+ linear-gradient(var(--blue),var(--blue)) right top / 2px 6px,
+ linear-gradient(var(--blue),var(--blue)) left bottom / 6px 2px,
+ linear-gradient(var(--blue),var(--blue)) left bottom / 2px 6px,
+ linear-gradient(var(--blue),var(--blue)) right bottom / 6px 2px,
+ linear-gradient(var(--blue),var(--blue)) right bottom / 2px 6px;
+ background-repeat:no-repeat}
+.date-button.has-agenda,.date-button.has-agenda[aria-pressed=true]{color:#3f3f3f}
 .date-button.today::before{outline:1px dashed var(--blue);outline-offset:-4px}
 .date-button:focus-visible{outline:3px solid #f5a623!important;outline-offset:-3px!important}
 /* Only common-task details and their editor occupy the full usable screen. */
