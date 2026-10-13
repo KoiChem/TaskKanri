@@ -1,5 +1,5 @@
 import {installGlobalEditor} from './mobile-editor.js';
-import {installOutsideDismiss,mobileSyncLabel,centerCalendarPeriod} from './mobile-ui.mjs';
+import {installOutsideDismiss,mobileSyncLabel,centerCalendarPeriod,installAgendaSwipe,calendarRevealOffset} from './mobile-ui.mjs';
 import {scheduleCells,calendarPages,hasMobileAgenda,mobileDayBackground} from './mobile-model.mjs';
 import {APP_CONFIG,defaultState,sanitizeHtml,stripHtml,getResolvedSlot,getDateSchedulePolicy,academicYearBounds,getHolidayName} from './taskkanri-core.mjs';
 import {taskItems,changeTask,undoTask,slotTime,tokyoToday,calendarDays,addDays,TASK_LABELS,samePayload,toPayload} from './taskkanri-sync-model.mjs';
@@ -84,6 +84,19 @@ function scrollCalendarTo(id){
  container.scrollTo({left:week?page.offsetLeft:0,top:week?0:page.offsetTop,behavior:'instant'});
  updateCalendarTitle();updateCalendarButtons();
 }
+function revealSelectedDate(){
+ const container=q('#calendar-days'),page=pageForDate(selected);if(!page)return;
+ const behavior=window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth';
+ if(week){container.scrollTo({left:page.offsetLeft,top:0,behavior});return}
+ const button=container.querySelector(`[data-date="${selected}"]`),box=button.getBoundingClientRect(),viewport=container.getBoundingClientRect();
+ const start=box.top-viewport.top+container.scrollTop;
+ const top=calendarRevealOffset(container.scrollTop,container.clientHeight,start,start+box.height);
+ if(top!==container.scrollTop)container.scrollTo({top,behavior});
+}
+installAgendaSwipe(q('#agenda'),()=>loaded&&tab==='agenda'&&!document.querySelector('dialog[open]'),step=>{
+ const next=addDays(selected,step),bounds=academicYearBounds(state.currentYear);if(next<bounds.start||next>bounds.end)return;
+ selected=next;scroll.agenda=0;render();q('#agenda').scrollTop=0;revealSelectedDate();
+});
 function updateCalendarButtons(){
  const pages=[...q('#calendar-days').children],index=pages.findIndex(page=>page.dataset.period===period);
  q('#previous').disabled=!loaded||index<=0;q('#next').disabled=!loaded||index<0||index===pages.length-1;q('#today').disabled=!loaded;
