@@ -37,3 +37,11 @@ Start: 2026-10-12, baseline c88aaaf. Only existing difference: untracked specifi
 
 - 2026-10-13: Human supplied `/Users/ikemon/Downloads/261013_TaskKanri.json`. Core import validation succeeded: academic year 2026, 411 override days, 133 event days, 25 holiday days, 7 count settings. Source file untouched; live cloud upload still pending. Chrome CUA connection timed out twice; Playwright is connected in a separate unauthenticated context and cannot reuse the human Chrome session.
 - Export names now use Tokyo date `YYMMDD_TaskKanri.json`; recovery exports use `YYMMDD_unsent_TaskKanri.json`, `YYMMDD_received_TaskKanri.json`, or `YYMMDD_quarantine_TaskKanri.json`. Build and whitespace checks passed after this change.
+
+## Task interaction improvement (2026-10-13)
+
+- User reported initial synchronization and mobile display working, then authorized implementation and publication of the agreed three UI improvements.
+- PC badges are restored as noneditable after sanitized rendering/paste and before native paragraph breaks. Empty accidental badge wrappers are unwrapped without clearing ordinary text formatting. Own sync acknowledgments use semantic payload equality and retain editor DOM/history.
+- Mobile status changes patch badges and button selection in place, with durable queued writes debounced at 800ms (maximum wait 5s). In-flight changes use the existing CAS queue; successful acknowledgments retain the sheet and scroll. Undo restores the immediately preceding local operation and is preserved across own save revisions.
+- Sync menu reports progress, success, cancellation and actionable failures; busy actions prevent repeat submission. Refresh now returns an explicit outcome so network errors cannot be shown as success.
+- Prepublication evidence: 44 Node checks passed; disposable Playwright fixtures verified rapid changes combined into one save, retained sheet/button DOM and scroll through acknowledgment, undo, offline read-only cache and failure feedback. PC fixtures verified Enter/Shift+Enter and native undo, retained ordinary color/background, stable editor after own save, refresh/logout success messages. No live user data was modified by these fixtures; physical iPhone Safari is not verified.

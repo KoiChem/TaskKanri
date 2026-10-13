@@ -78,16 +78,29 @@ export class SyncController {
   else if(result.status==='saved'||result.status==='duplicate'){this.retry=0;if(engine.pending)this.schedule();}
   return result;
  }
- async refresh(){if(!this.engine)return;const engine=this.engine;try{
+ async refresh(){
+  if(!this.engine)return {status:'stopped',error:new Error('ログインしてから更新してください。')};
+  const engine=this.engine;const before=engine.revision;
+  try{
    const {data,error}=await this.client.auth.getSession();if(error)throw error;
-   if(!data.session||data.session.expires_at*1000<=Date.now()){await this.activate(null);return;}
-   if(data.session.user.id!==this.user?.id){await this.activate(data.session);return;}
+   if(!data.session||data.session.expires_at*1000<=Date.now()){await this.activate(null);return {status:'stopped',error:new Error('ログインし直してください。')};}
+   if(data.session.user.id!==this.user?.id){await this.activate(data.session);return {status:this.engine?.status||'stopped'};}
    if(!checked(await this.client.rpc('taskkanri_is_allowed'))){const e=new Error('このアカウントは同期を許可されていません。');e.permissionDenied=true;throw e;}
-   if(engine!==this.engine)return;
+   if(engine!==this.engine)return {status:'stopped'};
    if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else await engine.refresh();
- }catch(e){if(engine!==this.engine)return;if(e.permissionDenied){await this.activate(null);this.onStatus(e.message);}else engine.emit(e.blocked?'blocked':'offline',e.message)}}
+   return {status:engine.status,changed:engine.revision!==before,error:engine.error?new Error(engine.error):undefined};
+  }catch(e){
+   if(engine!==this.engine)return {status:'stopped',error:e};
+   if(e.permissionDenied){await this.activate(null);this.onStatus(e.message);}else engine.emit(e.blocked?'blocked':'offline',e.message);
+   return {status:'error',error:e};
+  }
+ }
  async login(email,password){const result=await this.client.auth.signInWithPassword({email,password});checked(result);await this.activate(result.data.session);}
  async logout(){clearTimeout(this.retryTimer);const result=await this.client.auth.signOut({scope:'local'});checked(result);await this.activate(null);}
  async initialize(state){if(!this.engine||this.engine.status!=='empty')throw new Error('初期登録できません。同期状態を確認してください');this.engine.queue(state,{initial:true});return this.flush();}
- async save(state){if(!this.engine || !navigator.onLine || this.engine.pending || this.engine.busy || this.engine.status!=='synced')throw new Error('同期済みの状態で操作してください。');this.engine.queue(state);return this.flush();}
+ async save(state,{defer=false}={}){
+  const e=this.engine;
+  if(!e||!navigator.onLine||!e.payload||['blocked','conflict','empty','loading','offline'].includes(e.status)||!defer&&(e.pending||e.busy||e.status!=='synced'))throw new Error('同期を確認してから操作してください。');
+  e.queue(state);if(defer){this.schedule();return {status:'pending'};}return this.flush();
+ }
 }

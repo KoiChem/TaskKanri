@@ -26,9 +26,24 @@ async (page) => {
   doc={...doc,revision:doc.revision+1,payload:structuredClone(doc.payload)};doc.payload.state.globalTaskData='スマホから変更';
   await p.getByRole('button',{name:'同期設定',exact:true}).click();await p.getByRole('button',{name:'更新',exact:true}).click();await p.getByRole('button',{name:'閉じる',exact:true}).click();
   await p.locator('#top-panel .slot-input').last().getByText('スマホから変更',{exact:true}).waitFor();check(doc.revision===2,'remote update was requeued');
-  await p.getByRole('button',{name:'同期設定',exact:true}).click();await p.getByRole('button',{name:'ログアウト',exact:true}).click();await p.getByRole('button',{name:'閉じる',exact:true}).click();
+  // Persisted markers remain atomic; native line breaks and undo preserve body formatting.
+  const taskEditor=p.locator('#top-panel .slot-input').last();
+  await taskEditor.evaluate(el=>{el.innerHTML='<span style="color: rgb(220, 38, 38); background-color: rgb(255, 255, 0);">本文</span><br><span class="todo-badge state-3" data-state="3">急</span>タスク';});
+  await taskEditor.click();await p.getByRole('button',{name:'同期設定',exact:true}).click();await p.locator('.sync-controls [role=status]').getByText(/同期済み/).waitFor();await p.getByRole('button',{name:'閉じる',exact:true}).click();
+  const stableEditor=await taskEditor.elementHandle();await taskEditor.locator('.todo-badge').click();await p.locator('.sync-controls [role=status]').getByText(/同期済み/).waitFor();check(await stableEditor.evaluate(el=>el.isConnected),'own task acknowledgment rebuilt editor');
+  await p.reload();const reloaded=p.locator('#top-panel .slot-input').last();
+  for(const key of ['Enter','Shift+Enter']){
+   await reloaded.click();await reloaded.evaluate(el=>{const range=document.createRange();range.setStartBefore(el.querySelector('.todo-badge'));range.collapse(true);getSelection().removeAllRanges();getSelection().addRange(range);});
+   const before=await reloaded.innerHTML();await reloaded.press(key);
+   check(await reloaded.locator('.todo-badge').count()===1,'line break cloned marker');
+   check(await reloaded.locator('.todo-badge').getAttribute('contenteditable')==='false','marker became editable');
+   check(await reloaded.locator('span').first().evaluate(el=>!!el.style.color&&!!el.style.backgroundColor),'body formatting removed');
+   await reloaded.press('ControlOrMeta+z');check(await reloaded.innerHTML()===before,'line-break undo');
+  }
+  await p.getByRole('button',{name:'同期設定',exact:true}).click();await p.getByRole('button',{name:'更新',exact:true}).click();await p.locator('[data-message]').getByText('最新の状態です。',{exact:true}).waitFor();await p.getByRole('button',{name:'閉じる',exact:true}).click();
+  await p.getByRole('button',{name:'同期設定',exact:true}).click();await p.getByRole('button',{name:'ログアウト',exact:true}).click();await p.locator('[data-message]').getByText('ログアウトしました。',{exact:true}).waitFor();await p.getByRole('button',{name:'閉じる',exact:true}).click();
   check(!await p.locator('#left-panel').isVisible()&&!await p.locator('#right-panel').isVisible(),'logout privacy');
   await p.reload();check(!await p.locator('#left-panel').isVisible()&&!await p.locator('#right-panel').isVisible(),'unauthenticated reload privacy');
-  check(errors.length===0,'page errors '+errors.join(','));return {initialMigration:'latest saved local data',remoteApply:'no echoed save',logoutAndReload:'private UI hidden',revision:doc.revision,pageErrors:errors};
+  check(errors.length===0,'page errors '+errors.join(','));return {initialMigration:'latest saved local data',remoteApply:'no echoed save',logoutAndReload:'private UI hidden',revision:doc.revision,atomicMarker:true,nativeBreakUndo:true,stableEditor:true,successFeedback:true,pageErrors:errors};
  }finally{await context.close()}
 }

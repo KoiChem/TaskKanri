@@ -26,11 +26,11 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20261012-mobile-sync-v1';
+} from './taskkanri-core.mjs?v=20261013-task-interaction-v2';
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
 import {scopedStorage} from './taskkanri-device-storage.mjs';
-import {toPayload} from './taskkanri-sync-model.mjs';
+import {toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -157,8 +157,18 @@ function appendSafeRich(parent, html) {
   const holder = el('div');
   holder.innerHTML = sanitizeHtml(html);
   while (holder.firstChild) parent.appendChild(holder.firstChild);
+  if(parent.classList.contains('slot-input'))prepareTaskBadges(parent);
   return parent;
 }
+// Badge appearance belongs to the atomic marker, never to an empty line.
+function prepareTaskBadges(input) {
+  input.querySelectorAll('.todo-badge').forEach(badge=>{
+    if(!badge.textContent.replace(/[\u200b\u00a0]/g,'').trim()) {
+      badge.replaceWith(...badge.childNodes);
+    } else badge.contentEditable='false';
+  });
+}
+function editorHtml(input) {prepareTaskBadges(input);return input.innerHTML;}
 function setSafeTitle(node, value) {
   node.setAttribute('title', stripHtml(value));
   return node;
@@ -634,7 +644,7 @@ function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = f
   input.contentEditable = 'true';
   const resolved = resolvedSlot(dateId, slot);
   appendSafeRich(input, resolved);
-  input.addEventListener('blur', () => updateSlot(dateId, slot, input.innerHTML));
+  input.addEventListener('blur', () => updateSlot(dateId, slot, editorHtml(input)));
   input.addEventListener('paste', handlePaste);
   const origin = getSlotOrigin(dateId, slot, appState);
   const hasOverride = Boolean(appState.dateOverrides?.[dateId]?.slots?.[slot]);
@@ -712,7 +722,7 @@ function renderEditor(dateId, position) {
     globalInput.style.minHeight = '60px';
     globalInput.style.fontSize = '14px';
     appendSafeRich(globalInput, appState.globalTaskData);
-    globalInput.addEventListener('blur', () => updateGlobalTask(globalInput.innerHTML));
+    globalInput.addEventListener('blur', () => updateGlobalTask(editorHtml(globalInput)));
     globalInput.addEventListener('paste', handlePaste);
     globalArea.append(title, globalInput);
     content.appendChild(globalArea);
@@ -816,6 +826,7 @@ function handlePaste(event) {
   const text = transfer?.getData('text/plain') || '';
   const clean = html ? sanitizeHtml(html) : escapeHtmlText(text).replace(/\r?\n/g, '<br>');
   document.execCommand('insertHTML', false, clean);
+  const input=event.target.closest?.('.slot-input');if(input)prepareTaskBadges(input);
 }
 function copySelection(event, isCut = false) {
   const active = document.activeElement;
@@ -1124,9 +1135,20 @@ function bindEditorEvents() {
   const right = document.getElementById('right-panel');
   if (!right || right.dataset.taskkanriBound) return;
   right.dataset.taskkanriBound = 'true';
+  right.addEventListener('beforeinput',event=>{
+    if(event.isComposing)return;
+    if(['insertParagraph','insertLineBreak'].includes(event.inputType)) {
+      const input=event.target.closest?.('.slot-input');if(input)prepareTaskBadges(input);
+    }
+  });
+  right.addEventListener('input',event=>{
+    if(event.isComposing)return;
+    const input=event.target.closest?.('.slot-input');if(input)prepareTaskBadges(input);
+  });
   right.addEventListener('click', event => {
     const badge = event.target.closest?.('.todo-badge');
     if (!badge || !right.contains(badge)) return;
+    if(!canCloudEdit())return;
     const next = (Number(badge.dataset.state) + 1) % 4;
     updateBadgeElement(badge, next);
     const input = badge.closest('.slot-input');
@@ -1907,7 +1929,7 @@ function installCloudSync() {
       landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
     onData:next=>{
-      if(JSON.stringify(toPayload(next))===JSON.stringify(toPayload(appState)))return;
+      if(samePayload(toPayload(next),toPayload(appState)))return;
       const backup=storageService.createRecoverySnapshot();if(!backup.ok)throw new Error(backup.error);
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
