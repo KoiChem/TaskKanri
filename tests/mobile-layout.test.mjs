@@ -33,3 +33,19 @@ test('continuous periods cover academic-year boundaries with no missing dates',(
   else{assert.equal(days.length,new Set(days).size);assert.equal(pages[0].days.length,7)}
  }
 });
+
+test('calendar uses visible schedule contents, not hidden periods or common tasks',()=>{
+ const state=defaultState();state.globalTaskData='共通';const id='2026-10-14';
+ assert.equal(mobile.hasMobileAgenda(id,state),false);
+ state.dateOverrides[id]={slots:{'５限':{action:'replace',source:'user',content:'午後の授業'}}};
+ assert.equal(mobile.hasMobileAgenda(id,state),true);
+ state.dayProfiles[id]='morning';assert.equal(mobile.hasMobileAgenda(id,state),false);
+ state.configEvents[id]='行事';assert.equal(mobile.hasMobileAgenda(id,state),true);
+});
+test('calendar backgrounds match desktop profile precedence',()=>{
+ const state=defaultState();const id='2026-10-17';
+ assert.equal(mobile.mobileDayBackground(id,state),'bg-sat');
+ for(const [profile,expected] of [['short','bg-short'],['exam','bg-exam'],['noclass-show','bg-no-class']]){state.dayProfiles[id]=profile;assert.equal(mobile.mobileDayBackground(id,state),expected)}
+ assert.equal(mobile.mobileDayBackground('2026-10-18',state),'bg-sun-hol');
+ state.instructionDayConfig[3]=false;assert.equal(mobile.mobileDayBackground('2026-10-14',state),'bg-fixed-off');
+});

@@ -44,3 +44,64 @@ body.week-view .calendar-page{flex:0 0 100%;scroll-snap-align:start}
 #selected-event span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-line-clamp:unset}
 #sync-status{grid-column:3;grid-row:2;height:44px;line-height:44px;padding:0;font-size:11px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .calendar-page h3{display:none}
+
+#agenda{padding:6px 16px 8px}
+.slot-card{min-height:76px;padding:6px 0;gap:2px}
+.slot-time{align-items:center;flex-wrap:nowrap;gap:8px;font-size:13px;line-height:18px;min-height:18px}
+.slot-time span{font:inherit;line-height:18px;margin:0}
+.slot-clock{color:var(--blue);font-variant-numeric:tabular-nums}
+.slot-content{line-height:1.4}
+.slot-content .rich-text{line-height:1.4}
+.common-card{padding:10px 12px}
+.common-tools{display:flex;justify-content:flex-end;margin-bottom:4px}
+.common-tools button{color:var(--blue);font-weight:600}
+.date-button{font-size:15px;color:#26334b;height:44px}
+.date-button.no-agenda{font-size:10px;color:#5f6b78;font-weight:400}
+.date-button.has-agenda{font-size:15px;color:#26334b;font-weight:600}
+.date-button.bg-sun-hol{background:#ffe6e6}
+.date-button.bg-sat{background:#e6f2ff}
+.date-button.bg-fixed-off{background:#f1f5f9}
+.date-button.bg-no-class{background:#e5ffe5}
+.date-button.bg-short{background:#ffffea}
+.date-button.bg-exam{background:#f2e5ff}
+.date-button[aria-pressed=true]{color:inherit;box-shadow:inset 0 0 0 2px var(--blue)}
+.date-button[aria-pressed=true]:not([class*='bg-']){background:transparent}
+.date-button.today{outline:1px dashed var(--blue);outline-offset:-4px;box-shadow:none}
+.date-button.today[aria-pressed=true]{box-shadow:inset 0 0 0 2px var(--blue)}
+.date-button .event-dot{display:none}
+.empty{padding:8px 0}
+
+/* A real button receives outside taps in standalone iOS, inside the top layer. */
+dialog.mobile-dialog{position:fixed;inset:0;margin:0;padding:0;width:100%;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:hidden;color:inherit}
+dialog.mobile-dialog[open]{display:grid;place-items:center}
+dialog.mobile-dialog::backdrop{background:transparent}
+.mobile-dialog-backdrop{position:absolute;inset:0;width:100%;height:100%;min-width:0;min-height:0;border:0;border-radius:0;padding:0;background:#15233b65;cursor:pointer;touch-action:manipulation}
+.mobile-dialog-backdrop:focus{outline:none}
+.mobile-dialog-panel{position:relative;z-index:1;width:calc(100% - 32px);max-width:428px;max-height:80dvh;overflow:auto;background:#fff;border-radius:16px;padding:12px 16px;color:#26334b}
+#task-sheet.mobile-dialog .mobile-dialog-panel{align-self:end;width:100%;border-radius:24px 24px 0 0;padding:12px 20px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;overflow:hidden}
+#task-sheet.mobile-dialog .mobile-dialog-panel #sheet-body{min-height:0;overflow:auto}
+#task-sheet.mobile-dialog #toast{position:static;margin-top:8px;flex-shrink:0}
+#global-editor-sheet.mobile-dialog{height:var(--editor-viewport-height,100dvh)}
+#global-editor-sheet .mobile-dialog-panel{width:100%;align-self:end;border-radius:24px 24px 0 0;max-height:calc(var(--editor-viewport-height,100dvh) - env(safe-area-inset-top) - 12px);display:flex;flex-direction:column;overflow:hidden;padding:12px 16px calc(8px + env(safe-area-inset-bottom))}
+.global-editor-scroll{min-height:0;overflow:auto;overscroll-behavior:contain}
+.global-editor-tools{display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:12px;color:var(--muted)}
+.global-editor-tools button{color:var(--blue);border:1px solid var(--line);padding:0 12px}
+#global-editor-content{font-size:16px;line-height:1.5;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;overflow-wrap:anywhere;outline-color:var(--blue)}
+#global-editor-content .todo-badge{user-select:all;-webkit-user-select:all}
+.global-editor-footer{display:flex;justify-content:flex-end;flex-shrink:0;margin-top:4px}
+.global-editor-footer button,[data-confirm-save]{background:var(--blue);color:white;padding:0 18px}
+[data-editor-message]{font-size:13px;line-height:1.4;margin:6px 0 0;flex-shrink:0}
+[data-editor-message]:empty{display:none}
+[data-editor-conflict]{margin-top:12px;padding:10px;border:1px solid #e5b26b;border-radius:10px;background:#fff7e9;font-size:14px}
+[data-editor-conflict][hidden]{display:none}
+[data-editor-latest]{line-height:1.5;overflow-wrap:anywhere}
+.date-button.no-agenda[aria-pressed=true]{color:#5f6b78}
+.date-button.has-agenda[aria-pressed=true]{color:#26334b}
+dialog.mobile-dialog > button.mobile-dialog-backdrop{position:absolute;inset:0;width:100%;height:100%;min-height:0;min-width:0;border:0;border-radius:0;padding:0;background:#15233b65;box-shadow:none;transform:none}
+#event-sheet.mobile-dialog::backdrop,#task-sheet.mobile-dialog::backdrop,#global-editor-sheet.mobile-dialog::backdrop,.sync-dialog.mobile-dialog::backdrop{background:transparent}
+#task-sheet.mobile-dialog,#event-sheet.mobile-dialog,#global-editor-sheet.mobile-dialog,.sync-dialog.mobile-dialog{position:fixed;inset:0;margin:0;padding:0;width:100%;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:hidden}
+#task-sheet.mobile-dialog[open],#event-sheet.mobile-dialog[open],#global-editor-sheet.mobile-dialog[open],.sync-dialog.mobile-dialog[open]{display:grid;place-items:center}
+#global-editor-sheet.mobile-dialog{height:var(--editor-viewport-height,100dvh)}
+[data-editor-sync]{font-size:13px;line-height:1.4;margin:6px 0 0;flex-shrink:0;color:var(--muted)}
+[data-editor-sync]:empty{display:none}
+.slot-time .slot-clock{color:var(--blue)}

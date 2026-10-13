@@ -11,12 +11,19 @@ export function centerCalendarPeriod(pages,position,size){
  return (pages.find(page=>page.start<=center&&center<page.end)||pages.at(-1))?.id;
 }
 export function installOutsideDismiss(dialog,close){
+ let target=dialog,panel=null;
+ if(dialog.ownerDocument){
+  const doc=dialog.ownerDocument;panel=doc.createElement('div');panel.className='mobile-dialog-panel';panel.append(...dialog.childNodes);
+  target=doc.createElement('button');target.type='button';target.className='mobile-dialog-backdrop';target.tabIndex=-1;target.setAttribute('aria-label','画面を閉じる');
+  dialog.classList.add('mobile-dialog');dialog.append(target,panel);
+ }
+
  let down=null,eligible=false;
- const outside=event=>{const box=dialog.getBoundingClientRect();return event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom};
+ const outside=event=>{const box=(panel||dialog).getBoundingClientRect();return event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom};
  dialog.addEventListener('pointerdown',event=>{eligible=false;down=event.button===0&&outside(event)?{id:event.pointerId,x:event.clientX,y:event.clientY}:null});
  dialog.addEventListener('pointermove',event=>{if(down&&down.id===event.pointerId&&Math.hypot(event.clientX-down.x,event.clientY-down.y)>8)down=null});
  dialog.addEventListener('pointerup',event=>{eligible=!!down&&down.id===event.pointerId&&outside(event)&&Math.hypot(event.clientX-down.x,event.clientY-down.y)<=8;down=null});
  dialog.addEventListener('pointercancel',()=>{down=null;eligible=false});
  dialog.addEventListener('close',()=>{down=null;eligible=false});
- dialog.addEventListener('click',event=>{if(eligible&&dialog.open&&outside(event)){eligible=false;event.preventDefault();event.stopImmediatePropagation();close()}});
+ target.addEventListener('click',event=>{if(eligible&&dialog.open&&outside(event)){eligible=false;event.preventDefault();event.stopImmediatePropagation();close()}});
 }

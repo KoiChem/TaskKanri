@@ -1,4 +1,4 @@
-import {APP_CONFIG,isSlotVisibleForDate,getDateSchedulePolicy,academicYearBounds} from './taskkanri-core.mjs';
+import {APP_CONFIG,isSlotVisibleForDate,getDateSchedulePolicy,academicYearBounds,stripHtml,getResolvedSlot,getHolidayName} from './taskkanri-core.mjs';
 import {addDays,calendarDays} from './taskkanri-sync-model.mjs';
 
 export function scheduleCells(date,state){
@@ -23,4 +23,17 @@ export function calendarPages(year,week){
   }
  }
  return pages;
+}
+
+export function hasMobileAgenda(date,state){
+ return !!stripHtml(state.configEvents[date]||'').trim()||scheduleCells(date,state).some(({slot})=>!!stripHtml(getResolvedSlot(date,slot,state)).trim());
+}
+export function mobileDayBackground(date,state){
+ const policy=getDateSchedulePolicy(date,state),profile=policy.profile,weekday=new Date(date+'T00:00:00Z').getUTCDay();
+ if(profile.startsWith('noclass'))return 'bg-no-class';
+ if(['exam','mock-exam'].includes(profile))return 'bg-exam';
+ if(['short','short-am','morning'].includes(profile))return 'bg-short';
+ if(getHolidayName(date,state)||weekday===0)return 'bg-sun-hol';
+ if(weekday===6)return 'bg-sat';
+ return policy.isFixedOffActive?'bg-fixed-off':'';
 }
