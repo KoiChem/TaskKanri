@@ -1,0 +1,27 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {PGlite} from '@electric-sql/pglite';
+import {defaultState} from '../taskkanri-core.mjs';
+import {toPayload} from '../taskkanri-sync-model.mjs';
+test('real Postgres SQL: RLS, allowlist, direct write denial, CAS and idempotence',async()=>{
+ const db=new PGlite();
+ await db.exec("create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;");
+ await db.exec(await readFile(new URL('../supabase/migrations/202610120001_taskkanri_sync.sql',import.meta.url),'utf8'));
+ const uid='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
+ await db.query('insert into auth.users values ($1),($2)',[uid,other]);await db.query('insert into public.taskkanri_allowed_users values($1)',[uid]);
+ await db.exec(`set role authenticated; set request.jwt.claim.sub='${uid}';`);
+ const save=(r,id,p=toPayload(defaultState()))=>db.query('select public.save_taskkanri_document($1,$2,$3::jsonb) as result',[r,id,JSON.stringify(p)]).then(r=>r.rows[0].result);
+ const mutation='00000000-0000-4000-8000-000000000010';
+ assert.equal((await save(0,mutation)).status,'saved');
+ assert.equal((await save(0,mutation)).status,'duplicate');
+ assert.equal((await save(0,'00000000-0000-4000-8000-000000000011')).status,'conflict');
+ assert.equal((await save(1,'00000000-0000-4000-8000-000000000012')).appliedRevision,2);
+ await assert.rejects(db.query('update public.taskkanri_documents set revision=999'));
+ const bad=toPayload(defaultState());delete bad.state.dateOverrides;await assert.rejects(save(2,'00000000-0000-4000-8000-000000000013',bad));
+ const changed=toPayload(defaultState());changed.state.globalTaskData='different';await assert.rejects(save(2,mutation,changed));
+ await db.exec(`set request.jwt.claim.sub='${other}'`);
+ assert.equal((await db.query('select * from public.taskkanri_documents')).rows.length,0);await assert.rejects(save(0,mutation));
+ await db.exec('set role anon');await assert.rejects(db.query('select * from public.taskkanri_documents'));await assert.rejects(save(0,mutation));
+ await db.close();
+});

@@ -1,1 +1,9 @@
 .DS_Store
+node_modules/
+dist/
+vendor/
+.env*
+!.env.example
+*.local.json
+.superpowers/
+.playwright-mcp/

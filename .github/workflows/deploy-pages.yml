@@ -21,12 +21,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install pinned dependencies
+        run: |
+          npm install --global pnpm@11.19.0
+          pnpm install --frozen-lockfile
+
       - name: Verify syntax and behavior
         run: |
           node --input-type=module --check < taskkanri-app.js
           node --check taskkanri-core.mjs
-          node --test tests/core.test.mjs
+          pnpm test
+          pnpm build
           git diff --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-dist
+          path: dist
+          include-hidden-files: true
 
   deploy:
     needs: test
@@ -35,8 +51,10 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-dist
+          path: dist
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
@@ -44,7 +62,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: .
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment

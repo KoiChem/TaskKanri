@@ -26,7 +26,11 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20260907-bulk-calendar-layout-v5';
+} from './taskkanri-core.mjs?v=20261012-mobile-sync-v1';
+import {SyncController} from './taskkanri-sync.js';
+import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
+import {scopedStorage} from './taskkanri-device-storage.mjs';
+import {toPayload} from './taskkanri-sync-model.mjs';
 
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -51,7 +55,10 @@ let previewCountData = [];
 let currentCountMode = 'list';
 let countDragState = null;
 let wakeLock = null;
-let titleBlinkerId = null;
+let syncController;
+let syncUI;
+let cloudUser = null;
+let applyingCloud = false;
 let initialized = false;
 const historyManager = new HistoryManager();
 const settingsDirtySections = new Set();
@@ -188,7 +195,7 @@ function updateHistoryControls() {
   if (redo) { redo.disabled = !nextRedo; redo.title = nextRedo ? `${nextRedo.label}をやり直す` : 'やり直せる変更はありません'; redo.setAttribute('aria-label', redo.title); }
 }
 function commitState(mutator, { refresh = false, historyLabel = '変更', historyScope = 'general', skipHistory = false } = {}) {
-  if (!storageService) return false;
+  if (!storageService || !canCloudEdit()) return false;
   if (storageService.isReadOnly()) {
     notifySaveFailure({ error: `読み取り専用相当です: ${storageService.readOnlyReason()}` });
     return false;
@@ -256,6 +263,7 @@ function isTextEditingTarget(target) {
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable || Boolean(target.closest('[contenteditable="true"]'));
 }
 function restoreHistory(direction) {
+  if (!canCloudEdit()) return false;
   if (hasOpenUnsavedForm()) { showAlert('保存前の入力を保護するため、この画面を閉じてから元に戻す／やり直すを実行してください。'); return false; }
   if (!storageService || storageService.isReadOnly()) { notifySaveFailure({ error: `読み取り専用相当です: ${storageService?.readOnlyReason?.() || ''}` }); return false; }
   const entry = direction === 'undo' ? historyManager.moveUndoToRedo() : historyManager.moveRedoToUndo();
@@ -1151,48 +1159,6 @@ function openTodoModal() {
 function closeTodoModal() { const modal = document.getElementById('todo-modal'); if (modal) modal.style.display = 'none'; }
 function jumpToDateFromTodo(dateId) { closeTodoModal(); renderEditor(dateId, 'top'); executeJump(dateId); }
 
-function startTitleBlink(text) {
-  stopTitleBlink();
-  let on = false; const base = String(text).slice(0, 12);
-  titleBlinkerId = setInterval(() => { on = !on; document.title = on ? `【🔔】${base}...` : `【　】${base}...`; }, 1000);
-}
-function stopTitleBlink() { if (titleBlinkerId) clearInterval(titleBlinkerId); titleBlinkerId = null; document.title = 'タスク管理くん'; }
-function processAlarmHtml(html, sourceName, hour, minute, notifications) {
-  const safe = sanitizeHtml(html);
-  const pattern = /🔔\s*([0-9０-９]{1,2}[:：]?[0-9０-９]{2})([^<]*)/g;
-  return safe.replace(pattern, (match, time, trailing) => {
-    const digits = time.replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/[^0-9]/g, '');
-    const h = digits.length === 3 ? Number(digits.slice(0, 1)) : Number(digits.slice(0, 2));
-    const m = Number(digits.slice(-2));
-    if (h !== hour || m !== minute) return match;
-    notifications.push(`【${sourceName}】 ${time}${trailing}`.trim());
-    return `🔕<span style="color:#a0aec0;text-decoration:line-through double #a0aec0">${escapeHtmlText(`${time}${trailing}`)}</span>`;
-  });
-}
-function showAlarmModal(messages) {
-  const container = document.getElementById('alarm-msg-container'); if (!container) return;
-  const open = document.getElementById('alarm-modal')?.style.display === 'flex';
-  if (open) container.appendChild(el('hr'));
-  messages.forEach((message, index) => { if (index) container.appendChild(el('br')); container.appendChild(el('div', message)); });
-  const modal = document.getElementById('alarm-modal'); if (modal) modal.style.display = 'flex';
-  startTitleBlink(messages[0] || 'アラーム');
-}
-function closeAlarmModal() { const modal = document.getElementById('alarm-modal'); if (modal) modal.style.display = 'none'; document.getElementById('alarm-msg-container')?.replaceChildren(); stopTitleBlink(); }
-function checkAlarms(now) {
-  const dateId = getIsoDateStr(now); const notifications = []; const before = clone(appState); let changed = false;
-  if (appState.globalTaskData.includes('🔔')) {
-    const next = processAlarmHtml(appState.globalTaskData, '共通タスク', now.getHours(), now.getMinutes(), notifications);
-    if (next !== appState.globalTaskData) { appState.globalTaskData = next; changed = true; }
-  }
-  APP_CONFIG.slotsAll.forEach(slot => { const current = resolvedSlot(dateId, slot); if (!current?.includes('🔔')) return; const next = processAlarmHtml(current, getDisplaySlot(slot), now.getHours(), now.getMinutes(), notifications); if (next !== current) { setUserOverride(appState, dateId, slot, next); changed = true; } });
-  if (changed) {
-    const result = storageService.saveAll(appState);
-    if (result.ok) { appState = result.state; updateHistoryControls(); } else { appState = before; notifySaveFailure(result); }
-    refreshMainUI();
-  }
-  if (notifications.length) showAlarmModal(notifications);
-}
-
 function getFirstWord(html) {
   return stripHtml(html).replace(/^\s*(?:[①-⑳㉑-㉟㊱-㊿]|\(\d+\))\s*/, '').trim().split(/[\s\u00a0　]+/)[0] || '';
 }
@@ -1781,7 +1747,7 @@ function saveBasicSettings() {
     ].join('\n');
     if (!showConfirm(message)) return;
   }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; state.calendarHolidays = plan.value.nextCalendarHolidays; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.className = layout === 'landscape' ? 'layout-landscape' : 'layout-portrait'; clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
+  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; state.calendarHolidays = plan.value.nextCalendarHolidays; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.classList.toggle('layout-landscape',layout==='landscape'); document.body.classList.toggle('layout-portrait',layout!=='landscape'); clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
 }
 function saveTimeConfig() {
   const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig); const instructionDays = clone(appState.instructionDayConfig);
@@ -1833,11 +1799,12 @@ function saveHolidays() {
 
 function exportData() {
   const serialized = serializePayload(appState); if (!serialized.ok) { showAlert(serialized.error); return; }
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-  const filename = `TaskKanri_build-${APP_CONFIG.buildVersion}_schema-${APP_CONFIG.schemaVersion}_${stamp}.json`;
+  const filename = exportFilename();
   const url = URL.createObjectURL(new Blob([JSON.stringify(serialized.value, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 function importData(event) {
+  if (!canCloudEdit()) return;
+  if (syncController?.engine?.pending || syncController?.engine?.busy) { showAlert("先に同期を完了するか、未送信データを保全してください。"); return; }
   const input = event?.target; const file = input?.files?.[0];
   if (!file) { if (input) input.value = ''; return; }
   const reader = new FileReader();
@@ -1847,7 +1814,7 @@ function importData(event) {
       if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
       const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧snapshotを作成します。`) });
       if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
-      appState = result.state; historyManager.clear(); updateHistoryControls(); showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
+      appState = result.state; queueCloudSave(appState); historyManager.clear(); updateHistoryControls(); showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
     } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
     finally { input.value = ''; }
   };
@@ -1856,7 +1823,17 @@ function importData(event) {
 }
 function openResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'flex'; document.getElementById('btn-reset-cancel')?.focus(); }
 function closeResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'none'; }
-function executeReset() {
+async function executeReset() {
+  if (cloudUser) {
+    if (syncController.engine?.busy) { showAlert('保存結果を確認してから初期化してください。'); return; }
+    if (!showConfirm("この端末の同期を解除し、端末内の保存データ・復旧snapshot・このタブの未送信データを初期化しますか？クラウドとほかの端末は初期化しません。")) return;
+    if (syncController.engine?.pending) downloadJson({app:"TaskKanri",pending:syncController.engine.pending},exportFilename('unsent'));
+    const service=storageService; const userId=cloudUser.id;
+    syncController.engine?.store.remove('pending');
+    await syncController.logout(); const result=service.reset();
+    if (!result.ok) { showAlert(result.error); return; }
+    scopedStorage(localStorage,userId).removeItem("cache"); location.reload(); return;
+  }
   if (!showConfirm('TaskKanriの保存データ、復旧snapshot、隔離データを初期化しますか？')) return;
   const result = storageService.reset();
   if (!result.ok) { showAlert(`${result.error}\n削除失敗: ${result.failed.map(item => item.key).join(', ')}`); showStorageWarning(result.error); return; }
@@ -1865,7 +1842,7 @@ function executeReset() {
 function getQuarantineDownloadPayload() { return { app: 'TaskKanri', buildVersion: APP_CONFIG.buildVersion, exportedAt: new Date().toISOString(), records: storageService.getQuarantineRecords() }; }
 function downloadQuarantinedData() {
   const records = storageService.getQuarantineRecords(); if (!records.length) { showAlert('ダウンロードする隔離データはありません。'); return; }
-  const url = URL.createObjectURL(new Blob([JSON.stringify(getQuarantineDownloadPayload(), null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = `TaskKanri_quarantine_${APP_CONFIG.buildVersion}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+  const url = URL.createObjectURL(new Blob([JSON.stringify(getQuarantineDownloadPayload(), null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = exportFilename('quarantine'); link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 function deleteAllQuarantinedData() {
   const records = storageService.getQuarantineRecords(); if (!records.length) return;
@@ -1893,9 +1870,53 @@ function toggleClock() { if (commitState(state => { state.isClockVisible = !stat
 function initializeStorage() {
   try { storageLike = window.localStorage; storageService = createStorageService(storageLike); }
   catch { storageLike = { data: new Map(), get length() { return this.data.size; }, key(index) { return Array.from(this.data.keys())[index] || null; }, getItem(key) { return this.data.has(key) ? this.data.get(key) : null; }, setItem(key, value) { this.data.set(key, String(value)); }, removeItem(key) { this.data.delete(key); } }; storageService = createStorageService(storageLike); }
+  decorateStorageService();
   const loaded = storageService.load();
   if (loaded.ok) appState = loaded.state;
   if (loaded.readOnly) showStorageWarning();
+}
+function canCloudEdit() {
+  if (document.body.classList.contains('cloud-signed-out')) { showAlert('同期設定からログインしてください。'); return false; }
+  if ((cloudUser && !syncController?.engine) || ['conflict','blocked'].includes(syncController?.engine?.status)) { syncUI.open(); return false; }
+  return true;
+}
+function queueCloudSave(state) {
+  if (applyingCloud) return;
+  try { syncController?.dirty(state); } catch(error) { syncController?.engine?.emit('blocked',error.message); syncUI?.tell('端末には保存しましたが、同期を確認できません。'+error.message); }
+}
+function decorateStorageService() {
+  const save=storageService.saveAll.bind(storageService);
+  storageService.saveAll=(candidate)=>{const result=save(candidate);if(result.ok) queueCloudSave(result.state);return result;};
+}
+function installCloudSync() {
+  document.body.classList.toggle('cloud-signed-out',localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true');
+  const landing=el('section');landing.id='sync-landing';landing.innerHTML='<h2>TaskKanri</h2><p>本人のアカウントでログインして予定を表示します。</p><button type="button">ログイン</button>';landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
+  const controls=el('div');controls.className='sync-controls';const status=el('span','未接続');status.setAttribute('role','status');const button=el('button','同期設定');button.type='button';const mobile=el('a','モバイル表示');mobile.href='mobile.html';controls.append(status,button,mobile);document.body.append(controls);
+  syncController=new SyncController({mode:'desktop',getState:()=>appState,
+    canApply:()=>!hasOpenUnsavedForm()&&!isTextEditingTarget(document.activeElement),
+    onAccount:user=>{
+      const previous=cloudUser;cloudUser=user;
+      if(user) {
+        const candidate=localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true'?defaultState():clone(appState);
+        const scoped=scopedStorage(localStorage,user.id);const hasMaster=scoped.getItem(APP_CONFIG.storeKey)!==null;
+        storageLike=scoped;storageService=createStorageService(scoped);let loaded=storageService.load();
+        if(!loaded.ok||loaded.readOnly) throw new Error('この端末の保存データを保全してください。');
+        if(!hasMaster) { const result=storageService.saveAll(candidate);if(!result.ok)throw new Error(result.error);loaded=result; }
+        appState=loaded.state;decorateStorageService();localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
+      } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(localStorage,'logged-out');storageService=createStorageService(storageLike);storageService.load();decorateStorageService();document.body.classList.add('cloud-signed-out'); }
+      landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
+    },
+    onData:next=>{
+      if(JSON.stringify(toPayload(next))===JSON.stringify(toPayload(appState)))return;
+      const backup=storageService.createRecoverySnapshot();if(!backup.ok)throw new Error(backup.error);
+      applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
+      appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
+    },
+    onStatus:(label,engine)=>{status.textContent=label;syncUI?.update();if(engine?.error)status.title=engine.error;}
+  });
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);
+  document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
+  syncController.start().catch(error=>{status.textContent=error.message;syncUI.tell(error.message)});
 }
 function initStartupDates() {
   const today = new Date(); let base = getIsoDateStr(today);
@@ -1929,7 +1950,7 @@ function initApp() {
   if (initialized) return; initialized = true;
   document.documentElement.style.setProperty('--bg-exam', APP_CONFIG.theme.exam); document.documentElement.style.setProperty('--bg-short', APP_CONFIG.theme.short); document.documentElement.style.setProperty('--bg-noclass', APP_CONFIG.theme.noclass);
   document.documentElement.dataset.taskkanriBuild = APP_CONFIG.buildVersion; document.documentElement.dataset.taskkanriSchema = String(APP_CONFIG.schemaVersion);
-  initializeStorage(); bindEditorEvents();
+  initializeStorage(); installCloudSync(); bindEditorEvents();
   const settingsView = document.getElementById('settings-view');
   settingsView?.addEventListener('input', event => markSettingsDirty(event.target));
   settingsView?.addEventListener('change', event => markSettingsDirty(event.target));
@@ -1947,9 +1968,9 @@ function initApp() {
   document.addEventListener('scroll', () => closeBulkCalendarContextMenu(), true); window.addEventListener('resize', () => closeBulkCalendarContextMenu());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
-  document.body.className = appState.isLandscapeMode ? 'layout-landscape' : 'layout-portrait'; document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
+  document.body.classList.toggle('layout-landscape',appState.isLandscapeMode); document.body.classList.toggle('layout-portrait',!appState.isLandscapeMode); document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
   generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToRow(startupDateId)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
-  setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); checkAlarms(time); }, 1000);
+  setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); }, 1000);
 }
 
 function getDateListContextPreset(dateId) { return getDayProfile(dateId); }
@@ -1967,7 +1988,7 @@ function clearDateListContextHoliday() { if (!dateListContextDateId) return; if 
 Object.assign(window, {
   APP_CONFIG, AppStorage: { init: initializeStorage, saveAll: () => storageService.saveAll(appState) }, DayStateEngine, EditorCmd,
   clearSearch, executeJump, executeSearch, renderEditor, shiftDate, toggleClock, toggleWakeLock, handlePaste,
-  toggleMainState, closeAlarmModal,
+  toggleMainState,
   openTodoModal, closeTodoModal, jumpToDateFromTodo, openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
   updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
@@ -1977,7 +1998,7 @@ Object.assign(window, {
   openAcademicYearRolloverModal, closeAcademicYearRolloverModal, handleAcademicYearRolloverKeydown, renderAcademicYearRolloverPreview, executeAcademicYearRollover,
   saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
-  updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip, checkAlarms
+  updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip
 });
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initApp, { once: true });

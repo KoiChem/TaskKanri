@@ -2,9 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20260907-bulk-calendar-layout-v5">
+<meta name="taskkanri-build-version" content="20261012-mobile-sync-v1">
 <meta name="taskkanri-schema-version" content="7">
 <title>タスク管理くん</title>
+<link rel="stylesheet" href="sync-ui.css">
 <style>
   :root { 
     --primary: #3182ce; --bg: #f8fafc; --border: #cbd5e0; --text: #2d3748;
@@ -387,7 +388,6 @@
     <div style="border-left: 1px solid #cbd5e0; height: 16px; margin: 0 1px;"></div>
     
     <div class="emoji-palette">
-      <span class="emoji-icon" onmousedown="event.preventDefault(); EditorCmd.insertHTML('🔔')" title="アラーム設定">🔔</span>
       <span class="emoji-icon" onmousedown="event.preventDefault(); EditorCmd.insertHTML('🏫')">🏫</span>
       <span class="emoji-icon" onmousedown="event.preventDefault(); EditorCmd.insertHTML('💻')">💻</span>
       <span class="emoji-icon" onmousedown="event.preventDefault(); EditorCmd.insertHTML('🚌')">🚌</span>
@@ -446,14 +446,6 @@
     <input id="date-list-context-holiday-name" type="text" placeholder="休日・祝日名">
     <button type="button" onclick="saveDateListContextHoliday()">休日に設定</button>
     <button type="button" onclick="clearDateListContextHoliday()">解除</button>
-  </div>
-</div>
-
-<div id="alarm-modal" class="modal-overlay" style="z-index: 3000;">
-  <div class="menu-box" style="width: 400px; border: 4px solid #f6ad55; padding: 25px;">
-    <h2 style="margin:0 0 15px 0; text-align:center; color:#dd6b20;">⏰ お知らせ</h2>
-    <div id="alarm-msg-container" style="font-size:16px; font-weight:bold; color:#2d3748; margin-bottom:20px; line-height:1.6; text-align:center;"></div>
-    <button class="menu-btn" style="background:#dd6b20; color:white; border:none; width:100%; font-size:16px;" onclick="closeAlarmModal()">確認しました</button>
   </div>
 </div>
 
@@ -757,6 +749,6 @@
 
 </div>
 
-<script type="module" src="taskkanri-app.js?v=20260907-bulk-calendar-layout-v5"></script>
+<script type="module" src="taskkanri-app.js?v=20261012-mobile-sync-v1"></script>
 </body>
 </html>

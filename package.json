@@ -1,0 +1,8 @@
+{
+  "name": "taskkanri",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test tests/*.test.mjs", "build": "node scripts/build.mjs", "preview": "node scripts/serve.mjs"},
+  "dependencies": {"@supabase/supabase-js": "2.117.3"},
+  "devDependencies": {"esbuild": "0.28.2", "@electric-sql/pglite": "0.5.9"}
+}
