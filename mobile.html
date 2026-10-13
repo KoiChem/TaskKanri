@@ -1,21 +1,20 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="taskkanri-build-version" content="20261013-mobile-swipe-v8"><meta name="theme-color" content="#f6f8fc"><title>TaskKanri モバイル</title><link rel="stylesheet" href="mobile.css?v=20261013-mobile-swipe-v8"><link rel="stylesheet" href="sync-ui.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="taskkanri-build-version" content="20261014-mobile-controls-v9"><meta name="theme-color" content="#f6f8fc"><title>TaskKanri モバイル</title><link rel="stylesheet" href="mobile.css?v=20261014-mobile-controls-v9"><link rel="stylesheet" href="sync-ui.css"></head>
 <body>
  <main id="mobile-shell">
   <header class="mobile-header">
    <h1 id="selected-date">TaskKanri</h1>
    <nav class="tabs" aria-label="表示内容"><button id="agenda-tab" type="button" aria-pressed="true">予定</button><button id="global-tab" type="button" aria-pressed="false">共通タスク</button></nav>
-   <button id="menu" type="button" aria-label="同期設定を開く">⋯</button>
+   <button id="menu" type="button" aria-label="同期設定を開く"><span id="sync-status" role="status" aria-live="polite">読込中</span></button>
    <button id="selected-event" type="button" aria-label="行事の全文を表示"></button>
-   <div id="sync-status" role="status" aria-live="polite">読込中</div>
   </header>
   <section id="agenda" aria-label="選択日の内容" tabindex="-1"><p class="empty">同期設定からログインしてください。</p><button id="start-login" type="button">ログイン</button></section>
-  <section id="calendar" aria-label="カレンダー"><div class="calendar-toolbar"><button id="today" type="button">当日</button><button id="previous" type="button" aria-label="前月">‹</button><h2 id="calendar-title"></h2><button id="next" type="button" aria-label="翌月">›</button><button id="calendar-mode" type="button">週表示</button></div><div class="weekdays" aria-hidden="true"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div><div id="calendar-days" tabindex="0" aria-label="カレンダーをスクロール"></div></section>
+  <section id="calendar" aria-label="カレンダー"><div class="calendar-toolbar"><button id="today" type="button">当日</button><button id="previous" type="button" aria-label="前月">‹</button><h2 id="calendar-title"></h2><button id="next" type="button" aria-label="翌月">›</button><button id="calendar-mode" type="button">週表示</button></div><div class="weekdays" aria-hidden="true"><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span><span>日</span></div><div id="calendar-days" tabindex="0" aria-label="カレンダーをスクロール"></div></section>
  </main>
  <dialog id="event-sheet" aria-labelledby="event-date"><div class="sheet-heading"><h2 id="event-date"></h2><button id="close-event" type="button">閉じる</button></div><p id="event-text"></p></dialog>
  <dialog id="task-sheet" aria-labelledby="sheet-title"><div class="sheet-heading"><h2 id="sheet-title"></h2><button id="close-sheet" type="button">閉じる</button></div><div id="sheet-body"></div></dialog>
  <div id="toast" role="status" hidden><span>変更しました</span><button id="undo-task" type="button">元に戻す</button></div>
  <p class="orientation-note">縦向きでご利用ください</p>
- <script type="module" src="mobile-app.js?v=20261013-mobile-swipe-v8"></script>
+ <script type="module" src="mobile-app.js?v=20261014-mobile-controls-v9"></script>
 </body></html>

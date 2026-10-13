@@ -25,7 +25,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{}}){
  q('[data-editor-close]').onclick=requestClose;
  dialog.addEventListener('cancel',event=>{event.preventDefault();requestClose()});
  window.addEventListener('popstate',()=>{if(dialog.open&&persistActive())dialog.close()});
- dialog.addEventListener('close',()=>{active=null;range=null;composing=false;input.replaceChildren();q('[data-editor-latest]').replaceChildren();document.documentElement.style.removeProperty('--editor-viewport-height');const focusTarget=opener?.isConnected?opener:document.querySelector('#agenda');focusTarget?.focus({preventScroll:true});void controller.refresh()});
+ dialog.addEventListener('close',()=>{active=null;range=null;composing=false;input.replaceChildren();q('[data-editor-latest]').replaceChildren();document.documentElement.style.removeProperty('--editor-viewport-height');const focusTarget=opener?.isConnected?opener:document.querySelector('#task-sheet[open] #edit-common')||document.querySelector('#agenda');focusTarget?.focus({preventScroll:true});void controller.refresh()});
  function viewport(){if(dialog.open)document.documentElement.style.setProperty('--editor-viewport-height',`${window.visualViewport?.height||window.innerHeight}px`)}
  window.visualViewport?.addEventListener('resize',viewport);
  input.addEventListener('compositionstart',()=>{composing=true;update()});input.addEventListener('compositionend',()=>{composing=false;persistActive();update()});

@@ -153,3 +153,17 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .common-detail-tools{display:flex;justify-content:flex-end}
 .common-detail-tools button{color:var(--blue);font-weight:600}
 #global-editor-sheet .global-editor-scroll{flex:1}
+
+/* Monday-first mobile controls and compact equal-width tabs. */
+.weekdays span:first-child{color:var(--muted)}
+.weekdays span:nth-child(6){color:var(--blue)}
+.weekdays span:last-child{color:#b34251}
+.date-button.has-agenda,.date-button.has-agenda[aria-pressed=true]{color:#595959}
+.date-button.today,.date-button.today[aria-pressed=true]{font-size:15px;font-weight:700;color:#000}
+.mobile-header .tabs{width:134px;max-width:100%;justify-self:start;gap:2px;border-radius:0}
+.mobile-header .tabs button{flex:1 1 0;padding:0 3px;border-radius:0}
+.mobile-header .tabs button::before{border-radius:0}
+#menu{width:76px;min-width:44px;height:44px;font-weight:400}
+#sync-status{display:block;height:auto;line-height:16px;text-align:center;grid-column:auto;grid-row:auto;font-size:11px;padding:0}
+.task-cycle{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:44px;min-width:44px;height:44px;padding:0;margin:0;border-radius:6px;touch-action:manipulation}
+.task-cycle .todo-badge{margin:0;line-height:1.7}

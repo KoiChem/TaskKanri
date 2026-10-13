@@ -1,8 +1,8 @@
 import {installGlobalEditor} from './mobile-editor.js';
 import {installOutsideDismiss,mobileSyncLabel,centerCalendarPeriod,installAgendaSwipe,calendarRevealOffset} from './mobile-ui.mjs';
-import {scheduleCells,calendarPages,hasMobileAgenda,mobileDayBackground} from './mobile-model.mjs';
+import {scheduleCells,calendarPages,hasMobileAgenda,mobileDayBackground,mobileWeekStart} from './mobile-model.mjs';
 import {APP_CONFIG,defaultState,sanitizeHtml,stripHtml,getResolvedSlot,getDateSchedulePolicy,academicYearBounds,getHolidayName} from './taskkanri-core.mjs';
-import {taskItems,changeTask,undoTask,slotTime,tokyoToday,calendarDays,addDays,TASK_LABELS,samePayload,toPayload} from './taskkanri-sync-model.mjs';
+import {taskItems,changeTask,undoTask,slotTime,tokyoToday,addDays,TASK_LABELS,samePayload,toPayload} from './taskkanri-sync-model.mjs';
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI} from './taskkanri-sync-ui.js';
 const standalone=window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;document.documentElement.classList.toggle('standalone',standalone);
@@ -32,7 +32,7 @@ q('#selected-event').onclick=()=>{q('#event-date').textContent=q('#selected-date
 q('#close-event').onclick=()=>q('#event-sheet').close();
 installOutsideDismiss(q('#event-sheet'),()=>q('#event-sheet').close());
 installOutsideDismiss(dialog,closeSheet);
-function setSyncStatus(text,engine){const status=q('#sync-status');status.textContent=mobileSyncLabel(text,engine);status.title=text;status.setAttribute('aria-label',text);}
+function setSyncStatus(text,engine){const status=q('#sync-status');status.textContent=mobileSyncLabel(text,engine);status.title=text;status.setAttribute('aria-label',text);q('#menu').setAttribute('aria-label',`同期設定を開く：${text}`);}
 function rich(html){const e=el('div');e.className='rich-text';e.innerHTML=sanitizeHtml(html);return e}
 function render(){q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();if(eventText)event.append(el('span',eventText));event.disabled=!eventText;renderContent();renderCalendar();}
 function renderContent(){if(!loaded)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
@@ -77,7 +77,7 @@ function renderCalendar(){
  if(rebuild)scrollCalendarTo(selected);
  updateCalendarTitle();updateCalendarButtons();
 }
-function pageForDate(id){const target=week?calendarDays(id,true)[0]:id.slice(0,7)+'-01';return q('#calendar-days').querySelector(`[data-period="${target}"]`)}
+function pageForDate(id){const target=week?mobileWeekStart(id):id.slice(0,7)+'-01';return q('#calendar-days').querySelector(`[data-period="${target}"]`)}
 function scrollCalendarTo(id){
  const page=pageForDate(id);if(!page)return;
  const container=q('#calendar-days');period=page.dataset.period;
@@ -118,19 +118,24 @@ function openSheet(ref,button){opener=button;const html=ref.source==='global'?st
 function taskEditingEnabled(){const e=controller.engine;return !!e?.payload&&navigator.onLine&&['synced','pending','saving'].includes(e.status);}
 function updateSheetControls(){
  if(!sheet)return;
- const tasks=taskItems(sheet.originalHtml);const enabled=taskEditingEnabled();
+ const tasks=taskItems(sheet.originalHtml);const enabled=taskEditingEnabled()&&!sheet.invalidBadgeFormat;
+ q('#sheet-body').querySelectorAll('[data-task-cycle]').forEach(button=>{const task=tasks[Number(button.dataset.taskCycle)];button.disabled=!enabled;button.setAttribute('aria-label',`${task?.text||'タスク'}：${TASK_LABELS[task?.state??0]}。タップで${TASK_LABELS[((task?.state??0)+1)%4]}`);});
  q('#sheet-body').querySelectorAll('[data-badge-index]').forEach(group=>{
   const task=tasks[Number(group.dataset.badgeIndex)];
   group.querySelectorAll('button').forEach((button,i)=>{button.disabled=!enabled;button.setAttribute('aria-pressed',String(task?.state===i));});
  });
- const notice=q('#sheet-body [data-task-notice]');if(notice){notice.hidden=enabled;notice.textContent=controller.engine?.error||'同期を確認してから状態を変更できます。';}
+ const notice=q('#sheet-body [data-task-notice]');if(notice){notice.hidden=enabled;notice.textContent=sheet.invalidBadgeFormat?'タスクアイコンの書式を確認できません。「編集」でアイコンを整えてください。':controller.engine?.error||'同期を確認してから状態を変更できます。';}
 }
+window.addEventListener('offline',updateSheetControls);window.addEventListener('online',updateSheetControls);
 function renderSheet(){
  dialog.classList.toggle('common-detail',sheet.source==='global');
  const body=q('#sheet-body');body.replaceChildren();q('#sheet-title').textContent=sheet.source==='global'?'共通タスク':`${sheet.dateId} ${sheet.slot}`;
- if(sheet.source==='global'){const edit=el('button','編集');edit.id='edit-common';edit.type='button';edit.onclick=()=>globalEditor.openEditor(edit);const tools=el('div');tools.className='common-detail-tools';tools.append(edit);body.append(tools);}
+ q('#edit-common')?.remove();
+ if(sheet.source==='global'){const edit=el('button','編集');edit.id='edit-common';edit.type='button';edit.onclick=()=>globalEditor.openEditor(edit);q('#close-sheet').before(edit);}
  const content=rich(sheet.originalHtml);content.dataset.sheetRich='';body.append(content);
- for(const task of taskItems(sheet.originalHtml)){
+ sheet.invalidBadgeFormat=sheet.source==='global'&&content.querySelectorAll('.todo-badge[data-state]').length!==taskItems(sheet.originalHtml).length;
+ if(sheet.source==='global'&&!sheet.invalidBadgeFormat)content.querySelectorAll('.todo-badge[data-state]').forEach((badge,index)=>{const button=el('button');button.type='button';button.className='task-cycle';button.dataset.taskCycle=String(index);badge.before(button);button.append(badge);button.onclick=()=>{const task=taskItems(sheet.originalHtml)[index];if(task)void setTask(index,(task.state+1)%4)};});
+ if(sheet.source!=='global')for(const task of taskItems(sheet.originalHtml)){
   const group=el('section');group.className='task-editor';group.dataset.badgeIndex=String(task.badgeIndex);group.append(el('p',task.text));
   const choices=el('div');choices.className='status-options';for(let i=0;i<4;i++){const button=el('button',TASK_LABELS[i]);button.type='button';button.onclick=()=>void setTask(task.badgeIndex,i);choices.append(button)}group.append(choices);body.append(group);
  }

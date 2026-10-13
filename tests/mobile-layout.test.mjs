@@ -49,3 +49,17 @@ test('calendar backgrounds match desktop profile precedence',()=>{
  assert.equal(mobile.mobileDayBackground('2026-10-18',state),'bg-sun-hol');
  state.instructionDayConfig[3]=false;assert.equal(mobile.mobileDayBackground('2026-10-14',state),'bg-fixed-off');
 });
+
+test('mobile months and weeks start on Monday, including Sundays and year edges',()=>{
+ assert.equal(mobile.mobileWeekStart('2026-10-18'),'2026-10-12');
+ assert.equal(mobile.mobileWeekStart('2026-10-19'),'2026-10-19');
+ for(const year of [2025,2026,2027,2028]){
+  const months=mobile.calendarPages(year,false),weeks=mobile.calendarPages(year,true);
+  for(const page of weeks){assert.equal(new Date(page.id+'T00:00:00Z').getUTCDay(),1);assert.equal(page.days.length,7);assert.equal(page.id,page.days[0])}
+  for(const page of months)page.days.forEach((date,i)=>{if(date)assert.equal((new Date(date+'T00:00:00Z').getUTCDay()+6)%7,i%7)});
+  const dates=months.flatMap(page=>page.days).filter(Boolean);
+  assert.equal(dates.length,new Set(dates).size);
+  assert.ok(weeks.flatMap(page=>page.days).includes(`${year}-04-01`));
+  assert.ok(weeks.flatMap(page=>page.days).includes(`${year+1}-03-31`));
+ }
+});

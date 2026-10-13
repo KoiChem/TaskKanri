@@ -1,5 +1,5 @@
 import {APP_CONFIG,isSlotVisibleForDate,getDateSchedulePolicy,academicYearBounds,stripHtml,getResolvedSlot,getHolidayName} from './taskkanri-core.mjs';
-import {addDays,calendarDays} from './taskkanri-sync-model.mjs';
+import {addDays} from './taskkanri-sync-model.mjs';
 
 export function scheduleCells(date,state){
  const profile=getDateSchedulePolicy(date,state).profile;
@@ -9,15 +9,22 @@ export function scheduleCells(date,state){
   !(profile==='noclass-hide'&&!['朝','放課後'].includes(slot))&&
   !(hideAfternoon&&['昼休み','５限','６限','７限'].includes(slot)));
 }
+export function mobileWeekStart(date){
+ return addDays(date,-((new Date(date+'T00:00:00Z').getUTCDay()+6)%7));
+}
+function mobileCalendarDays(date,week=false){
+ const start=mobileWeekStart(week?date:date.slice(0,7)+'-01');
+ return Array.from({length:week?7:42},(_,i)=>addDays(start,i));
+}
 export function calendarPages(year,week){
  const bounds=academicYearBounds(year);const pages=[];
  if(week){
-  for(let start=calendarDays(bounds.start,true)[0];start<=bounds.end;start=addDays(start,7))pages.push({id:start,days:calendarDays(start,true)});
+  for(let start=mobileWeekStart(bounds.start);start<=bounds.end;start=addDays(start,7))pages.push({id:start,days:mobileCalendarDays(start,true)});
  }else{
   for(let month=0;month<12;month++){
    const date=new Date(`${year}-04-01T00:00:00Z`);date.setUTCMonth(date.getUTCMonth()+month);
    const id=date.toISOString().slice(0,10),prefix=id.slice(0,7);
-   const days=calendarDays(id).map(day=>day.startsWith(prefix)?day:null);
+   const days=mobileCalendarDays(id).map(day=>day.startsWith(prefix)?day:null);
    while(days.slice(-7).every(day=>day===null))days.splice(-7);
    pages.push({id,days});
   }
