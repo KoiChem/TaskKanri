@@ -6,7 +6,7 @@ import {taskItems,changeTask,undoTask,slotTime,tokyoToday,calendarDays,addDays,T
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI} from './taskkanri-sync-ui.js';
 const standalone=window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;document.documentElement.classList.toggle('standalone',standalone);
-const headerObserver=new ResizeObserver(entries=>document.documentElement.style.setProperty('--mobile-header-height',`${entries[0].target.getBoundingClientRect().height}px`));headerObserver.observe(document.querySelector('.mobile-header'));
+const headerObserver=new ResizeObserver(entries=>document.documentElement.style.setProperty('--mobile-header-height',`${entries[0].target.getBoundingClientRect().height}px`));headerObserver.observe(document.querySelector('.mobile-header'),{box:'border-box'});
 const q=s=>document.querySelector(s);const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e};
 let state=defaultState(),loaded=false,selected=tokyoToday(),period=selected,tab='agenda',week=localStorage.getItem('TASKKANRI_MOBILE_WEEK')==='true',sheet=null,undo=null,undoTimer=null,opener=null;
 let calendarKey='',calendarScrollFrame=0;
@@ -37,12 +37,10 @@ function rich(html){const e=el('div');e.className='rich-text';e.innerHTML=saniti
 function render(){q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();if(eventText)event.append(el('span',eventText));event.disabled=!eventText;renderContent();renderCalendar();}
 function renderContent(){if(!loaded)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
  if(tab==='global'){
-  const tools=el('div');tools.className='common-tools';const edit=el('button','編集');edit.type='button';edit.onclick=()=>globalEditor.openEditor(edit);tools.append(edit);area.append(tools);
-  if(!stripHtml(state.globalTaskData).trim())area.append(el('p','共通タスクはありません。'));
-  else{const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource='global';button.setAttribute('aria-label','共通タスクの詳細を開く');button.append(rich(state.globalTaskData));button.onclick=e=>openSheet({source:'global'},e.currentTarget);area.append(button)}
+  {const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource='global';button.setAttribute('aria-label','共通タスクの詳細を開く');button.append(stripHtml(state.globalTaskData).trim()?rich(state.globalTaskData):el('span','共通タスクはありません。タップして編集'));button.onclick=e=>openSheet({source:'global'},e.currentTarget);area.append(button)}
  }else{
   const policy=getDateSchedulePolicy(selected,state);const meta=[stripHtml(getHolidayName(selected,state)||''),policy.isFixedOffActive?'固定休業日':({short:'短縮時程','short-am':'短縮AM',morning:'午前時程',exam:'定期考査','mock-exam':'模擬試験','noclass-hide':'授業なし','noclass-show':'授業なし'})[policy.profile]].filter(Boolean);
-  if(meta.length){const header=el('div',meta.join('\n'));header.className='day-meta';header.style.whiteSpace='pre-line';area.append(header)}
+  if(meta.length){const header=el('div',meta.join('・'));header.className='day-meta';area.append(header)}
   const grid=el('div');grid.className='schedule-grid';area.append(grid);
   for(const {slot,column,row:position} of scheduleCells(selected,state)){const row=el('div');row.className='slot-card';row.style.gridColumn=column;row.style.gridRow=position;const label=el('div');label.className='slot-time';label.append(el('span',slot));const time=el('span',slotTime(selected,slot,state));time.className='slot-clock';label.append(time);const html=getResolvedSlot(selected,slot,state);const button=el('button');button.type='button';button.className='slot-content';button.dataset.taskSource='slot';button.dataset.dateId=selected;button.dataset.slot=slot;button.setAttribute('aria-label',`${slot}の詳細を開く`);if(stripHtml(html).trim())button.append(rich(html));else{const empty=el('span','予定なし');empty.className='placeholder';button.append(empty)}button.onclick=e=>openSheet({source:'slot',dateId:selected,slot},e.currentTarget);row.append(label,button);grid.append(row)}
   if(!grid.childElementCount)area.append(el('p','表示する予定はありません。'));
@@ -66,7 +64,7 @@ function renderCalendar(){
    const grid=el('div');grid.className='calendar-grid';
    for(const id of page.days){
     if(!id){const blank=el('span');blank.setAttribute('aria-hidden','true');grid.append(blank);continue}
-    const b=el('button',String(Number(id.slice(8))));b.type='button';b.className='date-button';b.dataset.date=id;b.disabled=id<bounds.start||id>bounds.end;
+    const b=el('button');b.append(el('span',String(Number(id.slice(8)))));b.type='button';b.className='date-button';b.dataset.date=id;b.disabled=id<bounds.start||id>bounds.end;
     b.onclick=()=>{const changed=selected!==id;selected=id;tab='agenda';if(changed)scroll.agenda=0;render();q('#agenda').scrollTop=scroll.agenda};grid.append(b);
    }
    section.append(grid);container.append(section);
@@ -115,7 +113,9 @@ function updateSheetControls(){
  const notice=q('#sheet-body [data-task-notice]');if(notice){notice.hidden=enabled;notice.textContent=controller.engine?.error||'同期を確認してから状態を変更できます。';}
 }
 function renderSheet(){
+ dialog.classList.toggle('common-detail',sheet.source==='global');
  const body=q('#sheet-body');body.replaceChildren();q('#sheet-title').textContent=sheet.source==='global'?'共通タスク':`${sheet.dateId} ${sheet.slot}`;
+ if(sheet.source==='global'){const edit=el('button','編集');edit.id='edit-common';edit.type='button';edit.onclick=()=>globalEditor.openEditor(edit);const tools=el('div');tools.className='common-detail-tools';tools.append(edit);body.append(tools);}
  const content=rich(sheet.originalHtml);content.dataset.sheetRich='';body.append(content);
  for(const task of taskItems(sheet.originalHtml)){
   const group=el('section');group.className='task-editor';group.dataset.badgeIndex=String(task.badgeIndex);group.append(el('p',task.text));
@@ -146,5 +146,5 @@ q('#undo-task').onclick=async()=>{
  }catch(e){ui.tell(e.message);ui.open()}
 };
 function closeSheet(){if(history.state?.taskkanriSheet)history.back();else if(dialog.open)dialog.close();}
-q('#close-sheet').onclick=closeSheet;dialog.addEventListener('cancel',e=>{e.preventDefault();closeSheet()});window.addEventListener('popstate',()=>{if(dialog.open)dialog.close()});dialog.addEventListener('close',()=>{document.body.append(q('#toast'));sheet=null;opener?.isConnected?opener.focus():q('#agenda').focus();void controller.refresh()});
+q('#close-sheet').onclick=closeSheet;dialog.addEventListener('cancel',e=>{e.preventDefault();closeSheet()});window.addEventListener('popstate',()=>{if(dialog.open&&!history.state?.taskkanriSheet)dialog.close()});dialog.addEventListener('close',()=>{document.body.append(q('#toast'));sheet=null;dialog.classList.remove('common-detail');opener?.isConnected?opener.focus():q('#agenda').focus();void controller.refresh()});
 renderCalendar();controller.start().catch(e=>{setSyncStatus(e.message,controller.engine);ui.tell(e.message)});
