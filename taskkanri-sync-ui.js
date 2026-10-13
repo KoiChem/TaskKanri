@@ -1,3 +1,4 @@
+import {installOutsideDismiss} from './mobile-ui.mjs';
 import {serializePayload,formatStateSummary,summarizeState} from './taskkanri-core.mjs';
 export function exportFilename(identifier='',date=new Date()) {
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Tokyo',year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(date);
@@ -10,7 +11,7 @@ export function installSyncUI(controller,{mobile=false,getInitialState,onLocalRe
  dialog.innerHTML='<div class="sync-heading"><h2>同期設定</h2><button type="button" data-close>閉じる</button></div><p data-message role="status"></p><p data-account></p><form><label>メールアドレス<input name="email" type="email" autocomplete="username" required></label><label>パスワード<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">ログイン</button></form><div data-actions><p data-summary></p><button type="button" data-backup>データを書き出す</button><button type="button" data-initialize>このデータで同期を開始</button><button type="button" data-draft>未送信データを書き出す</button><button type="button" data-reload>最新データを読み込む</button><button type="button" data-refresh>更新</button><button type="button" data-logout>ログアウト</button></div><p><a href="'+(mobile?'index.html':'mobile.html')+'">'+(mobile?'PC版を開く':'モバイル表示')+'</a></p>';
  const quarantineButton=document.createElement('button');quarantineButton.type='button';quarantineButton.textContent='受信データを書き出す';quarantineButton.hidden=true;dialog.querySelector('[data-actions]').append(quarantineButton);
  quarantineButton.onclick=()=>run(quarantineButton,'書き出しています…',()=>downloadJson(controller.engine.quarantined||controller.engine.store.read('quarantine'),exportFilename('received')),'ダウンロードを開始しました。');
- document.body.append(dialog);let opener;
+ document.body.append(dialog);if(mobile)installOutsideDismiss(dialog,()=>dialog.close());let opener;
  const q=s=>dialog.querySelector(s);const tell=message=>q('[data-message]').textContent=message;
  const serialized=state=>{const result=serializePayload(state);if(!result.ok)throw new Error(result.error);return result.value};
  let busy=false;

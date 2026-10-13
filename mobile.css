@@ -30,3 +30,17 @@ body.week-view .calendar-page{flex:0 0 100%;scroll-snap-align:start}
 #event-sheet::backdrop{background:#15233b65}
 #event-sheet p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
 @media(max-height:700px){#calendar-days{height:248px}#toast{bottom:calc(326px + env(safe-area-inset-bottom))}body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}}
+
+/* A solid fixed header keeps its text away from the standalone status-bar edge. */
+:root{--mobile-header-height:96px;--standalone-blur-gap:0px}
+:root.standalone{--standalone-blur-gap:20px}
+#mobile-shell{padding-top:var(--mobile-header-height)}
+.mobile-header{position:fixed;inset:0 0 auto;z-index:10;background:#f6f8fc;display:grid;grid-template-columns:max-content minmax(0,1fr) 76px;grid-template-rows:44px 44px;column-gap:8px;row-gap:0;min-height:0;padding:calc(env(safe-area-inset-top) + var(--standalone-blur-gap) + 4px) 16px 4px}
+.mobile-header h1{grid-column:1;grid-row:1;font-size:20px;font-weight:700;letter-spacing:-.5px;line-height:28px;align-self:center}
+.mobile-header .tabs{grid-column:2;grid-row:1;margin:0;height:44px;min-width:0;align-self:center;padding:0;gap:2px;border-radius:10px}
+.mobile-header .tabs button{padding:0 3px;font-size:13px;white-space:nowrap;min-width:0;min-height:44px}
+#menu{grid-column:3;grid-row:1;justify-self:center;width:44px;font-size:20px;padding:0}
+#selected-event{grid-column:1 / 3;grid-row:2;align-self:stretch;margin:0;padding:0;min-height:44px;font-size:20px;font-weight:700;letter-spacing:-.5px;line-height:28px;color:#26334b;overflow:hidden}
+#selected-event span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-line-clamp:unset}
+#sync-status{grid-column:3;grid-row:2;height:44px;line-height:44px;padding:0;font-size:11px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.calendar-page h3{display:none}
