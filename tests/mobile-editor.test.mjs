@@ -19,3 +19,20 @@ test('draft storage failure never silently succeeds or deletes the current draft
  const s=storage(),a=editor.globalDraftStore(s,'a');a.write({id:'1',originalHtml:'元',html:'下書き'});s.setItem=()=>{throw Error('quota')};
  assert.throws(()=>a.write({id:'2',originalHtml:'元',html:'新版'}),/quota/);assert.equal(a.read().html,'下書き');
 });
+test('slot save preserves rich tasks and other fields, rejects stale or invalid targets',()=>{
+ const state=defaultState(2026);state.dateSchedules['2026-10-15']={'１限':'元','２限':'隣'};state.globalTaskData='共通';
+ const next=editor.prepareSlotSave(state,'2026-10-15','１限','元','<b>教材</b><br><span class="todo-badge state-3" data-state="3">急</span> 配布<script>evil</script>');
+ assert.equal(next.dateSchedules['2026-10-15']['２限'],'隣');assert.equal(next.globalTaskData,'共通');assert.equal(state.dateSchedules['2026-10-15']['１限'],'元');
+ assert.match(next.dateSchedules['2026-10-15']['１限'],/<b>教材<\/b><br>/);assert.match(next.dateSchedules['2026-10-15']['１限'],/data-state="3"/);assert.doesNotMatch(next.dateSchedules['2026-10-15']['１限'],/evil/);
+ assert.throws(()=>editor.prepareSlotSave(state,'2026-10-15','１限','古い本文','下書き'),/更新/);
+ assert.throws(()=>editor.prepareSlotSave(state,'2027-04-01','１限','','下書き'),/年度/);
+ assert.throws(()=>editor.prepareSlotSave(state,'2026-10-15','不正','','下書き'),/枠/);
+ assert.equal(editor.prepareSlotSave(state,'2026-10-16','朝','','追加').dateSchedules['2026-10-16']['朝'],'追加');
+});
+test('slot drafts are isolated by account, date and slot and preserve newer edits',()=>{
+ const s=storage(),a=editor.slotDraftStore(s,'a','2026-10-15','１限'),draft={id:'1',originalHtml:'元',html:'下書き'};
+ a.write(draft);assert.equal(editor.slotDraftStore(s,'a','2026-10-15','１限').read().html,'下書き');
+ assert.equal(editor.slotDraftStore(s,'b','2026-10-15','１限').read(),null);assert.equal(editor.slotDraftStore(s,'a','2026-10-16','１限').read(),null);assert.equal(editor.slotDraftStore(s,'a','2026-10-15','２限').read(),null);
+ a.write({...draft,id:'2',html:'新しい下書き'});a.clearIfUnchanged(draft);assert.equal(a.read().html,'新しい下書き');a.clearIfUnchanged(a.read());assert.equal(a.read(),null);
+ a.write(draft);s.setItem=()=>{throw Error('quota')};assert.throws(()=>a.write({...draft,html:'保存不可'}),/quota/);assert.equal(a.read().html,'下書き');
+});

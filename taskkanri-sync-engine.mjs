@@ -83,7 +83,7 @@ export class SyncEngine {
       if(!this.active||generation!==this.generation)return {status:'stopped'};
       if(committing)error.blocked=true;
       this.emit(error.blocked?'blocked':'offline',error.message);return {status:'error',error};
-    } finally {this.busy=false;}
+    } finally {this.busy=false;this.onChange(this);}
   }
   async refresh() {
     if(!this.active||this.busy||this.pending)return;

@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="taskkanri-build-version" content="20261014-date-editor-v13"><meta name="theme-color" content="#f6f8fc"><title>TaskKanri モバイル</title><link rel="stylesheet" href="mobile.css?v=20261014-date-editor-v13"><link rel="stylesheet" href="sync-ui.css?v=20261014-date-editor-v13"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="taskkanri-build-version" content="20261015-mobile-inline-v14"><meta name="theme-color" content="#f6f8fc"><title>TaskKanri モバイル</title><link rel="stylesheet" href="mobile.css?v=20261015-mobile-inline-v14"><link rel="stylesheet" href="sync-ui.css?v=20261015-mobile-inline-v14"></head>
 <body>
  <main id="mobile-shell">
   <header class="mobile-header">
    <h1><button id="selected-date" type="button" aria-label="縦カレンダーを開く" disabled>TaskKanri</button></h1>
-   <nav class="tabs" aria-label="表示内容"><button id="agenda-tab" type="button" aria-pressed="true">予定</button><button id="global-tab" type="button" aria-pressed="false">共通タスク</button></nav>
+   <nav class="tabs" aria-label="表示内容"><button id="agenda-tab" type="button" aria-pressed="true">予定</button><button id="global-tab" type="button" aria-pressed="false">共通</button><button id="incomplete-tab" type="button" aria-haspopup="dialog" disabled>未完</button></nav>
    <button id="menu" type="button" aria-label="同期設定を開く"><span id="sync-status" role="status" aria-live="polite">読込中</span></button>
    <button id="selected-event" type="button" aria-label="縦カレンダーを開く"></button>
   </header>
@@ -16,5 +16,5 @@
  <dialog id="task-sheet" aria-labelledby="sheet-title"><div class="sheet-heading"><h2 id="sheet-title"></h2><button id="close-sheet" type="button">閉じる</button></div><div id="sheet-body"></div></dialog>
  <div id="toast" role="status" hidden><span>変更しました</span><button id="undo-task" type="button">元に戻す</button></div>
  <p class="orientation-note">縦向きでご利用ください</p>
- <script type="module" src="mobile-app.js?v=20261014-date-editor-v13"></script>
+ <script type="module" src="mobile-app.js?v=20261015-mobile-inline-v14"></script>
 </body></html>

@@ -1,5 +1,5 @@
-import {APP_CONFIG,isSlotVisibleForDate,getDateSchedulePolicy,academicYearBounds,stripHtml,getResolvedSlot,getHolidayName} from './taskkanri-core.mjs';
-import {addDays} from './taskkanri-sync-model.mjs';
+import {APP_CONFIG,isSlotVisibleForDate,getDateSchedulePolicy,academicYearBounds,stripHtml,sanitizeHtml,getResolvedSlot,getHolidayName} from './taskkanri-core.mjs';
+import {addDays,taskItems} from './taskkanri-sync-model.mjs';
 
 export function scheduleCells(date,state){
  const profile=getDateSchedulePolicy(date,state).profile;
@@ -53,4 +53,16 @@ export function mobileDateRows(state,today){
   background:mobileDayBackground(id,state),today:id===today
  });
  return rows;
+}
+
+export function incompleteTasks(state){
+ const bounds=academicYearBounds(state.currentYear),tasks=[];
+ for(const dateId of Object.keys(state.dateSchedules).sort()){
+  if(dateId<bounds.start||dateId>bounds.end)continue;
+  for(const slot of APP_CONFIG.slotsAll){
+   const originalHtml=getResolvedSlot(dateId,slot,state);
+   for(const task of taskItems(originalHtml))if(task.state!==2)tasks.push({...task,source:'slot',dateId,slot,originalHtml:sanitizeHtml(originalHtml)});
+  }
+ }
+ return tasks;
 }

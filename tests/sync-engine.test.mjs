@@ -15,6 +15,12 @@ test('edits made while a save is in flight survive its response',async()=>{
  const a=new SyncEngine({transport:f.transport,store:memory()});await a.load();const s=defaultState();s.globalTaskData='first';a.queue(s);const saving=a.flush();await Promise.resolve();s.globalTaskData='second';a.queue(s);release();await saving;
  assert.equal(a.pending.request.payload.state.globalTaskData,'second');assert.equal(a.pending.request.expectedRevision,2);
 });
+test('save completion notifies editors after clearing the busy flag',async()=>{
+ const f=fixture();let observed;
+ const engine=new SyncEngine({transport:f.transport,store:memory(),onChange:e=>{observed={status:e.status,busy:e.busy,pending:!!e.pending}}});
+ await engine.load();const next=defaultState();next.globalTaskData='変更';engine.queue(next);await engine.flush();
+ assert.deepEqual(observed,{status:'synced',busy:false,pending:false});
+});
 test('response loss retries the original mutation even after reload',async()=>{
  const f=fixture();const store=memory();f.transport.save=async()=>{throw new Error('offline')};const a=new SyncEngine({transport:f.transport,store});await a.load();a.queue(defaultState());const id=a.pending.request.mutationId;await a.flush();
  const b=new SyncEngine({transport:f.transport,store});await b.load();assert.equal(b.pending.request.mutationId,id);assert.equal(b.pending.request.expectedRevision,1);

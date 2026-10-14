@@ -1,4 +1,6 @@
 import {installGlobalEditor} from './mobile-editor.js';
+import {installSlotEditor} from './mobile-slot-editor.js';
+import {installIncompleteList} from './mobile-incomplete.js';
 import {installOutsideDismiss,mobileSyncLabel,centerCalendarPeriod,installAgendaSwipe,calendarRevealOffset,dateListOpeningOffset} from './mobile-ui.mjs';
 import {scheduleCells,calendarPages,hasMobileAgenda,mobileDayBackground,mobileWeekStart,mobileDateRows} from './mobile-model.mjs';
 import {APP_CONFIG,defaultState,sanitizeHtml,stripHtml,getResolvedSlot,getDateSchedulePolicy,academicYearBounds,getHolidayName} from './taskkanri-core.mjs';
@@ -10,23 +12,33 @@ const headerObserver=new ResizeObserver(entries=>document.documentElement.style.
 const q=s=>document.querySelector(s);const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e};
 let state=defaultState(),loaded=false,selected=tokyoToday(),period=selected,tab='agenda',week=localStorage.getItem('TASKKANRI_MOBILE_WEEK')==='true',sheet=null,undo=null,undoTimer=null,opener=null;
 let calendarKey='',calendarScrollFrame=0;
-let globalEditor=null,dateListOpener=null,dateListPicked=false;
+let globalEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
 const scroll={agenda:0,global:0};const dialog=q('#task-sheet');
-const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!globalEditor?.open&&!q('#event-sheet').open,
- onAccount:user=>{globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login)}},
+const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!globalEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
+ onAccount:user=>{slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login)}},
  onData:(next,doc)=>{
   const first=!loaded;const same=loaded&&samePayload(toPayload(next),toPayload(state));
   state=next;loaded=true;
   const bounds=academicYearBounds(state.currentYear);if(selected<bounds.start||selected>bounds.end)selected=tokyoToday()>=bounds.start&&tokyoToday()<=bounds.end?tokyoToday():bounds.start;
   if(first)period=selected;
   if(sheet){sheet.revision=doc.revision;sheet.originalHtml=sanitizeHtml(sheet.source==='global'?state.globalTaskData:getResolvedSlot(sheet.dateId,sheet.slot,state));}
-  if(same){if(undo)undo.revision=doc.revision;updateSheetControls();return;}
-  undo=null;q('#toast').hidden=true;render();if(dialog.open&&sheet)renderSheet();
+  if(same){if(undo)undo.revision=doc.revision;updateSheetControls();incomplete?.update();return;}
+  undo=null;q('#toast').hidden=true;render();if(dialog.open&&sheet)renderSheet();incomplete?.update();
  },
- onStatus:(text,engine)=>{setSyncStatus(text,engine);globalEditor?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
+ onStatus:(text,engine)=>{setSyncStatus(text,engine);globalEditor?.update();slotEditor?.update();incomplete?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
 
 });
 globalEditor=installGlobalEditor({controller,getState:()=>state,onSaved:()=>renderContent()});
+slotEditor=installSlotEditor({controller,getState:()=>state,onClosed:()=>{renderContent();renderCalendar()},onError:error=>{ui.tell(error.message);ui.open()}});
+incomplete=installIncompleteList({controller,getState:()=>state,change:changeTaskRef,onJump:ref=>{
+ selected=ref.dateId;revealedSlot=ref;tab='agenda';scroll.agenda=0;render();revealSelectedDate();
+ const target=[...q('#agenda').querySelectorAll('.slot-content')].find(e=>e.dataset.slot===ref.slot);
+ if(target){target.scrollIntoView({block:'nearest'});target.focus({preventScroll:true});target.classList.add('jump-highlight');setTimeout(()=>target.classList.remove('jump-highlight'),2000)}
+}});
+q('#incomplete-tab').onclick=event=>incomplete.openList(event.currentTarget);
+document.addEventListener('click',event=>{
+ if(slotEditor.open&&event.target.closest('.mobile-header button,#calendar button')&&!slotEditor.suspend()){event.preventDefault();event.stopImmediatePropagation()}
+},true);
 let ui=installSyncUI(controller,{mobile:true});q('#menu').onclick=e=>ui.open(e);q('#start-login').onclick=e=>ui.open(e);
 function positionDateList(){
  const list=q('#date-list'),today=list.querySelector('[data-today="true"]'),target=today||list.querySelector(`[data-date-list="${selected}"]`);
@@ -54,14 +66,24 @@ installOutsideDismiss(dialog,closeSheet);
 function setSyncStatus(text,engine){const status=q('#sync-status');status.textContent=mobileSyncLabel(text,engine);status.title=text;status.setAttribute('aria-label',text);q('#menu').setAttribute('aria-label',`同期設定を開く：${text}`);}
 function rich(html){const e=el('div');e.className='rich-text';e.innerHTML=sanitizeHtml(html);return e}
 function render(){q('#selected-date').disabled=!loaded;q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();if(eventText)event.append(el('span',eventText));event.disabled=!eventText;renderContent();renderCalendar();}
-function renderContent(){if(!loaded)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
+function renderContent(){if(revealedSlot&&revealedSlot.dateId!==selected)revealedSlot=null;q('#incomplete-tab').disabled=!loaded;if(!loaded||slotEditor?.open)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
  if(tab==='global'){
   {const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource='global';button.setAttribute('aria-label','共通タスクの詳細を開く');button.append(stripHtml(state.globalTaskData).trim()?rich(state.globalTaskData):el('span','共通タスクはありません。タップして編集'));button.onclick=e=>openSheet({source:'global'},e.currentTarget);area.append(button)}
  }else{
   const policy=getDateSchedulePolicy(selected,state);const meta=[stripHtml(getHolidayName(selected,state)||''),policy.isFixedOffActive?'固定休業日':({short:'短縮時程','short-am':'短縮AM',morning:'午前時程',exam:'定期考査','mock-exam':'模擬試験','noclass-hide':'授業なし','noclass-show':'授業なし'})[policy.profile]].filter(Boolean);
   if(meta.length){const header=el('div',meta.join('・'));header.className='day-meta';area.append(header)}
   const grid=el('div');grid.className='schedule-grid';area.append(grid);
-  for(const {slot,column,row:position} of scheduleCells(selected,state)){const row=el('div');row.className='slot-card';row.style.gridColumn=column;row.style.gridRow=position;const label=el('div');label.className='slot-time';label.append(el('span',slot));const time=el('span',slotTime(selected,slot,state));time.className='slot-clock';label.append(time);const html=getResolvedSlot(selected,slot,state);const button=el('button');button.type='button';button.className='slot-content';button.dataset.taskSource='slot';button.dataset.dateId=selected;button.dataset.slot=slot;button.setAttribute('aria-label',`${slot}の詳細を開く`);if(stripHtml(html).trim())button.append(rich(html));else{const empty=el('span','予定なし');empty.className='placeholder';button.append(empty)}button.onclick=e=>openSheet({source:'slot',dateId:selected,slot},e.currentTarget);row.append(label,button);grid.append(row)}
+  const cells=scheduleCells(selected,state);
+  if(revealedSlot?.dateId===selected&&!cells.some(cell=>cell.slot===revealedSlot.slot)){const index=APP_CONFIG.slotsAll.indexOf(revealedSlot.slot);if(index>=0)cells.push({slot:revealedSlot.slot,column:index<5?1:2,row:index%5+1})}
+  for(const {slot,column,row:position} of cells){
+   const row=el('div');row.className='slot-card';row.style.gridColumn=column;row.style.gridRow=position;
+   const label=el('div');label.className='slot-time';label.append(el('span',slot));const time=el('span',slotTime(selected,slot,state));time.className='slot-clock';label.append(time);
+   const html=getResolvedSlot(selected,slot,state),content=el('div');content.className='slot-content';content.dataset.taskSource='slot';content.dataset.dateId=selected;content.dataset.slot=slot;content.tabIndex=0;content.setAttribute('role','button');content.setAttribute('aria-label',`${slot}の予定を編集`);
+   if(stripHtml(html).trim())content.append(rich(html));else{const empty=el('span','予定なし');empty.className='placeholder';content.append(empty)}
+   content.onclick=event=>slotEditor.openEditor({dateId:selected,slot},content,!event.target.closest('.todo-badge'));
+   content.onkeydown=event=>{if(event.target===content&&['Enter',' '].includes(event.key)){event.preventDefault();slotEditor.openEditor({dateId:selected,slot},content)}};
+   row.append(label,content);grid.append(row);
+  }
   if(!grid.childElementCount)area.append(el('p','表示する予定はありません。'));
  }area.scrollTop=previous;}
 function calendarTitle(id){
@@ -112,7 +134,7 @@ function revealSelectedDate(){
  const top=calendarRevealOffset(container.scrollTop,container.clientHeight,start,start+box.height);
  if(top!==container.scrollTop)container.scrollTo({top,behavior});
 }
-installAgendaSwipe(q('#agenda'),()=>loaded&&tab==='agenda'&&!document.querySelector('dialog[open]'),step=>{
+installAgendaSwipe(q('#agenda'),()=>loaded&&tab==='agenda'&&!slotEditor.open&&!document.querySelector('dialog[open]'),step=>{
  const next=addDays(selected,step),bounds=academicYearBounds(state.currentYear);if(next<bounds.start||next>bounds.end)return;
  selected=next;scroll.agenda=0;render();q('#agenda').scrollTop=0;revealSelectedDate();
 });
@@ -154,10 +176,6 @@ function renderSheet(){
  const content=rich(sheet.originalHtml);content.dataset.sheetRich='';body.append(content);
  sheet.invalidBadgeFormat=sheet.source==='global'&&content.querySelectorAll('.todo-badge[data-state]').length!==taskItems(sheet.originalHtml).length;
  if(sheet.source==='global'&&!sheet.invalidBadgeFormat)content.querySelectorAll('.todo-badge[data-state]').forEach((badge,index)=>{const button=el('button');button.type='button';button.className='task-cycle';button.dataset.taskCycle=String(index);badge.before(button);button.append(badge);button.onclick=()=>{const task=taskItems(sheet.originalHtml)[index];if(task)void setTask(index,(task.state+1)%4)};});
- if(sheet.source!=='global')for(const task of taskItems(sheet.originalHtml)){
-  const group=el('section');group.className='task-editor';group.dataset.badgeIndex=String(task.badgeIndex);group.append(el('p',task.text));
-  const choices=el('div');choices.className='status-options';for(let i=0;i<4;i++){const button=el('button',TASK_LABELS[i]);button.type='button';button.onclick=()=>void setTask(task.badgeIndex,i);choices.append(button)}group.append(choices);body.append(group);
- }
  const notice=el('p');notice.dataset.taskNotice='';notice.setAttribute('role','status');body.append(notice);updateSheetControls();
 }
 function patchTaskViews(ref){
@@ -166,14 +184,17 @@ function patchTaskViews(ref){
  const patch=root=>{if(!root)return;root.querySelectorAll('.todo-badge[data-state]').forEach((badge,i)=>{const task=tasks[i];if(!task)return;badge.dataset.state=String(task.state);badge.className=`todo-badge state-${task.state}`;badge.textContent=['未','途','済','急'][task.state];});};
  if(sheet&&sheet.source===ref.source&&(ref.source==='global'||sheet.dateId===ref.dateId&&sheet.slot===ref.slot)){sheet.originalHtml=html;sheet.revision=controller.engine.revision;patch(q('[data-sheet-rich]'));updateSheetControls();}
  q('#agenda').querySelectorAll('[data-task-source]').forEach(button=>{if(button.dataset.taskSource===ref.source&&(ref.source==='global'||button.dataset.dateId===ref.dateId&&button.dataset.slot===ref.slot))patch(button);});
-
+ incomplete?.update();
+}
+async function changeTaskRef(ref,target){
+ const result=changeTask(state,{...ref,revision:controller.engine.revision},target,controller.engine.revision);
+ await controller.save(result.state,{defer:true});state=result.state;patchTaskViews(ref);
+ undo={change:result.undo,revision:controller.engine.revision};q('#toast').hidden=false;clearTimeout(undoTimer);undoTimer=setTimeout(()=>{undo=null;q('#toast').hidden=true},8000);
 }
 async function setTask(index,target){
  try{
   if(taskItems(sheet.originalHtml)[index]?.state===target)return;
-  const ref={...sheet,badgeIndex:index};const result=changeTask(state,ref,target,controller.engine.revision);
-  await controller.save(result.state,{defer:true});state=result.state;patchTaskViews(ref);
-  undo={change:result.undo,revision:controller.engine.revision};q('#toast').hidden=false;clearTimeout(undoTimer);undoTimer=setTimeout(()=>{undo=null;q('#toast').hidden=true},8000);
+  await changeTaskRef({...sheet,badgeIndex:index},target);
  }catch(e){ui.tell(e.message);closeSheet();ui.open()}
 }
 q('#undo-task').onclick=async()=>{
