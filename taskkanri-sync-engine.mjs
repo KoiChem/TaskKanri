@@ -5,8 +5,9 @@ export class SyncEngine {
   constructor({transport,store,onChange=()=>{},onData=()=>{},canApply=()=>true}) {
     Object.assign(this,{transport,store,onChange,onData,canApply});
     this.revision=0;this.payload=null;this.pending=store.read('pending');this.busy=false;this.active=true;this.generation=0;this.status='loading';this.deferred=null;
+    if(this.pending&&(this.pending.request?.payload?.contractVersion===1||this.pending.nextPayload?.contractVersion===1))store.write('legacy-pending-backup:'+this.pending.request.mutationId,this.pending);
   }
-  emit(status,error='') {this.status=status;this.error=error;this.onChange(this);}
+  emit(status,error='') {if(status==='synced')this.lastSuccessfulSyncAt=new Date().toISOString();this.status=status;this.error=error;this.onChange(this);}
   request(payload,revision=this.revision) {return {payload,expectedRevision:revision,mutationId:globalThis.crypto.randomUUID(),attempted:false};}
   persist(pending) {this.store.write('pending',pending);this.pending=pending;}
   validate(document) {
@@ -33,9 +34,9 @@ export class SyncEngine {
   }
   accept(document) {
     this.validate(document);
-    try {this.onData(document);this.store.write('cache',document);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
+    try {if(document.payload.contractVersion===1 && !this.store.read('legacy-backup'))this.store.write('legacy-backup',document);this.onData(document);this.store.write('cache',document);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=document.payload;this.revision=document.revision;this.updatedAt=document.updated_at;
-    this.emit('synced');
+    if(document.payload.contractVersion===1)this.queue(mergePayload(document.payload));else this.emit('synced');
   }
   queue(state,{initial=false}={}) {
     if(!this.active||this.status==='conflict'||this.status==='blocked')throw new Error('同期を確認してから操作してください。');
@@ -66,14 +67,16 @@ export class SyncEngine {
       }
       const nextPayload=this.pending?.nextPayload;
       this.validate(doc);committing=true;
+      if(doc.payload.contractVersion===1&&!this.store.read('legacy-backup'))this.store.write('legacy-backup',doc);
       if(nextPayload) {
         // Rebase only across our own accepted save, never across remote edits.
         if(doc.revision!==result.appliedRevision){this.emit('conflict');return {status:'conflict'};}
-        this.store.write('cache',doc);this.persist({request:this.request(nextPayload,doc.revision)});
+        this.store.write('cache',doc);this.persist({request:this.request(toPayload(mergePayload(nextPayload)),doc.revision)});
         this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;this.emit('pending');
       } else {
         this.onData(doc);this.store.write('cache',doc);this.store.remove('pending');this.pending=null;
-        this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;this.emit('synced');
+        this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;
+        if(doc.payload.contractVersion===1){this.queue(mergePayload(doc.payload));}else this.emit('synced');
       }
       return result;
     } catch(error) {

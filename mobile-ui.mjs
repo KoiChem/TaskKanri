@@ -1,10 +1,10 @@
 export function mobileSyncLabel(text,engine){
  if(!engine)return text==='未接続'?'未接続':text==='読み込み中'?'読込中':'同期停止';
  if(engine.status==='synced'){
-  const date=new Date(engine.updatedAt);
+  const date=new Date(engine.lastSuccessfulSyncAt || NaN);
   return Number.isFinite(date.getTime())?`${date.toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}同期`:'同期済み';
  }
- return ({loading:'読込中',empty:'未登録',pending:'未送信',saving:'保存中',offline:'オフライン',conflict:'競合',deferred:'更新待ち',blocked:'同期停止'})[engine.status]||'未接続';
+ return ({loading:'読込中',empty:'未登録',pending:'未送信',saving:'同期中',offline:'オフライン',conflict:'要確認',deferred:'要確認',blocked:'要確認'})[engine.status]||'未接続';
 }
 export function centerCalendarPeriod(pages,position,size){
  const center=position+size/2;

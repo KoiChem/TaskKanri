@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import * as ui from '../mobile-ui.mjs';
 
 test('compact sync reports timestamp only when synced and keeps problems visible',()=>{
- assert.equal(ui.mobileSyncLabel('同期済み 16:20',{status:'synced',updatedAt:'2026-10-13T07:20:00Z'}),'16:20同期');
- for(const [status,label] of [['saving','保存中'],['pending','未送信'],['offline','オフライン'],['conflict','競合'],['blocked','同期停止']])assert.equal(ui.mobileSyncLabel('詳しい情報',{status}),label);
+ assert.equal(ui.mobileSyncLabel('同期済み 16:20',{status:'synced',lastSuccessfulSyncAt:'2026-10-13T07:20:00Z',updatedAt:'2026-10-12T01:00:00Z'}),'16:20同期');
+ for(const [status,label] of [['saving','同期中'],['pending','未送信'],['offline','オフライン'],['conflict','要確認'],['blocked','要確認']])assert.equal(ui.mobileSyncLabel('詳しい情報',{status}),label);
  assert.equal(ui.mobileSyncLabel('未接続',null),'未接続');
 });
 test('month title follows the center, including the last partial month viewport',()=>{
@@ -55,4 +55,10 @@ test('date list opens with today one third down, with safe clamping at the start
  assert.equal(ui.dateListOpeningOffset(1200,900),900);
  assert.equal(ui.dateListOpeningOffset(1200,900,68),968);
  assert.equal(ui.dateListOpeningOffset(44,900),0);
+});
+
+test('successful sync clock uses Japan time across midnight and rejects missing or invalid timestamps',()=>{
+ assert.equal(ui.mobileSyncLabel('',{status:'synced',lastSuccessfulSyncAt:'2026-10-13T15:05:00Z'}),'00:05同期');
+ for(const lastSuccessfulSyncAt of [undefined,null,'','bad']) assert.equal(ui.mobileSyncLabel('',{status:'synced',lastSuccessfulSyncAt,updatedAt:'2026-10-13T07:20:00Z'}),'同期済み');
+ assert.equal(ui.mobileSyncLabel('',{status:'offline',lastSuccessfulSyncAt:'2026-10-13T15:05:00Z'}),'オフライン');
 });

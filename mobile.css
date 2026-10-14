@@ -177,3 +177,12 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .date-list-label::before{content:'';position:absolute;inset:2px;background:var(--day-fill);z-index:-1}
 .date-list-event{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .date-list-row[data-today=true]{font-weight:700;color:#000}
+
+/* Share the entire event row and keep every header control a 44px target. */
+.mobile-header{grid-template-columns:max-content minmax(0,1fr) 84px;grid-template-rows:44px 44px;padding-left:max(8px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right))}
+.mobile-header h1{margin-left:8px}
+.mobile-header #menu{margin-right:8px}
+#selected-event{grid-column:1 / -1;min-height:44px;align-self:center}
+.date-button.has-agenda,.date-button.has-agenda[aria-pressed=true]{color:#6B6B6B}
+.date-button.today,.date-button.today.has-agenda,.date-button.today.has-agenda[aria-pressed=true]{color:#000}
+.date-list-row{padding-right:max(8px,env(safe-area-inset-right))}

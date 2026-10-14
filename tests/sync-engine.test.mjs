@@ -41,3 +41,27 @@ test('unknown incoming contract is quarantined and blocks editing',async()=>{
  const f=fixture(),store=memory();const a=new SyncEngine({transport:f.transport,store});await a.load();f.document={...f.document,revision:2,payload:{contractVersion:999}};
  await assert.rejects(a.refresh());assert.equal(a.status,'blocked');assert.equal(a.revision,1);assert.deepEqual(store.read('quarantine').document.payload,{contractVersion:999});assert.throws(()=>a.queue(defaultState()));
 });
+
+test('sync success time is actual completion time, never cloud modification time or cache display',async()=>{
+ const f=fixture(),store=memory();f.document={...f.document,updated_at:'2000-01-01T00:00:00Z'};
+ store.write('cache',f.document);const e=new SyncEngine({transport:f.transport,store});e.loadCached();assert.equal(e.lastSuccessfulSyncAt,undefined);
+ const before=Date.now();await e.load();assert.ok(Date.parse(e.lastSuccessfulSyncAt)>=before);assert.equal(e.updatedAt,'2000-01-01T00:00:00Z');
+ const completed=e.lastSuccessfulSyncAt;f.transport.get=async()=>{throw new Error('offline')};await assert.rejects(e.refresh());assert.equal(e.lastSuccessfulSyncAt,completed);
+});
+
+test('old cloud data is backed up before CAS migration and an old pending mutation keeps its identity',async()=>{
+ const f=fixture(),store=memory();const state=defaultState();delete state.dateSchedules;state.weeklyTemplate={};state.weeklyRules={};state.dateOverrides={'2026-10-14':{slots:{'１限':{action:'replace',source:'user',content:'旧本文'}}}};
+ const oldKeys=['currentYear','weeklyTemplate','weeklyRules','dateOverrides','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig'];
+ const old={contractVersion:1,appSchemaVersion:7,state:Object.fromEntries(oldKeys.map(k=>[k,state[k]]))};f.document={...f.document,payload:old};
+ const e=new SyncEngine({transport:f.transport,store});await e.load();assert.equal(e.pending.request.payload.contractVersion,2);assert.equal(e.pending.request.expectedRevision,1);assert.deepEqual(store.read('legacy-backup').payload,old);await e.flush();assert.equal(f.document.payload.state.dateSchedules['2026-10-14']['１限'],'旧本文');
+ const pending={request:{payload:old,expectedRevision:2,mutationId:'keep-this-id',attempted:true}};store.write('pending',pending);const reloaded=new SyncEngine({transport:f.transport,store});assert.equal(reloaded.pending.request.mutationId,'keep-this-id');
+});
+
+test('a legacy in-flight next draft including unapplied master is archived before its conversion',async()=>{
+ const f=fixture(),store=memory();const state=defaultState();delete state.dateSchedules;Object.assign(state,{weeklyTemplate:{},weeklyRules:{},dateOverrides:{}});
+ const keys=['currentYear','weeklyTemplate','weeklyRules','dateOverrides','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig'];const old={contractVersion:1,appSchemaVersion:7,state:Object.fromEntries(keys.map(k=>[k,state[k]]))};
+ const later=structuredClone(old);later.state.weeklyTemplate={1:{'１限':'未適用の新しい下書き'}};later.state.globalTaskData='最新メモ';const pending={request:{payload:old,expectedRevision:1,mutationId:'original-flight',attempted:true},nextPayload:later};
+ f.document={...f.document,payload:old};store.write('cache',f.document);store.write('pending',pending);const e=new SyncEngine({transport:f.transport,store});await e.load();await e.flush();await e.flush();
+ assert.deepEqual(store.read('legacy-pending-backup:original-flight'),pending);assert.equal(f.document.payload.state.globalTaskData,'最新メモ');
+ const failing={...memory(),read:k=>k==='pending'?structuredClone(pending):null,write:()=>{throw new Error('quota')}};assert.throws(()=>new SyncEngine({transport:f.transport,store:failing}),/quota/);assert.deepEqual(failing.read('pending'),pending);
+});

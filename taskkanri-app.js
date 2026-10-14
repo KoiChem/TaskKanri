@@ -8,8 +8,6 @@ import {
   escapeHtmlText,
   extractTodoItems,
   getResolvedSlot,
-  getSlotOrigin,
-  getWeeklyRuleSlot,
   HistoryManager,
   formatStateSummary,
   getDateSchedulePolicy,
@@ -18,20 +16,20 @@ import {
   isSlotVisibleForDate,
   isValidIsoDate,
   normalizeImportedPayload,
-  applyAcademicYearRollover,
   planAcademicYearChange,
-  planAcademicYearRollover,
-  replaceWeeklyRuleRange,
   sanitizeHtml,
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20261013-task-interaction-v2';
+} from './taskkanri-core.mjs?v=20261014-daily-schedules-v11';
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
 import {scopedStorage} from './taskkanri-device-storage.mjs';
 import {toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
+import {planTimetableInput} from './taskkanri-timetable.mjs';
+import {parseBulkDateRows,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
+import {mobileSyncLabel} from './mobile-ui.mjs';
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
 let appState = defaultState();
@@ -63,7 +61,6 @@ let initialized = false;
 const historyManager = new HistoryManager();
 const settingsDirtySections = new Set();
 let isHydratingSettings = false;
-let academicYearRolloverInvoker = null;
 
 function q(selector, root = document) { return root.querySelector(selector); }
 function qa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); }
@@ -266,6 +263,7 @@ function refreshAfterHistoryRestore(countSelections = null) {
 }
 function hasOpenUnsavedForm() {
   return document.getElementById('settings-view')?.style.display === 'block'
+    || document.getElementById('timetable-view')?.style.display === 'block'
     || isDateListContextMenuOpen();
 }
 function isTextEditingTarget(target) {
@@ -646,23 +644,7 @@ function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = f
   appendSafeRich(input, resolved);
   input.addEventListener('blur', () => updateSlot(dateId, slot, editorHtml(input)));
   input.addEventListener('paste', handlePaste);
-  const origin = getSlotOrigin(dateId, slot, appState);
-  const hasOverride = Boolean(appState.dateOverrides?.[dateId]?.slots?.[slot]);
-  if (hasOverride) {
-    if (origin === 'override') { const mark = el('span', '変'); mark.className = 'slot-change-mark'; mark.title = 'この日だけの変更'; mark.setAttribute('aria-label', 'この日だけの変更'); label.appendChild(mark); }
-    else { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
-    row.append(label, input);
-    if (showRuleActions) {
-      const restore = el('button', '戻す'); restore.type = 'button'; restore.className = 'btn-s'; restore.title = `${dateId} ${slot}を基本時間割に戻す`;
-      restore.addEventListener('click', () => restoreBaseSlot(dateId, slot));
-      const following = el('button', '以降'); following.type = 'button'; following.className = 'btn-s'; following.title = `${dateId}以降の毎週${APP_CONFIG.daysStr[weekdayForDateId(dateId)]}曜日を変更`;
-      following.addEventListener('click', () => changeFollowingWeekly(dateId, slot, input.innerHTML)); row.append(restore, following);
-    }
-  } else {
-    if (origin === 'rule') { label.title = '基本時間割から表示'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 基本時間割から表示`); }
-    if (origin === 'legacy') { label.title = '旧データから引継ぎ'; label.setAttribute('aria-label', `${getDisplaySlot(slot)}: 旧データから引継ぎ`); }
-    row.append(label, input);
-  }
+  row.append(label, input);
   return row;
 }
 function renderEditor(dateId, position) {
@@ -751,41 +733,15 @@ function updateAnnualEvent(dateId, value) {
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
-function setUserOverride(state, dateId, slot, htmlValue) {
-  const clean = sanitizeHtml(htmlValue);
-  const text = stripHtml(clean).trim();
-  const base = getWeeklyRuleSlot(dateId, slot, state);
-  const existing = state.dateOverrides?.[dateId]?.slots?.[slot];
-  if (existing && clean === getResolvedSlot(dateId, slot, state)) return;
-  if (!state.dateOverrides[dateId]) state.dateOverrides[dateId] = { slots: {} };
-  if (!text) {
-    if (base) state.dateOverrides[dateId].slots[slot] = { action: 'cancel', source: 'user' };
-    else delete state.dateOverrides[dateId].slots[slot];
-  } else if (!existing && clean === base) delete state.dateOverrides[dateId].slots[slot];
-  else state.dateOverrides[dateId].slots[slot] = { action: 'replace', content: clean, source: 'user' };
-  if (!Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId];
+function setUserOverride(state,dateId,slot,htmlValue){
+ const clean=sanitizeHtml(htmlValue);
+ if(stripHtml(clean).trim()){state.dateSchedules[dateId]??={};state.dateSchedules[dateId][slot]=clean;}
+ else {delete state.dateSchedules[dateId]?.[slot];if(state.dateSchedules[dateId]&&!Object.keys(state.dateSchedules[dateId]).length)delete state.dateSchedules[dateId];}
 }
 function updateSlot(dateId, slot, htmlValue) {
   const ok = commitState(state => { setUserOverride(state, dateId, slot, htmlValue); }, { historyLabel: '日別予定の変更', historyScope: 'schedule' });
   if (ok) updatePreviewUI(dateId);
   return ok;
-}
-function restoreBaseSlot(dateId, slot) {
-  if (!showConfirm(`${dateId} の${getDisplaySlot(slot)}を基本時間割に戻しますか？`)) return;
-  if (commitState(state => { delete state.dateOverrides?.[dateId]?.slots?.[slot]; if (state.dateOverrides?.[dateId] && !Object.keys(state.dateOverrides[dateId].slots).length) delete state.dateOverrides[dateId]; }, { refresh: true, historyLabel: '基本時間割に戻す', historyScope: 'schedule' })) updatePreviewUI(dateId);
-}
-function changeFollowingWeekly(dateId, slot, htmlValue) {
-  const content = sanitizeHtml(htmlValue);
-  if (!stripHtml(content).trim()) { showAlert('「この日以降」の基本時間割には空でない内容が必要です。'); return; }
-  const weekday = weekdayForDateId(dateId); const end = academicYearBounds(appState.currentYear).end;
-  const affected = (appState.weeklyRules[weekday]?.[slot] || []).filter(segment => segment.to >= dateId && segment.from <= end).length;
-  const overrides = Object.entries(appState.dateOverrides).filter(([id]) => id >= dateId && id <= end).reduce((total, [, day]) => total + (day.slots[slot] ? 1 : 0), 0);
-  if (!showConfirm(`${dateId} ～ ${end} の毎週${APP_CONFIG.daysStr[weekday]}曜日・${getDisplaySlot(slot)}を変更します。\n既存規則 ${affected}件を安全に分割・置換します。\n日別変更 ${overrides}件は変更せず優先されます。\n続行しますか？`)) return;
-  const snapshot = storageService.createRecoverySnapshot();
-  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
-  const result = replaceWeeklyRuleRange(appState, String(weekday), slot, dateId, end, content);
-  if (!result.ok) { showAlert(result.error); return; }
-  if (commitState(state => Object.assign(state, result.value), { refresh: true, historyLabel: 'この日以降の基本時間割変更', historyScope: 'weekly-rule' })) showAlert(`この日以降の毎週${APP_CONFIG.daysStr[weekday]}曜日を基本時間割として変更しました。`);
 }
 function updateGlobalTask(htmlValue) {
   return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); }, { historyLabel: '共通タスクの変更', historyScope: 'task' });
@@ -1251,9 +1207,8 @@ function renderCountTags() {
   const container = document.getElementById('count-tags-container'); if (!container) return;
   container.replaceChildren();
   const tags = new Set();
-  Object.values(appState.weeklyTemplate).forEach(slots => Object.values(slots).forEach(value => { const word = getFirstWord(value); if (word) tags.add(word); }));
-  Object.values(appState.weeklyRules).forEach(slots => Object.values(slots).forEach(segments => segments.forEach(segment => { const word = getFirstWord(segment.content); if (word) tags.add(word); })));
-  if (!tags.size) { container.appendChild(el('span', '※設定画面の「基本時間割」に入力すると、ここに自動抽出されます')); return; }
+  Object.values(appState.dateSchedules).forEach(slots=>Object.values(slots).forEach(value=>{const word=getFirstWord(value);if(word)tags.add(word);}));
+  if(!tags.size){container.appendChild(el('span','予定から授業名を抽出します'));return;}
   Array.from(tags).sort().forEach(tag => {
     const button = el('button', `${appState.countSettings.some(condition => condition.word.trim() === tag) ? '✓ ' : '＋ '}${tag}`);
     button.type = 'button'; button.className = 'btn-s'; button.disabled = appState.countSettings.some(condition => condition.word.trim() === tag);
@@ -1545,9 +1500,7 @@ function renderSettingsTables() {
       const instructionDay = Boolean(appState.instructionDayConfig?.[day]);
       const row = el('tr'); row.dataset.dayRow = String(day);
       const label = el('th', APP_CONFIG.daysStr[day]); label.scope = 'row';
-      const allToggle = el('button', '全反転'); allToggle.type = 'button'; allToggle.className = 'btn-s day-slot-all-toggle'; allToggle.title = `${APP_CONFIG.daysStr[day]}曜日の表示枠を全反転`;
-      allToggle.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日の表示枠を全反転`); allToggle.addEventListener('click', () => toggleDayRow(day));
-      label.appendChild(allToggle); row.appendChild(label);
+      for(const [title,checked] of [['すべて表示',true],['すべて非表示',false]]){const toggle=el('button',title);toggle.type='button';toggle.className='btn-s day-slot-all-toggle';toggle.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日の枠を${title}`);toggle.onclick=()=>{qa(`#day-slot-tbody input[data-day="${day}"][data-slot]`).forEach(input=>{input.checked=checked;});settingsDirtySections.add('schedule');updateSettingsStatus();};label.append(toggle);} row.appendChild(label);
       const instructionCell = el('td'); const instructionLabel = el('label'); instructionLabel.className = 'instruction-day-control';
       const instruction = el('input'); instruction.type = 'checkbox'; instruction.dataset.instructionDay = String(day); instruction.checked = instructionDay;
       instruction.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日を授業日にする`);
@@ -1565,11 +1518,6 @@ function renderSettingsTables() {
     timeBody.replaceChildren();
     APP_CONFIG.timeKeys.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); ['normal', 'short', 'exam'].forEach(group => { const cell = el('td'); const input = el('input'); input.type = 'time'; input.dataset.timeGroup = group; input.dataset.slot = slot; input.value = appState.timeConfig[group][slot] || ''; if (group === 'exam' && !['朝', '１限', '２限', '３限', '４限', '放課後'].includes(slot)) input.disabled = true; cell.appendChild(input); row.appendChild(cell); }); timeBody.appendChild(row); });
   }
-  const weeklyBody = document.getElementById('weekly-tbody'); if (weeklyBody) {
-    weeklyBody.replaceChildren();
-    APP_CONFIG.slotsAll.forEach(slot => { const row = el('tr'); row.appendChild(el('td', slot)); for (let day = 1; day <= 7; day += 1) { const dayIndex = day === 7 ? 0 : day; const cell = el('td'); const input = el('input'); input.type = 'text'; input.dataset.day = String(dayIndex); input.dataset.slot = slot; input.value = stripHtml(appState.weeklyTemplate[dayIndex]?.[slot] || ''); input.disabled = !appState.daySlotConfig[dayIndex][slot]; input.classList.toggle('tmpl-disabled', input.disabled); input.title = input.disabled ? '表示コマ設定で無効（保存済み内容は保持）' : ''; cell.appendChild(input); row.appendChild(cell); } weeklyBody.appendChild(row); });
-    qa('#weekly-tbody input[type="text"]').forEach(input => input.addEventListener('keydown', handleTableNav));
-  }
   [1, 2, 3, 4, 5, 6, 0].forEach(day => syncInstructionDayState(day, isInstructionDayDraft(day)));
 }
 function openSettingsView() {
@@ -1578,247 +1526,46 @@ function openSettingsView() {
   const range = getSmartDateRange(); const start = document.getElementById('tmpl-start'); const end = document.getElementById('tmpl-end'); if (start) start.value = range.start; if (end) end.value = range.end;
   const layout = document.querySelector(`input[name="layout-mode"][value="${appState.isLandscapeMode ? 'landscape' : 'portrait'}"]`); if (layout) layout.checked = true;
   renderSettingsTables();
-  const legacySummary = document.getElementById('legacy-override-summary');
-  if (legacySummary) {
-    let legacy = 0; let same = 0; let different = 0; let cancelled = 0;
-    Object.entries(appState.dateOverrides).forEach(([dateId, day]) => Object.entries(day.slots).forEach(([slot, override]) => {
-      if (override.action === 'cancel') { cancelled += 1; return; }
-      if (override.source === 'legacy') { legacy += 1; if (override.content === getWeeklyRuleSlot(dateId, slot, appState)) same += 1; else different += 1; }
-    }));
-    legacySummary.textContent = `旧データ由来 ${legacy}件（基本時間割と同内容 ${same}件 / 異なる内容 ${different}件）、取消 ${cancelled}件。自動整理は行いません。`;
-  }
   const bounds = academicYearBounds(appState.currentYear);
   const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
   const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
   const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
-  renderQuarantineUI(); settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block'; isHydratingSettings = false;
+  renderDateRows('events',appState.configEvents);renderDateRows('holidays',appState.customHolidays);renderQuarantineUI();document.getElementById('settings-recovery').open=storageService.isReadOnly()||storageService.getQuarantineRecords().length>0;document.getElementById('settings-reset-button').textContent=cloudUser?'この端末の保存データを削除':'この端末の予定と設定をすべて削除'; settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block'; isHydratingSettings = false;updateSettingsStatus();document.getElementById('next-year-button').textContent=`${appState.currentYear+1}年度を開く`;document.getElementById('settings-year-label').textContent=`${appState.currentYear}年度（${appState.currentYear}年4月〜${appState.currentYear+1}年3月）`;
 }
 function markSettingsDirty(target) {
   if (isHydratingSettings || !(target instanceof Element)) return;
   const section = target.closest('[data-settings-section]')?.dataset.settingsSection;
-  if (section) settingsDirtySections.add(section);
+  if(section&&target.id!=='academic-year-input'){settingsDirtySections.add(section);updateSettingsStatus();}
 }
-function clearSettingsDirty(section) { settingsDirtySections.delete(section); }
-function closeSettingsView() {
-  if (settingsDirtySections.size && !showConfirm('保存していない変更があります。破棄してメイン画面に戻りますか？')) return;
-  settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'none'; refreshMainUI();
+function closeSettingsView(){leaveSettings(()=>{document.getElementById('settings-view').style.display='none';refreshMainUI();void syncController?.refresh();});}
+let timetableFromSettings=false;
+let pendingSettingsLeave=null,timetablePreview=null,timetableFingerprint='',timetableBusy=false,timetableDraft=false,timetableInvoker=null;
+function updateSettingsStatus(message=''){const dirty=settingsDirtySections.size>0;document.getElementById('settings-save').disabled=!dirty;document.getElementById('settings-status').textContent=message||(dirty?'未保存の変更があります':'保存済み');}
+function renderDateRows(kind,map){const bounds=academicYearBounds(appState.currentYear);const root=document.getElementById(`${kind}-rows`);root.replaceChildren();Object.entries(map).filter(([date])=>date>=bounds.start&&date<=bounds.end).sort().forEach(([date,name])=>addDateRow(kind,date,stripHtml(name),false,name));}
+function addDateRow(kind,date='',name='',dirty=true,originalHtml=undefined){const root=document.getElementById(`${kind}-rows`),row=el('div');row.className='date-edit-row';if(originalHtml!==undefined){row.dataset.originalDate=date;row.dataset.originalName=name;row.dataset.originalHtml=originalHtml;}const input=el('input');input.type='date';input.value=date;input.setAttribute('aria-label',kind==='events'?'行事の日付':'休日の日付');const bounds=academicYearBounds(appState.currentYear);input.min=bounds.start;input.max=bounds.end;const text=el('input');text.type='text';text.value=name;text.setAttribute('aria-label',kind==='events'?'行事名':'休日名');const remove=el('button','削除');remove.type='button';remove.onclick=()=>{row.remove();settingsDirtySections.add(kind);updateSettingsStatus();};row.append(input,text,remove);root.append(row);if(dirty){settingsDirtySections.add(kind);updateSettingsStatus();input.focus();}}
+function collectDateRows(kind){return qa(`#${kind}-rows .date-edit-row`).map(row=>({date:row.querySelector('input[type=date]').value,name:row.querySelector('input[type=text]').value,originalDate:row.dataset.originalDate,originalName:row.dataset.originalName,originalHtml:row.dataset.originalHtml}));}
+function importDateRows(kind){const id=kind==='events'?'annual-text-ui':'holiday-text-ui',error=document.getElementById(`${kind}-error`);try{const rows=parseBulkDateRows(document.getElementById(id).value,appState.currentYear),old=collectDateRows(kind);if(!showConfirm(`現在年度の一覧 ${old.length}行を ${rows.length}行に置き換えます（増減 ${rows.length-old.length}行）。入力内容を取り込みますか？`))return;document.getElementById(`${kind}-rows`).replaceChildren();rows.forEach(row=>addDateRow(kind,row.date,row.name,false));settingsDirtySections.add(kind);updateSettingsStatus();error.textContent='';}catch(e){error.textContent=e.message;error.focus();}}
+function saveSettings(){
+ const next=clone(appState);try{
+  next.isLandscapeMode=q('input[name=layout-mode]:checked').value==='landscape';
+  qa('input[data-time-group]').forEach(input=>{if(!input.disabled){if(!input.validity.valid||(input.value&&!/^\d{2}:\d{2}$/.test(input.value))){input.focus();throw new Error('チャイム時刻を確認してください。');}next.timeConfig[input.dataset.timeGroup][input.dataset.slot]=input.value;}});
+  qa('#day-slot-tbody input[data-slot]').forEach(input=>next.daySlotConfig[input.dataset.day][input.dataset.slot]=input.checked);
+  qa('#day-slot-tbody input[data-instruction-day]').forEach(input=>next.instructionDayConfig[input.dataset.instructionDay]=input.checked);
+  try{Object.assign(next,planSettingsDateMaps(appState,{events:settingsDirtySections.has('events')?collectDateRows('events'):undefined,holidays:settingsDirtySections.has('holidays')?collectDateRows('holidays'):undefined}));for(const kind of ['events','holidays'])document.getElementById(`${kind}-error`).textContent='';}catch(e){const node=document.getElementById(`${e.section}-error`);node.textContent=e.message;node.focus();return false;}
+  if(!commitState(state=>Object.assign(state,next),{historyLabel:'設定の保存',historyScope:'settings'}))return false;
+  settingsDirtySections.clear();document.body.classList.toggle('layout-landscape',next.isLandscapeMode);document.body.classList.toggle('layout-portrait',!next.isLandscapeMode);refreshMainUI();updateSettingsStatus(syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました');return true;
+ }catch(e){updateSettingsStatus(e.message);return false;}
 }
-function handleTableNav(event) {
-  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)) return;
-  event.preventDefault();
-  const inputs = qa('#weekly-tbody input[type="text"]:not(:disabled)'); const index = inputs.indexOf(event.currentTarget); let next = index;
-  if (event.key === 'ArrowDown' || event.key === 'Enter' && !event.shiftKey) next += 1;
-  else if (event.key === 'ArrowUp' || event.key === 'Enter') next -= 1;
-  else if (event.key === 'ArrowRight' || event.key === 'Tab') next += 1;
-  else next -= 1;
-  inputs[Math.max(0, Math.min(inputs.length - 1, next))]?.focus();
-}
-function parseTextareaMap(value, fieldLabel) {
-  const result = {};
-  for (const line of String(value ?? '').split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const colon = line.indexOf(':'); if (colon < 0) throw new Error(`${fieldLabel}: YYMMDD:内容の形式が必要です`);
-    const dateId = fromYYMMDD(line.slice(0, colon).trim()); if (!dateId) throw new Error(`${fieldLabel}: 実在する日付が必要です (${line.slice(0, colon).trim()})`);
-    const text = sanitizeHtml(line.slice(colon + 1).trim()); if (stripHtml(text)) result[dateId] = text;
-  }
-  return result;
-}
-function replaceAcademicYearDateMap(existing, replacement) {
-  const bounds = academicYearBounds(appState.currentYear);
-  const next = {};
-  Object.entries(existing || {}).forEach(([dateId, value]) => { if (dateId < bounds.start || dateId > bounds.end) next[dateId] = value; });
-  return { ...next, ...replacement };
-}
-function academicYearRolloverStorageUsageKb() {
-  const bytes = (storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike?.getItem(key)?.length || 0) + key.length) * 2, 0);
-  return (bytes / 1024).toFixed(2);
-}
-function buildAcademicYearRolloverPlan() {
-  const copyBaseTimetable = Boolean(document.getElementById('academic-year-rollover-weekly')?.checked);
-  return planAcademicYearRollover(appState, {
-    sourceYear: appState.currentYear,
-    targetYear: appState.currentYear + 1,
-    copyBaseTimetable
-  });
-}
-function renderAcademicYearRolloverHolidayReview(value) {
-  const wrap = document.getElementById('academic-year-rollover-holiday-review');
-  const list = document.getElementById('academic-year-rollover-holiday-list');
-  const confirmationWrap = document.getElementById('academic-year-rollover-holiday-confirm-wrap');
-  const confirmation = document.getElementById('academic-year-rollover-holiday-confirm');
-  const bounds = academicYearBounds(value.targetYear);
-  const tentative = Object.entries(value.nextCalendarHolidays || {})
-    .filter(([dateId, entry]) => dateId >= bounds.start && dateId <= bounds.end && entry?.status === 'tentative')
-    .sort(([left], [right]) => left.localeCompare(right));
-  const needed = tentative.length > 0;
-  if (wrap) { wrap.hidden = !needed; wrap.style.display = needed ? 'block' : 'none'; }
-  if (confirmationWrap) { confirmationWrap.hidden = !needed; confirmationWrap.style.display = needed ? 'flex' : 'none'; }
-  if (!needed && confirmation) confirmation.checked = false;
-  if (list) {
-    list.replaceChildren();
-    tentative.forEach(([dateId, entry]) => {
-      const item = document.createElement('li');
-      item.textContent = `${dateId}　${stripHtml(entry.name)}`;
-      list.appendChild(item);
-    });
-  }
-  return needed;
-}
-function renderAcademicYearRolloverPreview() {
-  const preview = document.getElementById('academic-year-rollover-preview');
-  const heading = document.getElementById('academic-year-rollover-heading');
-  const execute = document.getElementById('academic-year-rollover-execute');
-  const plan = buildAcademicYearRolloverPlan();
-  if (!plan.ok) {
-    if (preview) preview.textContent = `繰越を開始できません。${plan.error}`;
-    if (execute) execute.disabled = true;
-    return null;
-  }
-  const value = plan.value;
-  if (heading) heading.textContent = `${value.sourceYear}年度から${value.targetYear}年度へ繰り越します`;
-  const excluded = value.excludedCounts;
-  const counts = value.counts;
-  const needsHolidayConfirmation = renderAcademicYearRolloverHolidayReview(value);
-  const holidayConfirmation = document.getElementById('academic-year-rollover-holiday-confirm');
-  const needsResetConfirmation = counts.removedTargetRules > 0 || counts.removedTargetEvents > 0;
-  const confirmationWrap = document.getElementById('academic-year-rollover-reset-confirm-wrap');
-  const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
-  if (confirmationWrap) { confirmationWrap.hidden = !needsResetConfirmation; confirmationWrap.style.display = needsResetConfirmation ? 'flex' : 'none'; }
-  if (!needsResetConfirmation && confirmation) confirmation.checked = false;
-  const lines = [
-    value.copyBaseTimetable
-      ? `基本時間割: コピーします。週間授業規則は ${value.candidateCount}件を確認し、${value.copiedCount}件を作成予定です。`
-      : '基本時間割: 空にします。週間授業規則は作成しません。',
-    `次年度に入力済みの週間授業規則: ${counts.removedTargetRules}件を削除予定${counts.splitRules ? `（年度境界で ${counts.splitRules}件を分割して年度外は保持）` : ''}。`,
-    `年間行事: 次年度分 ${counts.removedTargetEvents}件をリセットします（元年度の行事は保持）。`,
-    `暦上の祝日: 次年度分を設定します（確定 ${counts.confirmedHolidays}件 / 暫定 ${counts.tentativeHolidays}件）。学校独自休日は元年度からコピーしません。`,
-    needsHolidayConfirmation ? '暫定日: 下の一覧を公式発表と照合してから、確認欄にチェックしてください。' : '',
-    `繰越先に既にあるデータは保持: 学校独自休日 ${counts.preservedTargetCustomHolidays}日 / 日別変更 ${counts.preservedTargetOverrides}日 / 日別状態 ${counts.preservedTargetDayProfiles}日。`,
-    `元年度からコピーしないデータ: 日別変更 ${excluded.dateOverrides}日 / 行事 ${excluded.configEvents}日 / 日別状態 ${excluded.dayProfiles}日 / 学校独自休日 ${excluded.customHolidays}日。`,
-    `時数集計期間: ${value.nextCountDateRange.start} ～ ${value.nextCountDateRange.end} に設定します。開始番号は変更しません。`,
-    `現在のTaskKanri保存領域: 約 ${academicYearRolloverStorageUsageKb()} KB。実行前に復旧snapshotを作成します。`
-  ].filter(Boolean);
-  if (preview) preview.textContent = lines.join('\n');
-  if (execute) { execute.disabled = (needsResetConfirmation && !confirmation?.checked) || (needsHolidayConfirmation && !holidayConfirmation?.checked); execute.textContent = `${value.targetYear}年度へ繰り越す`; }
-  return plan;
-}
-function openAcademicYearRolloverModal() {
-  if (settingsDirtySections.size) { showAlert('保存していない設定があります。先に保存するか、設定画面を開き直してから年度繰越を開始してください。'); return; }
-  if (!storageService || storageService.isReadOnly()) { notifySaveFailure({ error: `読み取り専用相当です: ${storageService?.readOnlyReason?.() || ''}` }); return; }
-  academicYearRolloverInvoker = document.activeElement;
-  const weekly = document.getElementById('academic-year-rollover-weekly');
-  if (weekly) weekly.checked = false;
-  const confirmation = document.getElementById('academic-year-rollover-reset-confirm');
-  if (confirmation) confirmation.checked = false;
-  const holidayConfirmation = document.getElementById('academic-year-rollover-holiday-confirm');
-  if (holidayConfirmation) holidayConfirmation.checked = false;
-  const modal = document.getElementById('academic-year-rollover-modal');
-  if (!modal) return;
-  modal.style.display = 'flex';
-  modal.setAttribute('aria-hidden', 'false');
-  renderAcademicYearRolloverPreview();
-  setTimeout(() => document.getElementById('academic-year-rollover-title')?.focus(), 0);
-}
-function closeAcademicYearRolloverModal() {
-  const modal = document.getElementById('academic-year-rollover-modal');
-  if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
-  academicYearRolloverInvoker?.focus?.();
-  academicYearRolloverInvoker = null;
-}
-function handleAcademicYearRolloverKeydown(event) {
-  if (event.key === 'Escape') { event.preventDefault(); closeAcademicYearRolloverModal(); return; }
-  if (event.key !== 'Tab') return;
-  const dialog = document.querySelector('#academic-year-rollover-modal [role="dialog"]');
-  const focusables = qa('button:not([disabled]), input:not([disabled])', dialog).filter(node => node.offsetParent !== null);
-  if (!focusables.length) return;
-  if (event.shiftKey && document.activeElement === focusables[0]) { event.preventDefault(); focusables.at(-1).focus(); }
-  else if (!event.shiftKey && document.activeElement === focusables.at(-1)) { event.preventDefault(); focusables[0].focus(); }
-}
-function executeAcademicYearRollover() {
-  const plan = buildAcademicYearRolloverPlan();
-  if (!plan.ok) { showAlert(plan.error); return; }
-  const value = plan.value;
-  const needsResetConfirmation = value.counts.removedTargetRules > 0 || value.counts.removedTargetEvents > 0;
-  if (needsResetConfirmation && !document.getElementById('academic-year-rollover-reset-confirm')?.checked) { showAlert('次年度に入力済みの基本時間割規則・年間行事を削除する確認にチェックしてください。'); return; }
-  if (value.counts.tentativeHolidays > 0 && !document.getElementById('academic-year-rollover-holiday-confirm')?.checked) { showAlert('暫定日の一覧を内閣府の公式発表と照合し、確認にチェックしてください。'); return; }
-  const snapshot = storageService.createRecoverySnapshot();
-  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
-  const applied = applyAcademicYearRollover(appState, plan);
-  if (!applied.ok) { showAlert(applied.error); return; }
-  const copied = value.copyBaseTimetable ? `基本時間割と${value.copiedCount}件の週間授業規則` : '基本時間割を空にし、週間授業規則を作成せず';
-  if (!commitState(state => Object.assign(state, applied.value), { refresh: true, historyLabel: `年度繰越 ${value.sourceYear}→${value.targetYear}`, historyScope: 'academic-year-rollover' })) return;
-  closeAcademicYearRolloverModal();
-  settingsDirtySections.clear();
-  const settings = document.getElementById('settings-view');
-  if (settings) settings.style.display = 'none';
-  refreshMainUI();
-  showAlert(`${value.targetYear}年度へ繰り越しました（${copied}）。「元に戻す」で繰越全体を取り消せます。復旧snapshot: ${snapshot.key}`);
-}
-function saveBasicSettings() {
-  const year = Number(document.getElementById('academic-year-input')?.value); const layout = document.querySelector('input[name="layout-mode"]:checked')?.value;
-  if (!Number.isInteger(year) || year < 2000 || year > 2100 || !['portrait', 'landscape'].includes(layout)) { showAlert('年度または画面レイアウトが不正です。'); return; }
-  const plan = planAcademicYearChange(appState, year);
-  if (!plan.ok) { showAlert(plan.error); return; }
-  if (year !== appState.currentYear) {
-    const counts = plan.value.counts;
-    const message = [
-      `${appState.currentYear}年度から${year}年度へ変更します。既存データは削除しません。`,
-      `年度外に残る件数: 日別変更 ${counts.dateOverrides}日 / 行事 ${counts.configEvents}日 / 日別状態 ${counts.dayProfiles}日 / 祝日 ${counts.customHolidays}日 / 時数期間 ${counts.countDateRange}件`,
-      plan.value.automaticRange ? `時数期間は ${plan.value.nextBounds.start} ～ ${plan.value.nextBounds.end} に更新します。` : (plan.value.rangeOutside ? '指定済みの時数期間は年度外を含みますが、そのまま保持します。' : '指定済みの時数期間はそのまま保持します。'),
-      '続行しますか？'
-    ].join('\n');
-    if (!showConfirm(message)) return;
-  }
-  if (commitState(state => { state.currentYear = year; state.isLandscapeMode = layout === 'landscape'; state.countDateRange = plan.value.nextCountDateRange; state.calendarHolidays = plan.value.nextCalendarHolidays; }, { historyLabel: '基本設定・年度の変更', historyScope: 'settings' })) { document.body.classList.toggle('layout-landscape',layout==='landscape'); document.body.classList.toggle('layout-portrait',layout!=='landscape'); clearSettingsDirty('basic'); refreshMainUI(); showAlert('基本設定を保存しました。'); }
-}
-function saveTimeConfig() {
-  const next = clone(appState.timeConfig); const slots = clone(appState.daySlotConfig); const instructionDays = clone(appState.instructionDayConfig);
-  qa('input[data-time-group]').forEach(input => { next[input.dataset.timeGroup][input.dataset.slot] = input.value; });
-  qa('#day-slot-tbody input[data-slot]').forEach(input => { slots[input.dataset.day][input.dataset.slot] = input.checked; });
-  qa('#day-slot-tbody input[data-instruction-day]').forEach(input => { instructionDays[input.dataset.instructionDay] = input.checked; });
-  if (commitState(state => { state.timeConfig = next; state.daySlotConfig = slots; state.instructionDayConfig = instructionDays; }, { historyLabel: '授業日・時程・使用時限の変更', historyScope: 'settings' })) { clearSettingsDirty('schedule'); refreshMainUI(); showAlert('授業日・表示コマ・チャイムを保存しました。'); }
-}
-function collectWeeklyTemplateFromInputs() {
-  const weekly = clone(appState.weeklyTemplate);
-  qa('#weekly-tbody input[type="text"]').forEach(input => {
-    if (input.disabled) return;
-    const day = input.dataset.day; const slot = input.dataset.slot; const clean = sanitizeHtml(input.value);
-    if (stripHtml(clean)) {
-      if (!weekly[day]) weekly[day] = {};
-      weekly[day][slot] = clean;
-    } else if (weekly[day]) {
-      delete weekly[day][slot];
-      if (!Object.keys(weekly[day]).length) delete weekly[day];
-    }
-  });
-  return weekly;
-}
-function saveWeekly() {
-  const weekly = collectWeeklyTemplateFromInputs();
-  if (commitState(state => { state.weeklyTemplate = weekly; }, { historyLabel: '基本時間割の下書き保存', historyScope: 'weekly-template' })) { clearSettingsDirty('weekly'); showAlert('基本時間割の下書きを保存しました。日別予定は変更していません。'); }
-}
-function applyWeeklyRange() {
-  const start = document.getElementById('tmpl-start')?.value; const end = document.getElementById('tmpl-end')?.value;
-  if (!isValidIsoDate(start) || !isValidIsoDate(end) || start > end) { showAlert('適用期間の日付が不正です。'); return; }
-  const weekly = collectWeeklyTemplateFromInputs();
-  const rules = qa('#weekly-tbody input[type="text"]:not(:disabled)').map(input => ({ day: input.dataset.day, slot: input.dataset.slot, content: sanitizeHtml(input.value) })).filter(rule => stripHtml(rule.content).trim());
-  const overlap = rules.reduce((total, rule) => total + (appState.weeklyRules[rule.day]?.[rule.slot] || []).filter(segment => segment.from <= end && segment.to >= start).length, 0);
-  const overrides = Object.entries(appState.dateOverrides).filter(([dateId]) => dateId >= start && dateId <= end).reduce((total, [, day]) => total + Object.keys(day.slots).length, 0);
-  const message = [`対象期間: ${start} ～ ${end}`, `登録する規則: ${rules.length}コマ`, `重なる既存規則: ${overlap}件（安全に分割・置換します）`, `日別変更: ${overrides}件（基本時間割より優先され、そのまま残ります）`, '基本時間割として適用しますか？'].join('\n');
-  if (!showConfirm(message)) return;
-  const snapshot = storageService.createRecoverySnapshot();
-  if (!snapshot.ok) { notifySaveFailure(snapshot); return; }
-  let next = clone(appState); next.weeklyTemplate = weekly;
-  for (const rule of rules) { const result = replaceWeeklyRuleRange(next, rule.day, rule.slot, start, end, rule.content); if (!result.ok) { showAlert(result.error); return; } next = result.value; }
-  if (commitState(state => Object.assign(state, next), { historyLabel: '基本時間割の適用', historyScope: 'weekly-rule' })) { clearSettingsDirty('weekly'); showAlert(`基本時間割を適用しました。復旧snapshot: ${snapshot.key}`); refreshMainUI(); }
-}
-function saveAnnual() {
-  try { const parsed = parseTextareaMap(document.getElementById('annual-text-ui')?.value, '年間行事'); if (commitState(state => { state.configEvents = replaceAcademicYearDateMap(state.configEvents, parsed); }, { historyLabel: '年間行事の保存', historyScope: 'event' })) { clearSettingsDirty('events'); showAlert('現在年度の年間行事を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
-}
-function saveHolidays() {
-  try { const parsed = parseTextareaMap(document.getElementById('holiday-text-ui')?.value, '学校独自休日'); if (commitState(state => { state.customHolidays = replaceAcademicYearDateMap(state.customHolidays, parsed); }, { historyLabel: '学校独自休日の保存', historyScope: 'holiday' })) { clearSettingsDirty('holidays'); showAlert('現在年度の学校独自休日を保存しました。'); refreshMainUI(); } } catch (error) { showAlert(error.message); }
-}
-
+function leaveSettings(action){if(!settingsDirtySections.size){action();return;}pendingSettingsLeave=action;document.getElementById('settings-leave-dialog').showModal();}
+function resolveSettingsLeave(choice){if(choice==='save'&&!saveSettings())return;document.getElementById('settings-leave-dialog').close();const action=pendingSettingsLeave;pendingSettingsLeave=null;if(choice!=='cancel'){settingsDirtySections.clear();action?.();}}
+function showSelectedYear(){const year=Number(document.getElementById('academic-year-input').value);leaveSettings(()=>{const plan=planAcademicYearChange(appState,year);if(!plan.ok){showAlert(plan.error);return;}if(commitState(state=>{state.currentYear=year;state.countDateRange=plan.value.nextCountDateRange;state.calendarHolidays=plan.value.nextCalendarHolidays;},{historyLabel:'表示年度の変更',historyScope:'settings',refresh:true}))openSettingsView();});}
+function openNextYear(){document.getElementById('academic-year-input').value=appState.currentYear+1;showSelectedYear();}
+function openTimetableView(){const start=()=>{timetableInvoker=document.activeElement;timetableFromSettings=document.getElementById('settings-view').style.display==='block';document.getElementById('settings-view').style.display='none';const root=document.getElementById('timetable-view'),bounds=academicYearBounds(appState.currentYear);root.style.display='block';document.getElementById('timetable-year').textContent=`${appState.currentYear}年度（${bounds.start}〜${bounds.end}）`;for(const id of ['tmpl-start','tmpl-end']){const input=document.getElementById(id);input.min=bounds.start;input.max=bounds.end;}const today=getIsoDateStr(new Date());document.getElementById('tmpl-start').value=today>=bounds.start&&today<=bounds.end?today:bounds.start;document.getElementById('tmpl-end').value=bounds.end;qa('[name=timetable-mode]')[0].checked=true;qa('[name=empty-mode]').forEach(input=>input.checked=false);document.getElementById('empty-options').hidden=true;document.getElementById('timetable-result').replaceChildren();document.getElementById('timetable-execute').hidden=true;const body=document.getElementById('weekly-tbody');body.replaceChildren();APP_CONFIG.slotsAll.forEach(slot=>{const row=el('tr');row.append(el('th',slot));[1,2,3,4,5,6,0].forEach(day=>{const cell=el('td'),input=el('input');input.type='text';input.dataset.day=day;input.dataset.slot=slot;input.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日 ${slot}`);input.disabled=!appState.daySlotConfig[day][slot];input.title=input.disabled?'授業日・表示する枠の設定により対象外':'';cell.append(input);row.append(cell);});body.append(row);});timetableDraft=false;timetablePreview=null;document.getElementById('tmpl-start').focus();};if(document.getElementById('settings-view').style.display==='block')leaveSettings(start);else start();}
+function closeTimetableView(){if(timetableDraft&&!showConfirm('未実行の入力を破棄して閉じますか？'))return;document.getElementById('timetable-view').style.display='none';timetableDraft=false;if(timetableFromSettings)openSettingsView();timetableInvoker?.focus?.();void syncController?.refresh();}
+function timetableOptions(){const table={};qa('#weekly-tbody input').forEach(input=>{table[input.dataset.day]??={};table[input.dataset.day][input.dataset.slot]=input.value;});return {start:document.getElementById('tmpl-start').value,end:document.getElementById('tmpl-end').value,table,mode:q('[name=timetable-mode]:checked').value,emptyMode:q('[name=empty-mode]:checked')?.value};}
+function currentTimetableFingerprint(){return JSON.stringify({state:appState,options:timetableOptions()});}
+function previewTimetable(){const root=document.getElementById('timetable-result');root.replaceChildren();if(!canCloudEdit()||storageService.isReadOnly())return;if(syncController?.engine?.status==='deferred'){root.textContent='ほかの端末の変更を確認してから実行してください。入力は保持しています。';return;}const options=timetableOptions();if(options.mode==='replace'&&!options.emptyMode){root.textContent='上書きする空欄の扱いを選択してください。';return;}const result=planTimetableInput(appState,options);if(!result.ok){root.textContent=result.error;return;}timetablePreview=result.value;timetableFingerprint=currentTimetableFingerprint();const count=summarizeTimetableChanges(result.value.changes),excluded={};result.value.excluded.forEach(x=>excluded[x.reason]=(excluded[x.reason]||0)+1);root.append(el('p',`${count.days}日・${count.slots}コマを${options.mode==='append'?'追加':'置換'}。削除 ${count.deleted}コマ、タスクを含む変更 ${count.tasks}コマ。除外 ${result.value.excluded.length}コマ。${Object.entries(excluded).map(([reason,n])=>`${reason}: ${n}`).join(' / ')}`));if(options.mode==='replace')root.append(el('p','上書きすると対象コマのメモとタスクも置き換わります。'));if(!count.slots)root.append(el('p','変更対象がありません。期間・授業日・表示する枠・入力内容を確認してください。'));const list=el('div');list.className='timetable-changes';result.value.changes.forEach(change=>{const row=el('section');row.append(el('h4',`${change.dateId} ${change.slot}`));const before=el('div'),after=el('div');before.append(el('strong','変更前'));appendSafeRich(before,change.before);after.append(el('strong','変更後'));appendSafeRich(after,change.after);row.append(before,after);list.append(row);});root.append(list);const execute=document.getElementById('timetable-execute');execute.hidden=!count.slots;execute.textContent=options.mode==='append'?'予定に追加する':'予定を上書きする';}
+function executeTimetable(){if(timetableBusy||!timetablePreview)return;if(timetableFingerprint!==currentTimetableFingerprint()){document.getElementById('timetable-result').textContent='入力や予定が変わりました。変更内容をもう一度確認してください。';timetablePreview=null;document.getElementById('timetable-execute').hidden=true;return;}if(!canCloudEdit()||storageService.isReadOnly()||syncController?.engine?.busy||syncController?.engine?.status==='deferred')return;timetableBusy=true;const button=document.getElementById('timetable-execute');button.disabled=true;try{const backup=storageService.createRecoverySnapshot();if(!backup.ok){notifySaveFailure(backup);return;}if(commitState(state=>Object.assign(state,timetablePreview.state),{historyLabel:'時間割の期間入力',historyScope:'schedule',refresh:true})){timetableDraft=false;timetablePreview=null;button.hidden=true;document.getElementById('timetable-result').textContent=syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました。「元に戻す」で一括して取り消せます。';}}finally{timetableBusy=false;button.disabled=false;}}
 function exportData() {
   const serialized = serializePayload(appState); if (!serialized.ok) { showAlert(serialized.error); return; }
   const filename = exportFilename();
@@ -1834,7 +1581,7 @@ function importData(event) {
     try {
       const prepared = normalizeImportedPayload(loadEvent.target.result);
       if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
-      const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧snapshotを作成します。`) });
+      const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧用バックアップを作成します。`) });
       if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
       appState = result.state; queueCloudSave(appState); historyManager.clear(); updateHistoryControls(); showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
     } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
@@ -1848,7 +1595,7 @@ function closeResetModal() { const modal = document.getElementById('reset-confir
 async function executeReset() {
   if (cloudUser) {
     if (syncController.engine?.busy) { showAlert('保存結果を確認してから初期化してください。'); return; }
-    if (!showConfirm("この端末の同期を解除し、端末内の保存データ・復旧snapshot・このタブの未送信データを初期化しますか？クラウドとほかの端末は初期化しません。")) return;
+    if (!showConfirm("この端末の同期を解除し、端末内の保存データ・復旧用バックアップ・このタブの未送信データを初期化しますか？クラウドとほかの端末は初期化しません。")) return;
     if (syncController.engine?.pending) downloadJson({app:"TaskKanri",pending:syncController.engine.pending},exportFilename('unsent'));
     const service=storageService; const userId=cloudUser.id;
     syncController.engine?.store.remove('pending');
@@ -1856,7 +1603,7 @@ async function executeReset() {
     if (!result.ok) { showAlert(result.error); return; }
     scopedStorage(localStorage,userId).removeItem("cache"); location.reload(); return;
   }
-  if (!showConfirm('TaskKanriの保存データ、復旧snapshot、隔離データを初期化しますか？')) return;
+  if (!showConfirm('TaskKanriの保存データ、復旧用バックアップ、隔離データを初期化しますか？')) return;
   const result = storageService.reset();
   if (!result.ok) { showAlert(`${result.error}\n削除失敗: ${result.failed.map(item => item.key).join(', ')}`); showStorageWarning(result.error); return; }
   appState = result.state || defaultState(); historyManager.clear(); updateHistoryControls(); closeResetModal(); showAlert(`TaskKanriのデータを初期化しました（${result.removed.length}キー削除）。他アプリのデータは削除していません。`); location.reload();
@@ -1913,7 +1660,7 @@ function decorateStorageService() {
 function installCloudSync() {
   document.body.classList.toggle('cloud-signed-out',localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true');
   const landing=el('section');landing.id='sync-landing';landing.innerHTML='<h2>TaskKanri</h2><p>本人のアカウントでログインして予定を表示します。</p><button type="button">ログイン</button>';landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
-  const controls=el('div');controls.className='sync-controls';const status=el('span','未接続');status.setAttribute('role','status');const button=el('button','同期設定');button.type='button';const mobile=el('a','モバイル表示');mobile.href='mobile.html';controls.append(status,button,mobile);document.body.append(controls);
+  const controls=el('div');controls.className='sync-controls';const button=el('button','未接続');button.type='button';button.className='sync-text-button';button.setAttribute('aria-label','同期設定を開く。未接続');const status=button;controls.append(button);document.body.append(controls);
   syncController=new SyncController({mode:'desktop',getState:()=>appState,
     canApply:()=>!hasOpenUnsavedForm()&&!isTextEditingTarget(document.activeElement),
     onAccount:user=>{
@@ -1934,7 +1681,7 @@ function installCloudSync() {
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
-    onStatus:(label,engine)=>{status.textContent=label;syncUI?.update();if(engine?.error)status.title=engine.error;}
+    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・同期中…',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
   syncUI=installSyncUI(syncController,{getInitialState:()=>appState});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
@@ -1976,6 +1723,11 @@ function initApp() {
   const settingsView = document.getElementById('settings-view');
   settingsView?.addEventListener('input', event => markSettingsDirty(event.target));
   settingsView?.addEventListener('change', event => markSettingsDirty(event.target));
+  const timetableView=document.getElementById('timetable-view');
+  for(const type of ['input','change'])timetableView?.addEventListener(type,event=>{timetableDraft=true;if(event.target.name==='timetable-mode')document.getElementById('empty-options').hidden=event.target.value!=='replace';document.getElementById('timetable-execute').hidden=true;});
+  document.getElementById('settings-leave-dialog')?.addEventListener('cancel',()=>{pendingSettingsLeave=null;});
+  window.addEventListener('beforeunload',event=>{if(settingsDirtySections.size||timetableDraft){event.preventDefault();event.returnValue='';}});
+
   document.getElementById('search-input')?.addEventListener('input', event => { event.currentTarget.style.height = '28px'; event.currentTarget.style.height = `${Math.min(70, event.currentTarget.scrollHeight)}px`; executeSearch(); });
   document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
   document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
@@ -2016,9 +1768,7 @@ Object.assign(window, {
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode, setBulkCalendarMonthLayout,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, applyBulkCalendarContextPreset, saveBulkCalendarContextHoliday, clearBulkCalendarContextHoliday, undoBulkCalendarChange,
-  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveBasicSettings, saveTimeConfig, saveWeekly, applyWeeklyRange,
-  openAcademicYearRolloverModal, closeAcademicYearRolloverModal, handleAcademicYearRolloverKeydown, renderAcademicYearRolloverPreview, executeAcademicYearRollover,
-  saveAnnual, saveHolidays, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
+  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveSettings,showSelectedYear,openNextYear,openTimetableView,closeTimetableView,previewTimetable,executeTimetable,addDateRow,importDateRows,resolveSettingsLeave, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
   updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip
 });

@@ -3,3 +3,10 @@
 #sync-landing{position:fixed;top:30%;left:50%;transform:translateX(-50%);width:min(420px,calc(100vw - 32px));padding:24px;background:white;border:1px solid #e1e7f0;border-radius:20px;text-align:center}#sync-landing[hidden]{display:none}#sync-landing button{min-height:44px;padding:8px 20px;border:0;border-radius:10px;background:#2458be;color:white;font:inherit}
 
 .sync-dialog button:active:not(:disabled){background:#dbe8ff;transform:translateY(1px)}.sync-dialog button:disabled{opacity:.6;cursor:wait}.sync-dialog [data-message]:not(:empty){padding:10px 12px;border-radius:10px;background:#eff5ff}.sync-dialog[aria-busy=true]{cursor:progress}
+
+.sync-controls{padding:0;background:transparent;box-shadow:none;border-radius:0;right:24px;bottom:8px}
+.sync-controls button{min-width:44px;min-height:44px;padding:8px;border:0;background:transparent;color:#46566e;font:inherit;cursor:pointer}
+.sync-controls button:hover{text-decoration:underline}
+.sync-controls button:focus-visible,.sync-dialog button:focus-visible,.sync-dialog a:focus-visible{outline:3px solid #2458be;outline-offset:2px}
+.sync-dialog [data-refresh]{order:-1;background:#2458be;color:#fff;border-color:#2458be;font-weight:600}
+.sync-dialog [data-time]{white-space:pre-line;font-size:13px;color:#526176}

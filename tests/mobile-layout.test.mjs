@@ -37,7 +37,7 @@ test('continuous periods cover academic-year boundaries with no missing dates',(
 test('calendar uses visible schedule contents, not hidden periods or common tasks',()=>{
  const state=defaultState();state.globalTaskData='共通';const id='2026-10-14';
  assert.equal(mobile.hasMobileAgenda(id,state),false);
- state.dateOverrides[id]={slots:{'５限':{action:'replace',source:'user',content:'午後の授業'}}};
+ state.dateSchedules[id]={'５限':'午後の授業'};
  assert.equal(mobile.hasMobileAgenda(id,state),true);
  state.dayProfiles[id]='morning';assert.equal(mobile.hasMobileAgenda(id,state),false);
  state.configEvents[id]='行事';assert.equal(mobile.hasMobileAgenda(id,state),true);

@@ -7,11 +7,11 @@
  */
 
 export const APP_CONFIG = Object.freeze({
-  displayVersion: '75',
+  displayVersion: '76',
   compatibilityVersion: '73',
-  buildVersion: '20261013-task-interaction-v2',
-  schemaVersion: 7,
-  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7]),
+  buildVersion: '20261014-daily-schedules-v11',
+  schemaVersion: 8,
+  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -49,7 +49,7 @@ const LEGACY_BASE_KEYS = Object.freeze([
 const LEGACY_SUFFIXES = Object.freeze(['V46', 'V43', 'V42', 'V41']);
 const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIXES.map(suffix => `${base}${suffix}`)));
 const STATE_KEYS = Object.freeze([
-  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'weeklyTemplate', 'weeklyRules', 'dateOverrides', 'configEvents', 'calendarHolidays',
+  'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'dateSchedules', 'configEvents', 'calendarHolidays',
   'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
   'bulkCalendarSelectionMode', 'bulkCalendarMonthLayout', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
 ]);
@@ -156,9 +156,7 @@ export function defaultState(year = 2026) {
     isLandscapeMode: false,
     isClockVisible: true,
     isWakeLockRequested: false,
-    weeklyTemplate: {},
-    weeklyRules: {},
-    dateOverrides: {},
+    dateSchedules: {},
     configEvents: {},
     calendarHolidays: buildCalendarHolidaysForAcademicYear(year),
     customHolidays: {},
@@ -360,7 +358,7 @@ export function planAcademicYearChange(state, nextYear) {
       nextYear,
       nextBounds,
       counts: {
-        dateOverrides: outside(current.dateOverrides), configEvents: outside(current.configEvents), dayProfiles: outside(current.dayProfiles), customHolidays: outside(current.customHolidays),
+        dateOverrides: outside(current.dateSchedules), configEvents: outside(current.configEvents), dayProfiles: outside(current.dayProfiles), customHolidays: outside(current.customHolidays),
         countDateRange: rangeOutside ? 1 : 0
       },
       automaticRange,
@@ -369,215 +367,6 @@ export function planAcademicYearChange(state, nextYear) {
       nextCalendarHolidays: { ...preservedCalendar, ...buildCalendarHolidaysForAcademicYear(nextYear) }
     }
   };
-}
-
-function isoDateFromUtcParts(year, month, day) {
-  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function shiftIsoDateByYears(dateId, years) {
-  if (!isValidIsoDate(dateId) || !Number.isInteger(years)) return null;
-  const shifted = isoDateFromUtcParts(Number(dateId.slice(0, 4)) + years, Number(dateId.slice(5, 7)), Number(dateId.slice(8, 10)));
-  return isValidIsoDate(shifted) ? shifted : null;
-}
-
-function shiftIsoDateByDays(dateId, days) {
-  if (!isValidIsoDate(dateId) || !Number.isInteger(days)) return null;
-  const value = new Date(Date.UTC(Number(dateId.slice(0, 4)), Number(dateId.slice(5, 7)) - 1, Number(dateId.slice(8, 10))));
-  value.setUTCDate(value.getUTCDate() + days);
-  return isoDateFromUtcParts(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
-}
-
-function intersectIsoRanges(first, second) {
-  const from = first.from > second.from ? first.from : second.from;
-  const to = first.to < second.to ? first.to : second.to;
-  return from <= to ? { from, to } : null;
-}
-
-function subtractOccupiedIsoRanges(range, occupied) {
-  let remaining = [{ ...range }];
-  for (const item of occupied) {
-    const next = [];
-    for (const part of remaining) {
-      const overlap = intersectIsoRanges(part, item);
-      if (!overlap) {
-        next.push(part);
-        continue;
-      }
-      if (part.from < overlap.from) next.push({ from: part.from, to: shiftIsoDateByDays(overlap.from, -1) });
-      if (overlap.to < part.to) next.push({ from: shiftIsoDateByDays(overlap.to, 1), to: part.to });
-    }
-    remaining = next;
-    if (!remaining.length) break;
-  }
-  return remaining;
-}
-
-function countDatesWithinAcademicYear(map, year) {
-  return Object.keys(map || {}).filter(dateId => isAcademicYearDate(dateId, year)).length;
-}
-
-function appendWeeklyRuleInFreeRanges(state, rule) {
-  const next = clone(state);
-  const current = next.weeklyRules?.[rule.day]?.[rule.slot] || [];
-  const occupied = current.filter(segment => segment.from <= rule.to && segment.to >= rule.from);
-  const freeRanges = subtractOccupiedIsoRanges({ from: rule.from, to: rule.to }, occupied);
-  if (!freeRanges.length) return { state: next, added: [], conflicted: occupied.length > 0 };
-  if (!next.weeklyRules[rule.day]) next.weeklyRules[rule.day] = {};
-  next.weeklyRules[rule.day][rule.slot] = [...current, ...freeRanges.map(range => ({ ...range, content: rule.content }))]
-    .sort((left, right) => left.from.localeCompare(right.from));
-  return { state: next, added: freeRanges, conflicted: occupied.length > 0 };
-}
-
-function removeWeeklyRulesInRange(rules, range) {
-  const next = {};
-  let removed = 0;
-  let split = 0;
-  for (const [day, slots] of Object.entries(rules || {})) {
-    const nextSlots = {};
-    for (const [slot, segments] of Object.entries(slots)) {
-      const kept = [];
-      for (const segment of segments) {
-        const overlap = intersectIsoRanges(segment, { from: range.start, to: range.end });
-        if (!overlap) {
-          kept.push({ ...segment });
-          continue;
-        }
-        removed += 1;
-        const left = segment.from < overlap.from ? { ...segment, to: shiftIsoDateByDays(overlap.from, -1) } : null;
-        const right = segment.to > overlap.to ? { ...segment, from: shiftIsoDateByDays(overlap.to, 1) } : null;
-        if (left || right) split += 1;
-        if (left) kept.push(left);
-        if (right) kept.push(right);
-      }
-      if (kept.length) nextSlots[slot] = kept;
-    }
-    if (Object.keys(nextSlots).length) next[day] = nextSlots;
-  }
-  return { rules: next, removed, split };
-}
-
-function removeDateMapInRange(map, range) {
-  const next = {};
-  let removed = 0;
-  for (const [dateId, value] of Object.entries(map || {})) {
-    if (dateId >= range.start && dateId <= range.end) removed += 1;
-    else next[dateId] = clone(value);
-  }
-  return { map: next, removed };
-}
-
-/**
- * Creates a non-mutating next-academic-year plan.  Weekly rules are opt-in;
- * one-day changes, events, profiles, and holidays intentionally never move.
- */
-export function planAcademicYearRollover(state, options = {}) {
-  const normalized = normalizeState(state);
-  if (!normalized.ok) return normalized;
-  const current = normalized.value;
-  const fromYear = options.sourceYear ?? current.currentYear;
-  const toYear = options.targetYear ?? fromYear + 1;
-  const copyBaseTimetable = typeof options.copyBaseTimetable === 'boolean'
-    ? options.copyBaseTimetable
-    : Boolean(options.copyWeeklyRules);
-  if (!Number.isInteger(fromYear) || !Number.isInteger(toYear) || fromYear < 2000 || fromYear > 2100 || toYear < 2000 || toYear > 2100) return fail('2000〜2100の整数年度が必要です', 'currentYear');
-  if (fromYear !== current.currentYear) return fail('繰越元は現在表示中の年度にしてください', 'sourceYear');
-  if (toYear !== fromYear + 1) return fail('繰越先は次年度のみ指定できます', 'targetYear');
-  const sourceBounds = academicYearBounds(fromYear);
-  const targetBounds = academicYearBounds(toYear);
-  const clearedRules = removeWeeklyRulesInRange(current.weeklyRules, targetBounds);
-  let plannedState = { ...clone(current), weeklyRules: clearedRules.rules };
-  const plannedWeeklyRules = [];
-  let candidateCount = 0;
-  let copiedCount = 0;
-
-  if (copyBaseTimetable) {
-    for (const [day, slots] of Object.entries(current.weeklyRules)) {
-      for (const [slot, segments] of Object.entries(slots)) {
-        for (const segment of segments) {
-          const sourceRange = intersectIsoRanges(segment, { from: sourceBounds.start, to: sourceBounds.end });
-          if (!sourceRange) continue;
-          candidateCount += 1;
-          const from = shiftIsoDateByYears(sourceRange.from, 1);
-          const to = shiftIsoDateByYears(sourceRange.to, 1);
-          if (!from || !to) return fail(`うるう日のため ${sourceRange.from}〜${sourceRange.to} を次年度へ安全に繰り越せません`, 'weeklyRules');
-          const appended = appendWeeklyRuleInFreeRanges(plannedState, { day, slot, from, to, content: segment.content });
-          plannedState = appended.state;
-          copiedCount += appended.added.length;
-          appended.added.forEach(range => plannedWeeklyRules.push({ day, slot, ...range, content: segment.content }));
-        }
-      }
-    }
-  }
-
-  const remainingEvents = removeDateMapInRange(current.configEvents, targetBounds);
-  const remainingCalendar = removeDateMapInRange(current.calendarHolidays, targetBounds);
-  const nextCalendarHolidays = {
-    ...remainingCalendar.map,
-    ...buildCalendarHolidaysForAcademicYear(toYear)
-  };
-  const holidayValues = Object.entries(nextCalendarHolidays)
-    .filter(([dateId, entry]) => dateId >= targetBounds.start && dateId <= targetBounds.end && entry && typeof entry === 'object')
-    .map(([, entry]) => entry);
-
-  return {
-    ok: true,
-    value: {
-      sourceYear: fromYear,
-      targetYear: toYear,
-      sourceBounds,
-      targetBounds,
-      copyBaseTimetable,
-      // Kept temporarily so older callers can read the intent without a
-      // different outcome.  New UI and tests must use copyBaseTimetable.
-      copyWeeklyRules: copyBaseTimetable,
-      plannedWeeklyRules,
-      candidateCount,
-      copiedCount,
-      conflictCount: 0,
-      skippedCount: 0,
-      nextCountDateRange: clone(targetBounds),
-      nextWeeklyTemplate: copyBaseTimetable ? clone(current.weeklyTemplate) : {},
-      nextWeeklyRules: plannedState.weeklyRules,
-      nextConfigEvents: remainingEvents.map,
-      nextCalendarHolidays,
-      counts: {
-        removedTargetRules: clearedRules.removed,
-        splitRules: clearedRules.split,
-        removedTargetEvents: remainingEvents.removed,
-        confirmedHolidays: holidayValues.filter(entry => entry.status === 'confirmed').length,
-        tentativeHolidays: holidayValues.filter(entry => entry.status === 'tentative').length,
-        preservedTargetCustomHolidays: countDatesWithinAcademicYear(current.customHolidays, toYear),
-        preservedTargetOverrides: countDatesWithinAcademicYear(current.dateOverrides, toYear),
-        preservedTargetDayProfiles: countDatesWithinAcademicYear(current.dayProfiles, toYear)
-      },
-      excludedCounts: {
-        dateOverrides: countDatesWithinAcademicYear(current.dateOverrides, fromYear),
-        configEvents: countDatesWithinAcademicYear(current.configEvents, fromYear),
-        dayProfiles: countDatesWithinAcademicYear(current.dayProfiles, fromYear),
-        customHolidays: countDatesWithinAcademicYear(current.customHolidays, fromYear)
-      }
-    }
-  };
-}
-
-export function applyAcademicYearRollover(state, plan) {
-  if (!plan?.ok || !plan.value) return fail('年度繰越プランが不正です');
-  const normalized = normalizeState(state);
-  if (!normalized.ok) return normalized;
-  const current = normalized.value;
-  const value = plan.value;
-  if (current.currentYear !== value.sourceYear) return fail('年度繰越プランが現在の年度と一致しません');
-  if (value.targetYear !== value.sourceYear + 1) return fail('繰越先は次年度のみ指定できます');
-  const next = clone(current);
-  next.currentYear = value.targetYear;
-  next.countDateRange = clone(value.nextCountDateRange);
-  if (typeof value.copyBaseTimetable !== 'boolean' || !isPlainObject(value.nextWeeklyTemplate) || !isPlainObject(value.nextWeeklyRules) || !isPlainObject(value.nextConfigEvents) || !isPlainObject(value.nextCalendarHolidays)) return fail('年度繰越プランの内容が不正です');
-  next.weeklyTemplate = clone(value.nextWeeklyTemplate);
-  next.weeklyRules = clone(value.nextWeeklyRules);
-  next.configEvents = clone(value.nextConfigEvents);
-  next.calendarHolidays = clone(value.nextCalendarHolidays);
-  return normalizeState(next);
 }
 
 function validTime(value) {
@@ -943,49 +732,25 @@ function normalizeDateOverrides(value) {
   return { ok: true, value: result };
 }
 
-function weekdayForDate(dateId) { return new Date(`${dateId}T00:00:00Z`).getUTCDay(); }
-
-export function getWeeklyRuleSlot(dateId, slot, state) {
-  if (!isValidIsoDate(dateId) || !SLOT_SET.has(slot)) return '';
-  const segments = state?.weeklyRules?.[weekdayForDate(dateId)]?.[slot];
-  if (!Array.isArray(segments)) return '';
-  const found = segments.find(segment => dateId >= segment.from && dateId <= segment.to);
-  return found?.content || '';
-}
-
 export function getResolvedSlot(dateId, slot, state) {
-  const override = state?.dateOverrides?.[dateId]?.slots?.[slot];
-  if (override?.action === 'cancel') return '';
-  if (override?.action === 'replace') return override.content;
-  return getWeeklyRuleSlot(dateId, slot, state);
+  if (!isValidIsoDate(dateId) || !SLOT_SET.has(slot)) return '';
+  return state?.dateSchedules?.[dateId]?.[slot] || '';
 }
 
-export function getSlotOrigin(dateId, slot, state) {
-  const override = state?.dateOverrides?.[dateId]?.slots?.[slot];
-  if (override?.action) return override.source === 'legacy' ? 'legacy' : 'override';
-  return getWeeklyRuleSlot(dateId, slot, state) ? 'rule' : 'empty';
-}
-
-function previousIsoDate(dateId) { const date = new Date(`${dateId}T00:00:00Z`); date.setUTCDate(date.getUTCDate() - 1); return date.toISOString().slice(0, 10); }
-function nextIsoDate(dateId) { const date = new Date(`${dateId}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
-
-export function replaceWeeklyRuleRange(state, weekday, slot, from, to, content) {
-  if (!/^[0-6]$/.test(String(weekday)) || !SLOT_SET.has(slot) || !isValidIsoDate(from) || !isValidIsoDate(to) || from > to || !stripHtml(sanitizeHtml(content)).trim()) return fail('基本時間割の期間または内容が不正です');
-  const next = clone(state);
-  const current = next.weeklyRules?.[weekday]?.[slot] || [];
-  const kept = [];
-  for (const segment of current) {
-    if (segment.to < from || segment.from > to) kept.push(segment);
-    else {
-      if (segment.from < from) kept.push({ ...segment, to: previousIsoDate(from) });
-      if (segment.to > to) kept.push({ ...segment, from: nextIsoDate(to) });
+function normalizeDateSchedules(value) {
+  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'dateSchedules');
+  const schedules = {};
+  for (const [dateId, slots] of Object.entries(value)) {
+    if (!isValidIsoDate(dateId) || !isPlainObject(slots)) return fail('日付または予定が不正です', `dateSchedules.${dateId}`);
+    const day = {};
+    for (const [slot, raw] of Object.entries(slots)) {
+      if (!SLOT_SET.has(slot) || typeof raw !== 'string') return fail('コマまたは本文が不正です', `dateSchedules.${dateId}.${slot}`);
+      const content = sanitizeHtml(raw);
+      if (stripHtml(content).trim()) day[slot] = content;
     }
+    if (Object.keys(day).length) schedules[dateId] = day;
   }
-  kept.push({ from, to, content: sanitizeHtml(content) });
-  kept.sort((a, b) => a.from.localeCompare(b.from));
-  if (!next.weeklyRules[weekday]) next.weeklyRules[weekday] = {};
-  next.weeklyRules[weekday][slot] = kept;
-  return normalizeState(next);
+  return {ok:true,value:schedules};
 }
 
 function normalizeTimeConfig(value) {
@@ -1091,20 +856,11 @@ export function normalizeState(input) {
     state.bulkCalendarMonthLayout = input.bulkCalendarMonthLayout;
   }
   for (const legacyField of ['scheduleData', 'teacherSchedule', 'configWeekly', 'noClassData', 'shortData', 'examData']) if (own(input, legacyField)) return fail(`schema ${APP_CONFIG.schemaVersion}では${legacyField}は使用できません`);
-  if (own(input, 'weeklyTemplate')) {
-    const normalized = normalizeWeeklyTemplate(input.weeklyTemplate);
+  for (const field of ['weeklyTemplate', 'weeklyRules', 'dateOverrides']) if (own(input, field)) return fail('旧形式です。バックアップとして読み込んでください', field);
+  if (own(input, 'dateSchedules')) {
+    const normalized = normalizeDateSchedules(input.dateSchedules);
     if (!normalized.ok) return normalized;
-    state.weeklyTemplate = normalized.value;
-  }
-  if (own(input, 'weeklyRules')) {
-    const normalized = normalizeWeeklyRules(input.weeklyRules);
-    if (!normalized.ok) return normalized;
-    state.weeklyRules = normalized.value;
-  }
-  if (own(input, 'dateOverrides')) {
-    const normalized = normalizeDateOverrides(input.dateOverrides);
-    if (!normalized.ok) return normalized;
-    state.dateOverrides = normalized.value;
+    state.dateSchedules = normalized.value;
   }
   for (const [field, validator] of [['configEvents', value => normalizeDateMap(value, 'configEvents')], ['customHolidays', value => normalizeDateMap(value, 'customHolidays')]]) {
     if (!own(input, field)) continue;
@@ -1293,13 +1049,42 @@ function migrateSchema6State(data) {
   return { ok: true, value: migrated };
 }
 
+function migrateSchema7State(data) {
+  if (own(data, 'dateSchedules')) return fail('schema 7ではdateSchedulesは使用できません', 'dateSchedules');
+  const template = normalizeWeeklyTemplate(data.weeklyTemplate || {});
+  const rules = normalizeWeeklyRules(data.weeklyRules || {});
+  const overrides = normalizeDateOverrides(data.dateOverrides || {});
+  for (const checked of [template,rules,overrides]) if (!checked.ok) return checked;
+  const migrated = clone(data), schedules = {};
+  let size = 0;
+  for (const [day, slots] of Object.entries(rules.value)) for (const [slot, segments] of Object.entries(slots)) for (const segment of segments) {
+    let dateId = segment.from;
+    const delta = (Number(day) - weekdayForDateId(dateId) + 7) % 7;
+    dateId = addIsoDays(dateId, delta);
+    for (; dateId <= segment.to; dateId = addIsoDays(dateId, 7)) {
+      schedules[dateId] ||= {};
+      schedules[dateId][slot] = segment.content;
+      size += (dateId.length + slot.length + segment.content.length + 16) * 2;
+      if (size > 8 * 1024 * 1024) return fail('日付別への展開量が大きいため移行を停止しました。原本を保全してください');
+    }
+  }
+  for (const [dateId, day] of Object.entries(overrides.value)) for (const [slot, override] of Object.entries(day.slots)) {
+    if (override.action === 'replace') { schedules[dateId] ||= {}; schedules[dateId][slot] = override.content; }
+    else { delete schedules[dateId]?.[slot]; if (schedules[dateId] && !Object.keys(schedules[dateId]).length) delete schedules[dateId]; }
+  }
+  for (const field of ['weeklyTemplate','weeklyRules','dateOverrides']) delete migrated[field];
+  migrated.dateSchedules = schedules;
+  return {ok:true,value:migrated};
+}
+
 const MIGRATION_REGISTRY = Object.freeze({
   1: migrateSchema1State,
   2: migrateSchema2State,
   3: migrateSchema3State,
   4: migrateSchema4State,
   5: migrateSchema5State,
-  6: migrateSchema6State
+  6: migrateSchema6State,
+  7: migrateSchema7State
 });
 
 export function migrateToCurrent(data, sourceSchemaVersion) {
@@ -1354,18 +1139,18 @@ export function summarizeState(state) {
   const holidayDates = new Set([...Object.keys(state.calendarHolidays || {}), ...Object.keys(state.customHolidays || {})]);
   return {
     currentYear: state.currentYear,
-    overrideDays: Object.keys(state.dateOverrides).length,
+    overrideDays: Object.keys(state.dateSchedules).length,
     eventDays: Object.keys(state.configEvents).length,
     holidayDays: holidayDates.size,
     calendarHolidayDays: Object.keys(state.calendarHolidays || {}).length,
     customHolidayDays: Object.keys(state.customHolidays || {}).length,
-    weeklyEntries: Object.values(state.weeklyRules).reduce((total, slots) => total + Object.values(slots).reduce((inside, segments) => inside + segments.length, 0), 0),
+
     countSettings: state.countSettings.length
   };
 }
 
 export function formatStateSummary(summary) {
-  return `年度 ${summary.currentYear} / 日別例外 ${summary.overrideDays}日 / 行事 ${summary.eventDays}日 / 祝日 ${summary.holidayDays}日 / 基本時間割 ${summary.weeklyEntries}規則 / 時数条件 ${summary.countSettings}件`;
+  return `年度 ${summary.currentYear} / 予定 ${summary.overrideDays}日 / 行事 ${summary.eventDays}日 / 祝日 ${summary.holidayDays}日 / 時数条件 ${summary.countSettings}件`;
 }
 
 export function serializePayload(state, now = new Date()) {

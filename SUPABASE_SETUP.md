@@ -8,6 +8,31 @@ SQL Editorで `supabase/migrations/202610120001_taskkanri_sync.sql` を実行す
 
 RLSを無効にしない。認証ユーザーにも直接更新権限を与えず、専用RPCでrevision比較・mutation重複検出・本人確認を行う。
 
+### 日付別予定への更新（2026-10-14）
+
+初期設定済みのDBでは `supabase/migrations/202610140001_day_schedules.sql` を先に実行し、その後PC・モバイルを公開する。初期migrationを再実行しない。追加migrationはRPCを置換し、`taskkanri_documents.legacy_payload` を追加するだけで、認証・RLS・権限・既存の文書は変更しない。
+
+旧contract 1/schema 7と新contract 2/schema 8を検証する。最新revisionによる新形式の保存が成功した時だけ、直前の旧payload全体を `legacy_payload` に一度保存する。変換後の旧形式保存は `app_update_required` で拒否する。原本は本人の既存RLS範囲で復旧できる。新形式で初めて作成した文書には旧原本はない。
+
+適用確認は個人の本文やUUIDを出さない次のSQLで行う。
+
+```sql
+select column_name, data_type from information_schema.columns
+where table_schema = 'public' and table_name = 'taskkanri_documents'
+  and column_name = 'legacy_payload';
+select payload->>'appSchemaVersion' as schema_version, count(*) as documents,
+  count(legacy_payload) as preserved_originals
+from public.taskkanri_documents group by 1;
+select p.proname, p.prosecdef, p.proconfig, p.proacl,
+  position('app_update_required' in pg_get_functiondef(p.oid)) > 0 as rejects_downgrade
+from pg_proc p where p.oid = 'public.save_taskkanri_document(bigint,uuid,jsonb)'::regprocedure;
+select relname, relrowsecurity from pg_class
+where oid in ('public.taskkanri_documents'::regclass,
+  'public.taskkanri_allowed_users'::regclass, 'public.taskkanri_mutations'::regclass);
+```
+
+公開を戻す場合もschema 8を読める版を使用する。旧形式への書込みを再開したり原本列を削除したりしない。
+
 ## 2. 本人専用アカウント
 
 Authentication → Users → Add user → Create new user。
@@ -59,6 +84,6 @@ pnpm preview
 
 DBテストはPGliteの独立したPostgres環境でRLS・権限・CAS・重複処理を実行する。利用者のプロジェクトへテスト用予定を混入しない。
 
-公開資産はdistだけ。SQL・テスト・仕様書・node_modules・私的バックアップをGitHub Pagesへ配布しない。今回の実装依頼はpush・公開の依頼を含まない。
+公開資産はdistだけ。SQL・テスト・仕様書・node_modules・私的バックアップをGitHub Pagesへ配布しない。今回の承認範囲にはフロント公開と追加DB migrationの適用を含む。
 
 サービスワーカーはMVPでは導入していない。開いている画面でのオフライン閲覧は対応するが、オフラインの初回起動は保証しない。

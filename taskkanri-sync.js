@@ -4,9 +4,9 @@ import {acquireClientId,syncStore} from './taskkanri-device-storage.mjs';
 import {mergePayload,toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
 const blockedCodes=new Set(['42501','22023','PGRST202','PGRST301']);
-function checked(result) {if(result.error){const e=new Error(result.error.code==='42501'?'このアカウントは同期を許可されていません。':result.error.code==='PGRST202'?'Supabaseの初期設定が必要です。':result.error.message);e.blocked=blockedCodes.has(result.error.code);e.permissionDenied=result.error.code==='42501';throw e}return result.data}
+function checked(result) {if(result.error){const e=new Error(result.error.message==='app_update_required'?'アプリを更新してください。未送信データは保持しています。':result.error.code==='42501'?'このアカウントは同期を許可されていません。':result.error.code==='PGRST202'?'Supabaseの初期設定が必要です。':result.error.message);e.blocked=blockedCodes.has(result.error.code);e.permissionDenied=result.error.code==='42501';throw e}return result.data}
 export function statusLabel(engine) {
- const stamp=engine?.updatedAt?new Date(engine.updatedAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';
+ const stamp=engine?.lastSuccessfulSyncAt?new Date(engine.lastSuccessfulSyncAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';
  return ({loading:'読み込み中',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
 }
 export class SyncController {
@@ -51,7 +51,7 @@ export class SyncController {
    onChange:engine=>{this.onStatus(statusLabel(engine),engine);},onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
   // Preserve a local master that was saved when writing the pending queue failed.
   const cache=this.engine.store.read('cache');if(cache)this.engine.validate(cache);
-  if(this.mode==='desktop' && cache && !this.engine.pending && !samePayload(toPayload(this.getState()),cache.payload)) {
+  if(this.mode==='desktop' && cache && !this.engine.pending && !samePayload(toPayload(this.getState()),toPayload(mergePayload(cache.payload,this.getState())))) {
     this.engine.payload=cache.payload;this.engine.revision=cache.revision;this.engine.queue(this.getState());
   }
   if(offline){this.engine.loadCached();this.engine.emit('offline');return;}
