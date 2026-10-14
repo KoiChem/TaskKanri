@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20261014-settings-ui-v12">
+<meta name="taskkanri-build-version" content="20261014-date-editor-v13">
 <meta name="taskkanri-schema-version" content="8">
 <title>タスク管理くん</title>
-<link rel="stylesheet" href="sync-ui.css?v=20261014-settings-ui-v12">
+<link rel="stylesheet" href="sync-ui.css?v=20261014-date-editor-v13">
 <style>
   :root { 
     --primary: #3182ce; --bg: #f8fafc; --border: #cbd5e0; --text: #2d3748;
@@ -325,7 +325,7 @@
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
-<link rel="stylesheet" href="settings-ui.css?v=20261014-settings-ui-v12">
+<link rel="stylesheet" href="settings-ui.css?v=20261014-date-editor-v13">
 </head>
 <body class="layout-portrait"> 
 
@@ -608,8 +608,8 @@
   </section>
   <section id="settings-events">
     <div class="settings-date-columns">
-      <section data-settings-section="events"><h3><label for="annual-text-ui">年間行事</label></h3><p id="annual-hint" class="settings-note">1行に1件。例：261014:職員会議</p><textarea id="annual-text-ui" aria-describedby="annual-hint events-error" spellcheck="false"></textarea><p id="events-error" class="settings-error" role="alert" tabindex="-1"></p></section>
-      <section data-settings-section="holidays"><h3><label for="holiday-text-ui">学校独自休日</label></h3><p id="holiday-hint" class="settings-note">1行に1件。例：261015:創立記念日</p><textarea id="holiday-text-ui" aria-describedby="holiday-hint holidays-error" spellcheck="false"></textarea><p id="holidays-error" class="settings-error" role="alert" tabindex="-1"></p><p class="settings-note">国民の祝日・振替休日は自動設定します。</p></section>
+      <section data-settings-section="events"><div class="date-editor-heading"><div><h3><label for="annual-text-ui">年間行事</label></h3><p id="annual-hint" class="settings-note">1行に1件。例：261014:職員会議</p></div><button type="button" onclick="openDateEditor('events',this)" aria-label="年間行事を編集" aria-haspopup="dialog" aria-controls="date-editor-dialog">編集</button></div><textarea id="annual-text-ui" aria-describedby="annual-hint events-error" spellcheck="false"></textarea><p id="events-error" class="settings-error" role="alert" tabindex="-1"></p></section>
+      <section data-settings-section="holidays"><div class="date-editor-heading"><div><h3><label for="holiday-text-ui">学校独自休日</label></h3><p id="holiday-hint" class="settings-note">1行に1件。例：261015:創立記念日</p></div><button type="button" onclick="openDateEditor('holidays',this)" aria-label="学校独自休日を編集" aria-haspopup="dialog" aria-controls="date-editor-dialog">編集</button></div><textarea id="holiday-text-ui" aria-describedby="holiday-hint holidays-error" spellcheck="false"></textarea><p id="holidays-error" class="settings-error" role="alert" tabindex="-1"></p><p class="settings-note">国民の祝日・振替休日は自動設定します。</p></section>
     </div>
   </section>
   <section id="settings-data"><h3>データとバックアップ</h3>
@@ -619,7 +619,13 @@
     <details class="settings-danger"><summary>端末のデータを削除</summary><p>クラウドとほかの端末の予定は削除しません。未送信データを保全してログアウトします。</p><button id="settings-reset-button" onclick="openResetModal()">この端末の予定と設定をすべて削除</button></details>
   </section>
 </div>
+<dialog id="date-editor-dialog" aria-labelledby="date-editor-title" aria-describedby="date-editor-note">
+  <header class="date-editor-header"><h2 id="date-editor-title"></h2><button type="button" onclick="closeDateEditor()" aria-label="閉じる">×</button></header>
+  <label class="date-editor-label" for="date-editor-text">1行に1件。YYMMDD:名称</label>
+  <textarea id="date-editor-text" spellcheck="false" aria-describedby="date-editor-note"></textarea>
+  <footer class="date-editor-footer"><p id="date-editor-note">閉じた後、設定画面の「変更を保存」で保存してください。</p><button type="button" onclick="closeDateEditor()">編集を終える</button></footer>
+</dialog>
 <dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261014-settings-ui-v12"></script>
+<script type="module" src="taskkanri-app.js?v=20261014-date-editor-v13"></script>
 </body></html>

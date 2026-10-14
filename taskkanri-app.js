@@ -21,7 +21,7 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20261014-settings-ui-v12';
+} from './taskkanri-core.mjs?v=20261014-date-editor-v13';
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
 import {scopedStorage} from './taskkanri-device-storage.mjs';
@@ -1543,6 +1543,21 @@ function closeSettingsView(){leaveSettings(()=>{document.getElementById('setting
 let timetableFromSettings=false;
 let pendingSettingsLeave=null,timetablePreview=null,timetableFingerprint='',timetableBusy=false,timetableDraft=false,timetableInvoker=null;
 function updateSettingsStatus(message=''){const dirty=settingsDirtySections.size>0;document.getElementById('settings-save').disabled=!dirty;document.getElementById('settings-status').textContent=message||(dirty?'未保存の変更があります':'保存済み');}
+let dateEditorSource=null,dateEditorInvoker=null;
+function openDateEditor(kind,invoker){
+ const source=document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui');
+ const editor=document.getElementById('date-editor-text'),dialog=document.getElementById('date-editor-dialog');
+ dateEditorSource=source;dateEditorInvoker=invoker;
+ document.getElementById('date-editor-title').textContent=kind==='events'?'年間行事を編集':'学校独自休日を編集';
+ editor.value=source.value;dialog.showModal();editor.focus({preventScroll:true});
+ editor.setSelectionRange(source.selectionStart,source.selectionEnd);editor.scrollTop=source.scrollTop;
+}
+function closeDateEditor(){
+ const dialog=document.getElementById('date-editor-dialog');if(!dialog.open)return;
+ const editor=document.getElementById('date-editor-text'),invoker=dateEditorInvoker;
+ if(dateEditorSource){dateEditorSource.setSelectionRange(editor.selectionStart,editor.selectionEnd);dateEditorSource.scrollTop=editor.scrollTop;}
+ dateEditorSource=null;dateEditorInvoker=null;dialog.close();invoker?.focus?.({preventScroll:true});
+}
 function collectBulkDateRows(kind){
  const input=document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui');
  try{return parseBulkDateRows(input.value,appState.currentYear,kind==='events'?appState.configEvents:appState.customHolidays);}catch(error){error.section=kind;throw error;}
@@ -1727,6 +1742,11 @@ function initApp() {
   settingsView?.addEventListener('change', event => markSettingsDirty(event.target));
   const timetableView=document.getElementById('timetable-view');
   for(const type of ['input','change'])timetableView?.addEventListener(type,event=>{timetableDraft=true;if(event.target.name==='timetable-mode')document.getElementById('empty-options').hidden=event.target.value!=='replace';document.getElementById('timetable-execute').hidden=true;});
+  document.getElementById('date-editor-text').addEventListener('input',event=>{
+    if(!dateEditorSource)return;
+    dateEditorSource.value=event.target.value;markSettingsDirty(dateEditorSource);
+  });
+  document.getElementById('date-editor-dialog').addEventListener('cancel',event=>{event.preventDefault();closeDateEditor();});
   document.getElementById('settings-leave-dialog')?.addEventListener('cancel',()=>{pendingSettingsLeave=null;});
   window.addEventListener('beforeunload',event=>{if(settingsDirtySections.size||timetableDraft){event.preventDefault();event.returnValue='';}});
 
@@ -1770,7 +1790,7 @@ Object.assign(window, {
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode, setBulkCalendarMonthLayout,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, applyBulkCalendarContextPreset, saveBulkCalendarContextHoliday, clearBulkCalendarContextHoliday, undoBulkCalendarChange,
-  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveSettings,showSelectedYear,openNextYear,openTimetableView,closeTimetableView,previewTimetable,executeTimetable,resolveSettingsLeave, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
+  openDateEditor, closeDateEditor, openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveSettings,showSelectedYear,openNextYear,openTimetableView,closeTimetableView,previewTimetable,executeTimetable,resolveSettingsLeave, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
   updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip
 });
