@@ -50,3 +50,9 @@ test('a second finger outside the agenda cancels the pending swipe',()=>{
  send(document,'pointerdown',200,{pointerId:2,isPrimary:false});send(area,'pointerup',240);
  assert.deepEqual(moves,[]);
 });
+
+test('date list opens with today one third down, with safe clamping at the start',()=>{
+ assert.equal(ui.dateListOpeningOffset(1200,900),900);
+ assert.equal(ui.dateListOpeningOffset(1200,900,68),968);
+ assert.equal(ui.dateListOpeningOffset(44,900),0);
+});

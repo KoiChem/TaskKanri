@@ -60,3 +60,5 @@ export function installAgendaSwipe(area,enabled,moveDay){
  area.addEventListener('pointercancel',()=>{gesture=null});
  area.addEventListener('click',event=>{if(Date.now()<suppressUntil){suppressUntil=0;event.preventDefault();event.stopImmediatePropagation()}},true);
 }
+
+export function dateListOpeningOffset(rowTop,viewportHeight,contentOffset=0){return Math.max(0,rowTop-viewportHeight/3+contentOffset)}

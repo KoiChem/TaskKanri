@@ -123,14 +123,14 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .date-button{border-radius:0;margin:0;isolation:isolate;background:transparent!important;box-shadow:none!important;outline:none!important;--day-fill:transparent}
 .date-button span{position:relative}
 .date-button::before{content:'';position:absolute;width:calc(100% - 4px);height:40px;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--day-fill);z-index:-1}
-.date-button.bg-sun-hol{--day-fill:#ffeded}
-.date-button.bg-sat{--day-fill:#edf6ff}
-.date-button.bg-fixed-off{--day-fill:#f5f8fb}
-.date-button.bg-no-class{--day-fill:#edffed}
-.date-button.bg-short{--day-fill:#ffffea}
-.date-button.bg-exam{--day-fill:#f6edff}
+.date-button.bg-sun-hol,.date-list-label.bg-sun-hol{--day-fill:#ffeded}
+.date-button.bg-sat,.date-list-label.bg-sat{--day-fill:#edf6ff}
+.date-button.bg-fixed-off,.date-list-label.bg-fixed-off{--day-fill:#f5f8fb}
+.date-button.bg-no-class,.date-list-label.bg-no-class{--day-fill:#edffed}
+.date-button.bg-short,.date-list-label.bg-short{--day-fill:#ffffea}
+.date-button.bg-exam,.date-list-label.bg-exam{--day-fill:#f6edff}
 .date-button.no-agenda,.date-button.no-agenda[aria-pressed=true]{font-size:8px;color:#a9b2bf}
-.date-button[aria-pressed=true]::after{content:'';position:absolute;width:calc(100% - 4px);height:40px;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;background:
+.date-button[aria-pressed=true]::after,.date-list-row[aria-pressed=true] .date-list-label::after{content:'';position:absolute;width:calc(100% - 4px);height:40px;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;background:
  linear-gradient(var(--blue),var(--blue)) left top / 6px 2px,
  linear-gradient(var(--blue),var(--blue)) left top / 2px 6px,
  linear-gradient(var(--blue),var(--blue)) right top / 6px 2px,
@@ -167,3 +167,13 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 #sync-status{display:block;height:auto;line-height:16px;text-align:center;grid-column:auto;grid-row:auto;font-size:11px;padding:0}
 .task-cycle{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:44px;min-width:44px;height:44px;padding:0;margin:0;border-radius:6px;touch-action:manipulation}
 .task-cycle .todo-badge{margin:0;line-height:1.7}
+
+.mobile-header h1 button{font:inherit;color:inherit;letter-spacing:inherit;line-height:inherit;padding:0;text-align:left;border-radius:0}
+#event-sheet.mobile-dialog .mobile-dialog-panel{width:100%;max-width:none;height:100%;max-height:100%;border-radius:0;padding:calc(env(safe-area-inset-top) + var(--standalone-blur-gap) + 4px) 0 calc(8px + env(safe-area-inset-bottom));display:flex;flex-direction:column;overflow:hidden}
+#event-sheet .sheet-heading{padding:0 16px}
+#date-list{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none}
+.date-list-row{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px;align-items:center;width:100%;height:44px;min-height:44px;border-radius:0;padding:0 16px;text-align:left;font-size:14px;color:#3f3f3f}
+.date-list-label{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;height:44px;font-variant-numeric:tabular-nums;--day-fill:transparent}
+.date-list-label::before{content:'';position:absolute;inset:2px;background:var(--day-fill);z-index:-1}
+.date-list-event{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.date-list-row[data-today=true]{font-weight:700;color:#000}

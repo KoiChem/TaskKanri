@@ -44,3 +44,13 @@ export function mobileDayBackground(date,state){
  if(weekday===6)return 'bg-sat';
  return policy.isFixedOffActive?'bg-fixed-off':'';
 }
+
+export function mobileDateRows(state,today){
+ const bounds=academicYearBounds(state.currentYear),rows=[];
+ for(let id=bounds.start;id<=bounds.end;id=addDays(id,1))rows.push({
+  id,label:id.replaceAll('-','').slice(2)+APP_CONFIG.daysStr[new Date(id+'T00:00:00Z').getUTCDay()],
+  event:stripHtml(state.configEvents[id]||getHolidayName(id,state)||'').replace(/\s+/g,' ').trim(),
+  background:mobileDayBackground(id,state),today:id===today
+ });
+ return rows;
+}

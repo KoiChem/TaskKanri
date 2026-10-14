@@ -63,3 +63,14 @@ test('mobile months and weeks start on Monday, including Sundays and year edges'
   assert.ok(weeks.flatMap(page=>page.days).includes(`${year+1}-03-31`));
  }
 });
+
+test('vertical date list covers the academic year with compact labels and existing day colors',()=>{
+ const state=defaultState();state.currentYear=2026;state.configEvents['2026-10-31']='開校記念日\n午後の行事';
+ const rows=mobile.mobileDateRows(state,'2026-10-31');
+ assert.equal(rows.length,365);assert.equal(rows[0].id,'2026-04-01');assert.equal(rows.at(-1).id,'2027-03-31');
+ const row=rows.find(row=>row.id==='2026-10-31');
+ assert.deepEqual(row,{id:'2026-10-31',label:'261031土',event:'開校記念日 午後の行事',background:'bg-sat',today:true});
+ assert.equal(rows.filter(row=>row.today).length,1);
+ assert.equal(rows.find(row=>row.id==='2026-11-03').event,'文化の日');
+ state.currentYear=2027;assert.equal(mobile.mobileDateRows(state,'2028-02-29').length,366);
+});
