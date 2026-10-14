@@ -1,5 +1,5 @@
 async (page) => {
- const base=await page.evaluate(()=>location.origin);
+ const base=await page.evaluate(()=>new URL('.',location.href).href.replace(/\/$/,''));
  const check=(ok,message)=>{if(!ok)throw new Error(message)};
  const context=await page.context().browser().newContext({viewport:{width:1280,height:900}}),p=await context.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
  await context.route('https://fethojoncgermqwzrwtw.supabase.co/**',r=>r.abort());await p.goto(base+'/index.html');
