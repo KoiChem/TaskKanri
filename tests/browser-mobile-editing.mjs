@@ -39,10 +39,20 @@ async (page) => {
   check(await input().locator('.todo-badge').getAttribute('data-state')==='0','first tap changed task state');
   check(await p.locator('#task-sheet').isHidden(),'slot still opens detail dialog');
   const editing=await p.locator('[data-slot="１限"]').boundingBox();check(Math.abs(geometry.width-editing.width)<1&&Math.abs(geometry.height-editing.height)<1,'editing enlarged slot');
-  await input().locator('.todo-badge').click();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','inline state did not cycle');check(writes===before,'draft silently saved');
+  await input().evaluate(e=>{e.focus({preventScroll:true});const range=document.createRange();range.setStart(e.querySelector('b').firstChild,1);range.collapse(true);const selection=getSelection();selection.removeAllRanges();selection.addRange(range)});
+  await input().locator('.todo-badge').tap();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','inline state did not cycle');check(writes===before,'draft silently saved');
+  const caret=await input().evaluate(e=>{const selection=getSelection();return {selected:selection.toString(),collapsed:selection.isCollapsed,inBody:selection.anchorNode===e.querySelector('b').firstChild,offset:selection.anchorOffset,focused:document.activeElement===e}});
+  check(caret.selected===''&&caret.collapsed&&caret.inBody&&caret.offset===1&&caret.focused,'task tap selected icon or moved body caret: '+JSON.stringify(caret));
+  for(const state of ['2','3','0','1']){await input().locator('.todo-badge').click();check(await input().locator('.todo-badge').getAttribute('data-state')===state,'repeated tap cycled more than once')}
+  await input().locator('b').dblclick();check(await p.evaluate(()=>getSelection().toString())==='化学','body text selection was disabled');
   await select('2026-10-16');await select('2026-10-15');await open();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','navigation lost draft');
   await p.reload();await p.locator('.slot-content').first().waitFor();await select('2026-10-15');await open();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','reload lost draft');
   await save();check(doc.payload.state.dateSchedules['2026-10-15']['１限'].includes('<b>化学</b>'),'save lost rich formatting');check(doc.payload.state.dateSchedules['2026-10-15']['１限'].includes('data-state="1"'),'save lost task state');
+  await open('３限');await input().evaluate(e=>{e.innerHTML='<span class="todo-badge state-0" data-state="0">未</span> スクロール確認<br>'+('次の行<br>'.repeat(30));e.dispatchEvent(new Event('input',{bubbles:true}));e.scrollTop=0});
+  const cdp=await context.newCDPSession(p),badgeBox=await input().locator('.todo-badge').boundingBox(),x=badgeBox.x+badgeBox.width/2,y=badgeBox.y+8;
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});for(let i=1;i<=5;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y-i*12}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await p.waitForFunction(()=>document.querySelector('.is-editing .rich-text').scrollTop>0);check(await input().locator('.todo-badge').getAttribute('data-state')==='0','scroll gesture changed task state');await cdp.detach();
+  await input().locator('.todo-badge').focus();await input().locator('.todo-badge').press('Enter');check(await input().locator('.todo-badge').getAttribute('data-state')==='1','keyboard Enter task operation');await input().locator('.todo-badge').press('Space');check(await input().locator('.todo-badge').getAttribute('data-state')==='2','keyboard Space task operation');await p.locator('[data-slot-cancel]').click();
   await open('朝');await input().fill('朝の新規予定');
   await input().evaluate(e=>{const data=new DataTransfer();data.setData('text/html','<b>貼付</b><script>window.unsafePaste=true</script>');e.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}))});
   check(await input().locator('b').innerText()==='貼付'&&await p.evaluate(()=>!window.unsafePaste),'rich paste safety');

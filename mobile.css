@@ -197,7 +197,7 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .slot-content:focus-visible{outline:2px solid var(--blue)}
 .slot-content.is-editing{flex:none;overflow:hidden;box-shadow:inset 0 0 0 1.5px #7197dd;cursor:text}
 .slot-content.is-editing .rich-text{height:100%;overflow:auto;overscroll-behavior:contain;outline:none;padding:0 2px;white-space:normal;user-select:text;-webkit-user-select:text}
-.slot-content.is-editing .todo-badge{display:inline-block;min-width:44px;min-height:44px;line-height:20px;border:solid transparent;border-width:0 10px 24px;padding:0 2px;background-clip:padding-box;text-align:center;cursor:pointer;user-select:all;-webkit-user-select:all;vertical-align:top}
+.slot-content.is-editing .todo-badge{display:inline-block;min-width:44px;min-height:44px;line-height:20px;border:solid transparent;border-width:0 10px 24px;padding:0 2px;background-clip:padding-box;text-align:center;cursor:pointer;user-select:none;-webkit-user-select:none;vertical-align:top}
 .slot-content.jump-highlight{box-shadow:inset 0 0 0 2px #7197dd;background:#f0f5ff}
 body.slot-editing #agenda{padding-bottom:calc(100px + var(--slot-keyboard-cover,0px))}
 #slot-editor-tools{position:fixed;left:0;right:0;z-index:30;max-height:60dvh;overflow:auto;padding:4px max(8px,env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));background:#f6f8fc;border-top:1px solid var(--line);box-shadow:0 -3px 12px #26334b12}
