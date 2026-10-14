@@ -21,14 +21,14 @@ import {
   serializePayload,
   stripHtml,
   weekdayForDateId
-} from './taskkanri-core.mjs?v=20261014-daily-schedules-v11';
+} from './taskkanri-core.mjs?v=20261014-settings-ui-v12';
 import {SyncController} from './taskkanri-sync.js';
 import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
 import {scopedStorage} from './taskkanri-device-storage.mjs';
 import {toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
 import {planTimetableInput} from './taskkanri-timetable.mjs';
-import {parseBulkDateRows,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
+import {parseBulkDateRows,formatBulkDateText,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
 import {mobileSyncLabel} from './mobile-ui.mjs';
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1500,7 +1500,7 @@ function renderSettingsTables() {
       const instructionDay = Boolean(appState.instructionDayConfig?.[day]);
       const row = el('tr'); row.dataset.dayRow = String(day);
       const label = el('th', APP_CONFIG.daysStr[day]); label.scope = 'row';
-      for(const [title,checked] of [['すべて表示',true],['すべて非表示',false]]){const toggle=el('button',title);toggle.type='button';toggle.className='btn-s day-slot-all-toggle';toggle.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日の枠を${title}`);toggle.onclick=()=>{qa(`#day-slot-tbody input[data-day="${day}"][data-slot]`).forEach(input=>{input.checked=checked;});settingsDirtySections.add('schedule');updateSettingsStatus();};label.append(toggle);} row.appendChild(label);
+      row.appendChild(label);
       const instructionCell = el('td'); const instructionLabel = el('label'); instructionLabel.className = 'instruction-day-control';
       const instruction = el('input'); instruction.type = 'checkbox'; instruction.dataset.instructionDay = String(day); instruction.checked = instructionDay;
       instruction.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日を授業日にする`);
@@ -1508,9 +1508,11 @@ function renderSettingsTables() {
       instruction.addEventListener('change', () => syncInstructionDayState(day, instruction.checked)); instructionLabel.append(instruction, status); instructionCell.appendChild(instructionLabel); row.appendChild(instructionCell);
       APP_CONFIG.slotsAll.forEach(slot => {
         const cell = el('td'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.dataset.day = String(day); checkbox.dataset.slot = slot; checkbox.checked = Boolean(appState.daySlotConfig[day][slot]);
-        checkbox.disabled = !instructionDay && PERIOD_SLOTS.has(slot); checkbox.title = checkbox.disabled ? '固定休業日のため非表示（設定は保持）' : slot;
+        checkbox.setAttribute('aria-label', `${APP_CONFIG.daysStr[day]}曜日 ${slot}を表示`); checkbox.disabled = !instructionDay && PERIOD_SLOTS.has(slot); checkbox.title = checkbox.disabled ? '固定休業日のため非表示（設定は保持）' : slot;
         checkbox.addEventListener('change', () => syncTmplState(day, slot, checkbox.checked)); cell.appendChild(checkbox); row.appendChild(cell);
       });
+      const actions=el('td');actions.className='day-slot-actions';
+      for(const [title,checked] of [['すべて表示',true],['すべて非表示',false]]){const toggle=el('button',title);toggle.type='button';toggle.className='btn-s day-slot-all-toggle';toggle.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日の枠を${title}`);toggle.onclick=()=>{qa(`#day-slot-tbody input[data-day="${day}"][data-slot]`).forEach(input=>{input.checked=checked;});settingsDirtySections.add('schedule');updateSettingsStatus();};actions.append(toggle);} row.append(actions);
       dayBody.appendChild(row);
     });
   }
@@ -1526,11 +1528,11 @@ function openSettingsView() {
   const range = getSmartDateRange(); const start = document.getElementById('tmpl-start'); const end = document.getElementById('tmpl-end'); if (start) start.value = range.start; if (end) end.value = range.end;
   const layout = document.querySelector(`input[name="layout-mode"][value="${appState.isLandscapeMode ? 'landscape' : 'portrait'}"]`); if (layout) layout.checked = true;
   renderSettingsTables();
-  const bounds = academicYearBounds(appState.currentYear);
-  const annual = document.getElementById('annual-text-ui'); if (annual) annual.value = Object.keys(appState.configEvents).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.configEvents[key])}`).join('\n');
-  const holidays = document.getElementById('holiday-text-ui'); if (holidays) holidays.value = Object.keys(appState.customHolidays).filter(key => key >= bounds.start && key <= bounds.end).sort().map(key => `${toYYMMDD(key)}:${stripHtml(appState.customHolidays[key])}`).join('\n');
+  document.getElementById('annual-text-ui').value=formatBulkDateText(appState.configEvents,appState.currentYear);
+  document.getElementById('holiday-text-ui').value=formatBulkDateText(appState.customHolidays,appState.currentYear);
+  for(const kind of ['events','holidays']){document.getElementById(`${kind}-error`).textContent='';document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui').removeAttribute('aria-invalid');}
   const usage = document.getElementById('storage-usage-disp'); if (usage) usage.textContent = ((storageService?.ownedKeys?.() || []).reduce((sum, key) => sum + ((storageLike.getItem(key)?.length || 0) + key.length) * 2, 0) / 1024).toFixed(2);
-  renderDateRows('events',appState.configEvents);renderDateRows('holidays',appState.customHolidays);renderQuarantineUI();document.getElementById('settings-recovery').open=storageService.isReadOnly()||storageService.getQuarantineRecords().length>0;document.getElementById('settings-reset-button').textContent=cloudUser?'この端末の保存データを削除':'この端末の予定と設定をすべて削除'; settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block'; isHydratingSettings = false;updateSettingsStatus();document.getElementById('next-year-button').textContent=`${appState.currentYear+1}年度を開く`;document.getElementById('settings-year-label').textContent=`${appState.currentYear}年度（${appState.currentYear}年4月〜${appState.currentYear+1}年3月）`;
+  renderQuarantineUI();document.getElementById('settings-recovery').open=storageService.isReadOnly()||storageService.getQuarantineRecords().length>0;document.getElementById('settings-reset-button').textContent=cloudUser?'この端末の保存データを削除':'この端末の予定と設定をすべて削除'; settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block';document.getElementById('settings-view').scrollTop=0; isHydratingSettings = false;updateSettingsStatus();document.getElementById('next-year-button').textContent=`${appState.currentYear+1}年度を開く`;document.getElementById('settings-year-label').textContent=`${appState.currentYear}年度（${appState.currentYear}年4月〜${appState.currentYear+1}年3月）`;
 }
 function markSettingsDirty(target) {
   if (isHydratingSettings || !(target instanceof Element)) return;
@@ -1541,17 +1543,17 @@ function closeSettingsView(){leaveSettings(()=>{document.getElementById('setting
 let timetableFromSettings=false;
 let pendingSettingsLeave=null,timetablePreview=null,timetableFingerprint='',timetableBusy=false,timetableDraft=false,timetableInvoker=null;
 function updateSettingsStatus(message=''){const dirty=settingsDirtySections.size>0;document.getElementById('settings-save').disabled=!dirty;document.getElementById('settings-status').textContent=message||(dirty?'未保存の変更があります':'保存済み');}
-function renderDateRows(kind,map){const bounds=academicYearBounds(appState.currentYear);const root=document.getElementById(`${kind}-rows`);root.replaceChildren();Object.entries(map).filter(([date])=>date>=bounds.start&&date<=bounds.end).sort().forEach(([date,name])=>addDateRow(kind,date,stripHtml(name),false,name));}
-function addDateRow(kind,date='',name='',dirty=true,originalHtml=undefined){const root=document.getElementById(`${kind}-rows`),row=el('div');row.className='date-edit-row';if(originalHtml!==undefined){row.dataset.originalDate=date;row.dataset.originalName=name;row.dataset.originalHtml=originalHtml;}const input=el('input');input.type='date';input.value=date;input.setAttribute('aria-label',kind==='events'?'行事の日付':'休日の日付');const bounds=academicYearBounds(appState.currentYear);input.min=bounds.start;input.max=bounds.end;const text=el('input');text.type='text';text.value=name;text.setAttribute('aria-label',kind==='events'?'行事名':'休日名');const remove=el('button','削除');remove.type='button';remove.onclick=()=>{row.remove();settingsDirtySections.add(kind);updateSettingsStatus();};row.append(input,text,remove);root.append(row);if(dirty){settingsDirtySections.add(kind);updateSettingsStatus();input.focus();}}
-function collectDateRows(kind){return qa(`#${kind}-rows .date-edit-row`).map(row=>({date:row.querySelector('input[type=date]').value,name:row.querySelector('input[type=text]').value,originalDate:row.dataset.originalDate,originalName:row.dataset.originalName,originalHtml:row.dataset.originalHtml}));}
-function importDateRows(kind){const id=kind==='events'?'annual-text-ui':'holiday-text-ui',error=document.getElementById(`${kind}-error`);try{const rows=parseBulkDateRows(document.getElementById(id).value,appState.currentYear),old=collectDateRows(kind);if(!showConfirm(`現在年度の一覧 ${old.length}行を ${rows.length}行に置き換えます（増減 ${rows.length-old.length}行）。入力内容を取り込みますか？`))return;document.getElementById(`${kind}-rows`).replaceChildren();rows.forEach(row=>addDateRow(kind,row.date,row.name,false));settingsDirtySections.add(kind);updateSettingsStatus();error.textContent='';}catch(e){error.textContent=e.message;error.focus();}}
+function collectBulkDateRows(kind){
+ const input=document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui');
+ try{return parseBulkDateRows(input.value,appState.currentYear,kind==='events'?appState.configEvents:appState.customHolidays);}catch(error){error.section=kind;throw error;}
+}
 function saveSettings(){
  const next=clone(appState);try{
   next.isLandscapeMode=q('input[name=layout-mode]:checked').value==='landscape';
   qa('input[data-time-group]').forEach(input=>{if(!input.disabled){if(!input.validity.valid||(input.value&&!/^\d{2}:\d{2}$/.test(input.value))){input.focus();throw new Error('チャイム時刻を確認してください。');}next.timeConfig[input.dataset.timeGroup][input.dataset.slot]=input.value;}});
   qa('#day-slot-tbody input[data-slot]').forEach(input=>next.daySlotConfig[input.dataset.day][input.dataset.slot]=input.checked);
   qa('#day-slot-tbody input[data-instruction-day]').forEach(input=>next.instructionDayConfig[input.dataset.instructionDay]=input.checked);
-  try{Object.assign(next,planSettingsDateMaps(appState,{events:settingsDirtySections.has('events')?collectDateRows('events'):undefined,holidays:settingsDirtySections.has('holidays')?collectDateRows('holidays'):undefined}));for(const kind of ['events','holidays'])document.getElementById(`${kind}-error`).textContent='';}catch(e){const node=document.getElementById(`${e.section}-error`);node.textContent=e.message;node.focus();return false;}
+  try{Object.assign(next,planSettingsDateMaps(appState,{events:settingsDirtySections.has('events')?collectBulkDateRows('events'):undefined,holidays:settingsDirtySections.has('holidays')?collectBulkDateRows('holidays'):undefined}));for(const kind of ['events','holidays']){document.getElementById(`${kind}-error`).textContent='';document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui').removeAttribute('aria-invalid');}}catch(e){const node=document.getElementById(`${e.section}-error`);node.textContent=e.message;const input=document.getElementById(e.section==='events'?'annual-text-ui':'holiday-text-ui');input.setAttribute('aria-invalid','true');input.scrollIntoView({block:'center'});input.focus();return false;}
   if(!commitState(state=>Object.assign(state,next),{historyLabel:'設定の保存',historyScope:'settings'}))return false;
   settingsDirtySections.clear();document.body.classList.toggle('layout-landscape',next.isLandscapeMode);document.body.classList.toggle('layout-portrait',!next.isLandscapeMode);refreshMainUI();updateSettingsStatus(syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました');return true;
  }catch(e){updateSettingsStatus(e.message);return false;}
@@ -1768,7 +1770,7 @@ Object.assign(window, {
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode, setBulkCalendarMonthLayout,
   toggleBulkCalendarDate, toggleBulkCalendarMonth, toggleBulkCalendarWeekday, applyBulkCalendarPreset, applyBulkCalendarHoliday, applyBulkCalendarContextPreset, saveBulkCalendarContextHoliday, clearBulkCalendarContextHoliday, undoBulkCalendarChange,
-  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveSettings,showSelectedYear,openNextYear,openTimetableView,closeTimetableView,previewTimetable,executeTimetable,addDateRow,importDateRows,resolveSettingsLeave, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
+  openSettingsView, closeSettingsView, toggleDayRow, syncTmplState, saveSettings,showSelectedYear,openNextYear,openTimetableView,closeTimetableView,previewTimetable,executeTimetable,resolveSettingsLeave, exportData, importData, openResetModal, closeResetModal, executeReset, downloadQuarantinedData, deleteAllQuarantinedData,
   openDateListContextMenu, closeDateListContextMenu, applyDateListContextPreset, saveDateListContextHoliday, clearDateListContextHoliday,
   updateAnnualEvent, updateSlot, updateGlobalTask, undoHistory, redoHistory, showTooltip, hideTooltip
 });

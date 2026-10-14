@@ -1,4 +1,9 @@
-import {academicYearBounds,isValidIsoDate,escapeHtmlText,sanitizeHtml} from './taskkanri-core.mjs';
+import {academicYearBounds,isValidIsoDate,escapeHtmlText,sanitizeHtml,stripHtml} from './taskkanri-core.mjs';
+function bulkDateName(html){return stripHtml(String(html).replace(/<br\s*\/?>/gi,' ')).replace(/[\r\n]+/g,' ').trim();}
+export function formatBulkDateText(map,year){
+ const bounds=academicYearBounds(year);
+ return Object.entries(map).filter(([date])=>date>=bounds.start&&date<=bounds.end).sort(([a],[b])=>a.localeCompare(b)).map(([date,html])=>`${date.slice(2).replaceAll('-','')}:${bulkDateName(html)}`).join('\n');
+}
 export function validateDateRows(rows,year){
  const bounds=academicYearBounds(year),result={};
  rows.forEach((row,index)=>{
@@ -9,13 +14,17 @@ export function validateDateRows(rows,year){
   result[row.date]=row.originalDate===row.date&&row.originalName===row.name&&typeof row.originalHtml==='string'?sanitizeHtml(row.originalHtml):escapeHtmlText(row.name.trim());
  });return result;
 }
-export function parseBulkDateRows(text,year){
- const rows=[];String(text).split(/\r?\n/).forEach((line,index)=>{
+export function parseBulkDateRows(text,year,originalMap={}){
+ const rows=[],seen=new Set();String(text).split(/\r?\n/).forEach((line,index)=>{
   if(!line.trim())return;const match=line.match(/^\s*(\d{2})(\d{2})(\d{2}):(.*)$/);
   if(!match)throw new Error(`${index+1}行目: YYMMDD:名前で入力してください。`);
-  const row={date:`20${match[1]}-${match[2]}-${match[3]}`,name:match[4].trim()};
-  try{validateDateRows([row],year);}catch(error){throw new Error(`${index+1}行目: ${error.message.replace(/^1行目: /,'')}`);}rows.push(row);
- });validateDateRows(rows,year);return rows;
+  const calendarYear=[year,year+1].find(value=>value%100===Number(match[1]))??2000+Number(match[1]);
+  const row={date:`${calendarYear}-${match[2]}-${match[3]}`,name:match[4].trim()};
+  try{validateDateRows([row],year);if(seen.has(row.date))throw new Error('日付が重複しています。');}catch(error){throw new Error(`${index+1}行目: ${error.message.replace(/^1行目: /,'')}`);}
+  seen.add(row.date);
+  if(Object.hasOwn(originalMap,row.date)&&bulkDateName(originalMap[row.date])===row.name)Object.assign(row,{originalDate:row.date,originalName:row.name,originalHtml:originalMap[row.date]});
+  rows.push(row);
+ });return rows;
 }
 export function summarizeTimetableChanges(changes){return {days:new Set(changes.map(x=>x.dateId)).size,slots:changes.length,deleted:changes.filter(x=>!x.after).length,tasks:changes.filter(x=>/todo-badge/.test(x.before)).length};}
 export function planSettingsDateMaps(state,drafts){

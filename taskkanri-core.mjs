@@ -7,9 +7,9 @@
  */
 
 export const APP_CONFIG = Object.freeze({
-  displayVersion: '76',
+  displayVersion: '77',
   compatibilityVersion: '73',
-  buildVersion: '20261014-daily-schedules-v11',
+  buildVersion: '20261014-settings-ui-v12',
   schemaVersion: 8,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',

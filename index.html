@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20261014-daily-schedules-v11">
+<meta name="taskkanri-build-version" content="20261014-settings-ui-v12">
 <meta name="taskkanri-schema-version" content="8">
 <title>タスク管理くん</title>
-<link rel="stylesheet" href="sync-ui.css?v=20261014-daily-schedules-v11">
+<link rel="stylesheet" href="sync-ui.css?v=20261014-settings-ui-v12">
 <style>
   :root { 
     --primary: #3182ce; --bg: #f8fafc; --border: #cbd5e0; --text: #2d3748;
@@ -325,7 +325,7 @@
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
-<link rel="stylesheet" href="settings-ui.css?v=20261014-daily-schedules-v11">
+<link rel="stylesheet" href="settings-ui.css?v=20261014-settings-ui-v12">
 </head>
 <body class="layout-portrait"> 
 
@@ -359,7 +359,6 @@
     <button class="btn-settings" title="日付の一括設定" onclick="openBulkCalendarModal()" aria-label="日付の一括設定">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="14" x2="8.01" y2="14"></line><line x1="12" y1="14" x2="12.01" y2="14"></line><line x1="16" y1="14" x2="16.01" y2="14"></line><line x1="8" y1="18" x2="8.01" y2="18"></line><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
     </button>
-    <button class="btn-settings" title="時間割をまとめて入力" onclick="openTimetableView()" aria-label="時間割をまとめて入力">表</button>
     <button class="btn-settings" title="各種予定登録・詳細設定" onclick="openSettingsView()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
     </button>
@@ -588,13 +587,39 @@
 </div>
 
 <div id="settings-view">
-<header class="settings-header"><button onclick="closeSettingsView()">← 戻る</button><h2>設定</h2><span id="settings-status" role="status">保存済み</span><button id="settings-save" class="btn-save" onclick="saveSettings()" disabled>変更を保存</button><nav><a href="#settings-display">表示</a><a href="#settings-schedule">予定枠と時刻</a><a href="#settings-events">行事・休日</a><a href="#settings-data">データ</a></nav></header>
-<section id="settings-display" data-settings-section="basic"><h3>表示と年度</h3><p id="settings-year-label"></p><label>表示する年度 <input type="number" id="academic-year-input" min="2000" max="2100"></label><button onclick="showSelectedYear()">選んだ年度を表示</button><button id="next-year-button" onclick="openNextYear()">次年度を開く</button><p>入力済みの予定や行事を保ったまま年度を表示します。</p><fieldset class="layout-options"><legend>画面レイアウト</legend><label><input type="radio" name="layout-mode" value="portrait"><span class="layout-diagram portrait-diagram" aria-hidden="true">メイン<br>サブ　サブ</span>縦画面（メイン上・サブ下）</label><label><input type="radio" name="layout-mode" value="landscape"><span class="layout-diagram landscape-diagram" aria-hidden="true">メイン　サブ<br>　　　　サブ</span>横画面（メイン左・サブ右）</label></fieldset><button onclick="openTimetableView()">時間割をまとめて入力</button></section>
-<section id="settings-schedule" data-settings-section="schedule"><h3>予定枠と開始時刻</h3><p>授業日と表示する枠を選びます。非表示にしても予定は保持します。</p><div class="settings-schedule-grid"><section><h4>曜日ごとの授業日・表示する枠</h4><div class="day-slot-scroll"><table class="tmpl-table day-slot-table"><thead><tr><th>曜日</th><th>授業日</th><th>朝</th><th>１</th><th>２</th><th>３</th><th>４</th><th>昼</th><th>５</th><th>６</th><th>７</th><th>放</th></tr></thead><tbody id="day-slot-tbody"></tbody></table></div></section><section><h4>チャイム時刻</h4><table class="time-table"><thead><tr><th>時限</th><th>通常時程</th><th>短縮時程</th><th>考査時程</th></tr></thead><tbody id="time-config-tbody"></tbody></table></section></div></section>
-<section id="settings-events"><h3>年間行事と学校の休日</h3><div class="settings-date-columns"><section data-settings-section="events"><h4>年間行事</h4><div id="events-rows"></div><button onclick="addDateRow('events')">行を追加</button><p id="events-error" class="settings-error" role="alert" tabindex="-1"></p><details><summary>まとめて貼り付け</summary><p>現在年度の一覧を置き換える下書きです。例: 261014:職員会議</p><textarea id="annual-text-ui" aria-label="年間行事の一括入力"></textarea><button onclick="importDateRows('events')">入力内容を確認</button></details></section><section data-settings-section="holidays"><h4>学校の休日</h4><div id="holidays-rows"></div><button onclick="addDateRow('holidays')">行を追加</button><p id="holidays-error" class="settings-error" role="alert" tabindex="-1"></p><details><summary>まとめて貼り付け</summary><p>現在年度の一覧を置き換える下書きです。例: 261014:職員会議</p><textarea id="holiday-text-ui" aria-label="学校の休日の一括入力"></textarea><button onclick="importDateRows('holidays')">入力内容を確認</button></details></section></div><p>国民の祝日・振替休日は暦データから自動設定します。</p></section>
-<section id="settings-data"><h3>データとバックアップ</h3><button onclick="exportData()">ファイルに書き出す</button><button onclick="document.getElementById('import-file').click()">ファイルから読み込む</button><details><summary>この端末の保存容量</summary><p>現在のデータ使用量: <span id="storage-usage-disp">0</span> KB</p><p>保存に失敗した場合はデータを書き出し、端末の空き容量を確認してください。</p></details><details id="settings-recovery"><summary>読み込めなかったデータの保全・復旧</summary><p id="storage-guard-status"></p><div id="quarantine-list" class="quarantine-list"></div><button onclick="downloadQuarantinedData()">保全データを書き出す</button><button onclick="deleteAllQuarantinedData()">保全データを削除</button></details><section class="settings-danger"><h4>端末のデータを削除</h4><p>同期利用中もクラウドとほかの端末の予定は削除しません。未送信データを保全してログアウトします。</p><button id="settings-reset-button" onclick="openResetModal()">この端末の予定と設定をすべて削除</button></section></section>
+  <header class="settings-header">
+    <button onclick="closeSettingsView()">← 戻る</button><h2>設定</h2>
+    <div class="settings-save-actions"><span id="settings-status" role="status">保存済み</span><button id="settings-save" class="btn-save" onclick="saveSettings()" disabled>変更を保存</button></div>
+  </header>
+  <nav class="settings-nav" aria-label="設定内の移動"><a href="#settings-display">表示・年度</a><a href="#settings-schedule">時間割・チャイム</a><a href="#settings-events">行事・休日</a><a href="#settings-data">データ</a></nav>
+  <section id="settings-display" data-settings-section="basic">
+    <h3>表示と年度</h3>
+    <div class="settings-row"><label for="academic-year-input">表示する年度</label><input type="number" id="academic-year-input" min="2000" max="2100"><div class="button-group"><button onclick="showSelectedYear()">選んだ年度を表示</button><button id="next-year-button" onclick="openNextYear()">次年度を開く</button></div></div>
+    <p id="settings-year-label" class="settings-note"></p>
+    <fieldset class="layout-options"><legend>画面レイアウト</legend><label><input type="radio" name="layout-mode" value="portrait">縦画面（メイン上・サブ下）</label><label><input type="radio" name="layout-mode" value="landscape">横画面（メイン左・サブ右）</label></fieldset>
+  </section>
+  <section id="settings-schedule" data-settings-section="schedule">
+    <div class="settings-section-heading"><h3>時間割とチャイム</h3><button onclick="openTimetableView()">時間割をまとめて入力</button></div>
+    <p class="settings-note">指定期間の予定に追加・上書きできます。</p>
+    <div class="settings-schedule-grid">
+      <section><h4>曜日ごとの授業日・表示コマ</h4><div class="day-slot-scroll"><table class="tmpl-table day-slot-table"><thead><tr><th>曜日</th><th>授業日</th><th>朝</th><th>１</th><th>２</th><th>３</th><th>４</th><th>昼</th><th>５</th><th>６</th><th>７</th><th>放</th><th>まとめて変更</th></tr></thead><tbody id="day-slot-tbody"></tbody></table></div><p class="settings-note">非表示にしても予定は保持します。</p></section>
+      <section><h4>チャイム時刻</h4><table class="time-table"><thead><tr><th>時限</th><th>通常時程</th><th>短縮時程</th><th>考査時程</th></tr></thead><tbody id="time-config-tbody"></tbody></table></section>
+    </div>
+  </section>
+  <section id="settings-events">
+    <div class="settings-date-columns">
+      <section data-settings-section="events"><h3><label for="annual-text-ui">年間行事</label></h3><p id="annual-hint" class="settings-note">1行に1件。例：261014:職員会議</p><textarea id="annual-text-ui" aria-describedby="annual-hint events-error" spellcheck="false"></textarea><p id="events-error" class="settings-error" role="alert" tabindex="-1"></p></section>
+      <section data-settings-section="holidays"><h3><label for="holiday-text-ui">学校独自休日</label></h3><p id="holiday-hint" class="settings-note">1行に1件。例：261015:創立記念日</p><textarea id="holiday-text-ui" aria-describedby="holiday-hint holidays-error" spellcheck="false"></textarea><p id="holidays-error" class="settings-error" role="alert" tabindex="-1"></p><p class="settings-note">国民の祝日・振替休日は自動設定します。</p></section>
+    </div>
+  </section>
+  <section id="settings-data"><h3>データとバックアップ</h3>
+    <div class="button-group"><button onclick="exportData()">ファイルに書き出す</button><button onclick="document.getElementById('import-file').click()">ファイルから読み込む</button></div>
+    <details><summary>この端末の保存容量</summary><p>現在のデータ使用量: <span id="storage-usage-disp">0</span> KB</p><p>保存に失敗した場合はデータを書き出し、端末の空き容量を確認してください。</p></details>
+    <details id="settings-recovery"><summary>読み込めなかったデータの保全・復旧</summary><p id="storage-guard-status"></p><div id="quarantine-list" class="quarantine-list"></div><div class="button-group"><button onclick="downloadQuarantinedData()">保全データを書き出す</button><button onclick="deleteAllQuarantinedData()">保全データを削除</button></div></details>
+    <details class="settings-danger"><summary>端末のデータを削除</summary><p>クラウドとほかの端末の予定は削除しません。未送信データを保全してログアウトします。</p><button id="settings-reset-button" onclick="openResetModal()">この端末の予定と設定をすべて削除</button></details>
+  </section>
 </div>
-<dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></dialog>
+<dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261014-pc-mobile-ux"></script>
+<script type="module" src="taskkanri-app.js?v=20261014-settings-ui-v12"></script>
 </body></html>

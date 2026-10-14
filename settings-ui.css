@@ -1,4 +1,84 @@
-#settings-view,#timetable-view{padding:0 24px 32px;overflow:auto;background:#fff;position:fixed;inset:0;z-index:1500;box-sizing:border-box;scroll-padding-top:125px}#timetable-view{display:none}.settings-header{position:sticky;top:0;background:white;z-index:5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #cbd5e0}.settings-header h2{margin:0}.settings-header nav{flex-basis:100%;display:flex;gap:20px}.settings-header nav a{color:#245a86}.settings-header #settings-status{margin-left:auto}#settings-view>section{padding:18px;margin:18px 0;background:#f7fafc;border:1px solid #cbd5e0;border-radius:8px;scroll-margin-top:125px}#settings-view button,#timetable-view button,dialog button{min-height:44px;padding:8px 12px;border-radius:5px;cursor:pointer}button:disabled{cursor:default;opacity:.55}#settings-view input,#timetable-view input{padding:6px;max-width:100%;box-sizing:border-box}#settings-view h3{margin-top:0}.settings-date-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.date-edit-row{display:grid;grid-template-columns:150px minmax(80px,1fr) auto;gap:8px;margin:8px 0}.settings-error{color:#a51d25}.settings-danger{border:1px solid #c53030;margin-top:20px;padding:12px}.settings-danger button{color:#a51d25;background:white}.layout-options{display:flex;gap:16px}.layout-options label{border:2px solid #cbd5e0;padding:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.layout-options label:has(input:checked){border-color:#245a86}.layout-diagram{display:block;background:#e2e8f0;color:#27384b;padding:5px;font-size:12px;line-height:1.6}.timetable-scroll{overflow:auto;margin:16px 0}.timetable-scroll table{min-width:850px}.timetable-scroll input{width:100%}.timetable-changes{max-height:40vh;overflow:auto}.timetable-changes section{border-bottom:1px solid #cbd5e0;padding:8px}.timetable-changes section>div{padding:6px;background:#f7fafc}.timetable-changes strong{display:block}#empty-options label{display:block}.sync-controls{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}.sync-text-button{background:transparent;border:0;color:#334155;min-height:44px;cursor:pointer}.sync-text-button:hover{text-decoration:underline}:focus-visible{outline:3px solid #245a86;outline-offset:3px}#settings-view details{margin:16px 0}#settings-view summary{cursor:pointer;padding:8px}dialog{max-width:min(600px,90vw);border:1px solid #64748b;border-radius:8px}dialog::backdrop{background:#0006}@media(max-width:900px){.settings-date-columns,.settings-schedule-grid{grid-template-columns:1fr}.layout-options{flex-direction:column}.settings-header #settings-status{margin-left:0}.date-edit-row{grid-template-columns:140px minmax(80px,1fr) auto}#settings-view,#timetable-view{padding:0 12px 24px}}
-/* Keep weekday bulk controls compact while retaining explicit actions. */
-#settings-view button:not(.btn-save),#timetable-view button:not(.btn-save){border:1px solid #aebccc;background:#fff;color:#243047}
-#settings-view .day-slot-all-toggle{display:block;min-height:24px;padding:2px 6px;margin:3px auto;font-size:11px}
+#settings-view,#timetable-view{padding:0 24px 28px;overflow:auto;background:#fff;position:fixed;inset:0;z-index:1500;box-sizing:border-box;scroll-padding-top:84px;color:#243047}
+#timetable-view{display:none}
+#settings-view>*,#timetable-view>*{max-width:1240px;margin-left:auto;margin-right:auto}
+.settings-header{position:sticky;top:0;background:#fff;z-index:5;display:flex;align-items:center;gap:12px;min-height:64px;padding:12px 0;box-sizing:border-box;border-bottom:1px solid #cbd5e0}
+.settings-header h2{font-size:21px;margin:0;white-space:nowrap}
+.settings-save-actions{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:12px}
+#settings-status{font-size:13px;color:#475569}
+.settings-nav{display:flex;flex-wrap:wrap;gap:8px 20px;padding:12px 0 0}
+.settings-nav a{color:#245a86;text-decoration:underline;text-underline-offset:3px;font-size:14px;padding:4px 0}
+#settings-view>section{padding:20px 0;border-bottom:1px solid #dce3eb;scroll-margin-top:84px}
+#settings-view>section:last-child{border-bottom:0}
+#settings-view h3{font-size:17px;line-height:1.4;margin:0 0 12px}
+#settings-view h4{font-size:14px;line-height:1.4;margin:0 0 8px}
+#settings-view p{line-height:1.5}
+#settings-view .settings-note{font-size:13px;color:#475569;margin:6px 0 12px}
+#settings-view .settings-note:last-child{margin-bottom:0}
+#settings-view button,#timetable-view button,#settings-leave-dialog button{min-height:34px;padding:6px 12px;border:1px solid #9aaabb;border-radius:5px;background:#f1f5f9;color:#243047;font-size:13px;line-height:20px;font-weight:500;cursor:pointer;box-sizing:border-box;white-space:nowrap}
+#settings-view button:hover:not(:disabled),#timetable-view button:hover:not(:disabled),#settings-leave-dialog button:hover{background:#e2e8f0;border-color:#64748b}
+#settings-view .btn-save,#timetable-view .btn-save{min-height:38px;background:#245a86;color:#fff;border-color:#245a86;font-weight:600}
+#settings-view .btn-save:hover:not(:disabled),#timetable-view .btn-save:hover:not(:disabled){background:#194568;border-color:#194568}
+button:disabled{cursor:default;opacity:.55}
+.button-group,.settings-row,.settings-section-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.settings-row{gap:12px}
+.settings-row>label{font-size:14px;font-weight:500}
+#academic-year-input{width:88px;font-size:15px}
+.settings-section-heading{justify-content:space-between;margin-bottom:4px;gap:12px}
+#settings-view .settings-section-heading h3{margin:0}
+#settings-view input:not([type=checkbox]):not([type=radio]),#timetable-view input{padding:5px 8px;max-width:100%;min-height:32px;box-sizing:border-box;border:1px solid #9aaabb;border-radius:4px;background:#fff;color:#243047}
+#settings-view input[type=checkbox],#settings-view input[type=radio]{width:16px;height:16px;margin:0;accent-color:#245a86;flex-shrink:0}
+.layout-options{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;border:0;padding:0;margin:12px 0 0}
+.layout-options legend{font-size:14px;font-weight:500;margin-bottom:8px}
+.layout-options label{display:flex;align-items:center;gap:8px;min-height:28px;cursor:pointer;font-size:14px}
+.settings-schedule-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+.settings-schedule-grid>section{min-width:0}
+.day-slot-scroll{overflow:auto}
+.day-slot-table{min-width:720px;margin-bottom:0;text-align:center}
+.day-slot-table th,.day-slot-table td{padding:6px 4px;vertical-align:middle}
+.day-slot-table th{background:#f1f5f9;font-weight:500;font-size:12px}
+.day-slot-table input{vertical-align:middle}
+.day-slot-actions{white-space:nowrap}
+.day-slot-table th:last-child{width:188px}
+#settings-view .day-slot-all-toggle{display:inline-block;min-height:28px;font-size:12px;padding:3px 6px;margin:0}
+#settings-view .day-slot-all-toggle+button{margin-left:8px}
+#settings-view .time-table th{background:#f1f5f9;font-size:12px;font-weight:500}
+#settings-view .time-table td{padding:4px}
+#settings-view .time-table th:first-child{width:48px}
+#settings-view .time-table td:first-child{white-space:nowrap}
+#settings-view .time-table input{width:100%;min-width:0;padding:3px;font-size:13px;min-height:28px}
+.settings-date-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.settings-date-columns>section{min-width:0}
+#settings-view .settings-date-columns h3{margin-bottom:6px}
+#settings-view .settings-date-columns .settings-note{margin:0 0 8px}
+#settings-view textarea{display:block;width:100%;height:100px;min-height:100px;resize:vertical;padding:8px 10px;border:1px solid #9aaabb;border-radius:4px;background:#fff;color:#243047;font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;box-sizing:border-box;overflow:auto}
+#settings-view textarea[aria-invalid=true]{border:2px solid #a51d25}
+#settings-view .settings-error{color:#a51d25;font-size:13px;margin:6px 0}
+.settings-error:empty{display:none}
+#settings-view .settings-date-columns textarea~.settings-note{margin-top:8px}
+#settings-view details{margin-top:12px}
+#settings-view summary{cursor:pointer;font-size:14px;line-height:1.5;padding:4px 0;width:fit-content;text-decoration:underline;text-underline-offset:3px;color:#245a86}
+#settings-view details p{font-size:13px;margin:8px 0}
+#settings-view .settings-danger{margin-top:16px;padding-top:12px;border-top:1px solid #dce3eb}
+#settings-view .settings-danger summary,#settings-view .settings-danger button{color:#a51d25}
+#settings-view .settings-danger button{border-color:#b65c60;background:#fff}
+#settings-leave-dialog{max-width:min(600px,90vw);border:1px solid #64748b;border-radius:8px;padding:20px}
+#settings-leave-dialog::backdrop{background:#0006}
+.timetable-scroll{overflow:auto;margin:16px 0}
+.timetable-scroll table{min-width:850px}
+.timetable-scroll input{width:100%}
+#timetable-view>label{display:inline-flex;align-items:center;gap:8px;margin:0 12px 0 0}
+#timetable-view fieldset{margin:12px auto;padding:12px;display:flex;flex-wrap:wrap;gap:12px 24px;border:1px solid #cbd5e0}
+#timetable-view fieldset[hidden]{display:none}
+#timetable-view fieldset label{display:flex;align-items:center;gap:8px}
+.timetable-changes{max-height:40vh;overflow:auto}
+.timetable-changes section{border-bottom:1px solid #cbd5e0;padding:8px}
+.timetable-changes section>div{padding:6px;background:#f7fafc}
+.timetable-changes strong{display:block}
+.sync-controls{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.sync-text-button{background:transparent;border:0;color:#334155;min-height:44px;cursor:pointer}
+.sync-text-button:hover{text-decoration:underline}
+:focus-visible{outline:3px solid #245a86;outline-offset:3px}
+#settings-view :focus-visible,#timetable-view :focus-visible{outline:3px solid #245a86;outline-offset:3px}
+@media(max-width:1150px){.settings-schedule-grid{grid-template-columns:1fr}.settings-schedule-grid .time-table{max-width:540px}}
+@media(max-width:700px){#settings-view,#timetable-view{padding:0 12px 24px}.settings-date-columns{grid-template-columns:1fr;gap:20px}.settings-header{flex-wrap:wrap;gap:8px}.settings-save-actions{gap:8px}#settings-status{max-width:150px}.settings-row{align-items:flex-start}.settings-row .button-group{flex-basis:100%}.settings-section-heading{align-items:flex-start}.layout-options{gap:8px 16px}}
+@media(pointer:coarse){#settings-view button,#timetable-view button,#settings-leave-dialog button{min-height:44px}.layout-options label{min-height:44px}.day-slot-table td{min-height:44px;padding:10px 4px}.day-slot-table input{width:20px!important;height:20px!important}}
