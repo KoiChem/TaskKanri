@@ -8,7 +8,15 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
  document.body.append(tools);
  const q=s=>tools.querySelector(s);let active=null,range=null;
  const tell=text=>q('[data-slot-message]').textContent=text;
- const html=ctx=>sanitizeHtml(ctx.input.innerHTML);
+ const html=ctx=>{
+  const copy=ctx.input.cloneNode(true);
+  copy.querySelectorAll('[data-slot-caret-anchor]').forEach(anchor=>{
+   const walker=document.createTreeWalker(anchor,NodeFilter.SHOW_TEXT);let node;
+   while((node=walker.nextNode()))node.nodeValue=node.nodeValue.replace(/\u200B/g,'');
+   anchor.replaceWith(...anchor.childNodes);
+  });
+  return sanitizeHtml(copy.innerHTML);
+ };
  function badges(ctx){ctx.input.querySelectorAll('.todo-badge').forEach(b=>{b.contentEditable='false';b.setAttribute('role','button');b.tabIndex=0;const n=Number(b.dataset.state);b.setAttribute('aria-label',`${TASK_LABELS[n]||'タスク'}。タップで状態を変更`);})}
  function persist(ctx){
   const value=html(ctx);ctx.html=value;
@@ -76,14 +84,29 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
   if(!target||!ctx.input.contains(target.commonAncestorContainer)){target=document.createRange();target.selectNodeContents(ctx.input);target.collapse(false)}
   target.deleteContents();const last=fragment.lastChild;target.insertNode(fragment);if(last)target.setStartAfter(last);target.collapse(true);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(target);range=target.cloneRange();badges(ctx);persistActive();update();
  }
+ function caretAfterBadge(ctx,badge){
+  if(active!==ctx||ctx.saving||ctx.composing||!ctx.input.contains(badge))return;
+  function leadingText(node){
+   if(node?.nodeType===Node.TEXT_NODE)return node.length?node:null;
+   if(node?.nodeType!==Node.ELEMENT_NODE||node.matches('br,div,p,.todo-badge'))return null;
+   for(const child of node.childNodes){if(child.nodeType===Node.ELEMENT_NODE&&child.matches('br,div,p,.todo-badge'))break;const text=leadingText(child);if(text)return text}
+   return null;
+  }
+  let text=leadingText(badge.nextSibling);
+  if(!text){const anchor=document.createElement('span');anchor.dataset.slotCaretAnchor='';text=document.createTextNode('\u200B');anchor.append(text);badge.after(anchor)}
+  ctx.input.focus({preventScroll:true});const target=document.createRange();target.setStart(text,0);target.collapse(true);
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(target);range=target.cloneRange();
+  const caret=target.getBoundingClientRect(),box=ctx.input.getBoundingClientRect();
+  if(caret.bottom>box.bottom)ctx.input.scrollTop+=caret.bottom-box.bottom;else if(caret.top<box.top)ctx.input.scrollTop-=box.top-caret.top;
+ }
  function cycle(badge){
   const ctx=active;if(!ctx||ctx.saving||ctx.composing)return;
   const all=[...ctx.input.querySelectorAll('.todo-badge[data-state]')],tasks=taskItems(html(ctx));
   if(all.length!==tasks.length||ctx.input.querySelector('.todo-badge .todo-badge')){tell('タスクの書式を確認できません。本文でアイコンを整えてください。');return}
   const index=all.indexOf(badge),task=tasks[index];if(!task)return;
-  const n=(task.state+1)%4;badge.dataset.state=String(n);badge.className=`todo-badge state-${n}`;badge.textContent=BADGE_LABELS[n];badges(ctx);persistActive();
+  const n=(task.state+1)%4;badge.dataset.state=String(n);badge.className=`todo-badge state-${n}`;badge.textContent=BADGE_LABELS[n];badges(ctx);persistActive();return true;
  }
- q('[data-slot-add-task]').onclick=()=>{const badge=document.createElement('span');badge.className='todo-badge state-0';badge.dataset.state='0';badge.textContent='未';const fragment=document.createDocumentFragment();fragment.append(badge,document.createTextNode(' '));insert(fragment)};
+ q('[data-slot-add-task]').onclick=()=>{const badge=document.createElement('span');badge.className='todo-badge state-0';badge.dataset.state='0';badge.textContent='未';const fragment=document.createDocumentFragment();fragment.append(badge,document.createTextNode(' '));insert(fragment);if(active&&badge.isConnected)caretAfterBadge(active,badge)};
  q('[data-slot-save]').onclick=()=>void save();q('[data-slot-confirm]').onclick=()=>void save(true);q('[data-slot-cancel]').onclick=cancel;
  tools.addEventListener('pointerdown',event=>{if(event.target.closest('button'))event.preventDefault()});
  document.addEventListener('selectionchange',()=>{const s=window.getSelection();if(active&&s?.rangeCount&&active.input.contains(s.anchorNode)&&active.input.contains(s.focusNode))range=s.getRangeAt(0).cloneRange()});
@@ -92,7 +115,7 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
  window.addEventListener('beforeunload',event=>{if(!persistActive()){event.preventDefault();event.returnValue=''}});
  return {
   get open(){return !!active},update,suspend,
-  openEditor(ref,root,focus=true){
+  openEditor(ref,root,focus=true,badgeIndex=null){
    if(active?.root===root)return;
    if(!suspend()||!controller.user||!controller.engine?.payload)return;
    // Suspending another slot re-renders the schedule; locate its current element.
@@ -106,11 +129,11 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
     input.addEventListener('input',()=>{if(active!==ctx)return;badges(ctx);persistActive();update()});
     input.addEventListener('compositionstart',()=>{if(active!==ctx)return;ctx.composing=true;update()});input.addEventListener('compositionend',()=>{if(active!==ctx)return;ctx.composing=false;badges(ctx);persistActive();update()});
     input.addEventListener('pointerdown',event=>{if(active===ctx&&event.isPrimary&&event.button===0&&event.target.closest('.todo-badge'))event.preventDefault()});
-    input.addEventListener('click',event=>{if(active!==ctx)return;const badge=event.target.closest('.todo-badge');if(badge){event.preventDefault();event.stopPropagation();cycle(badge)}});
+    input.addEventListener('click',event=>{if(active!==ctx)return;const badge=event.target.closest('.todo-badge');if(badge){event.preventDefault();event.stopPropagation();if(cycle(badge))caretAfterBadge(ctx,badge)}});
     input.addEventListener('keydown',event=>{if(active!==ctx)return;const badge=event.target.closest('.todo-badge');if(badge&&['Enter',' '].includes(event.key)){event.preventDefault();cycle(badge)}else if(event.key==='Escape'&&!event.isComposing){event.preventDefault();cancel()}else if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();void save()}});
     input.addEventListener('paste',event=>{event.preventDefault();if(active!==ctx)return;const template=document.createElement('template'),rich=event.clipboardData?.getData('text/html');if(rich)template.innerHTML=sanitizeHtml(rich);else (event.clipboardData?.getData('text/plain')||'').split(/\r?\n/).forEach((line,i)=>{if(i)template.content.append(document.createElement('br'));template.content.append(document.createTextNode(line))});insert(template.content)});
     q('[data-slot-title]').textContent=ref.slot;q('[data-slot-conflict]').hidden=true;q('[data-slot-latest]').replaceChildren();tell(draft?'未保存の下書きを復元しました。':'');
-    tools.hidden=false;document.body.classList.add('slot-editing');update();if(focus)input.focus({preventScroll:true});viewport();
+    tools.hidden=false;document.body.classList.add('slot-editing');update();const tappedBadge=Number.isInteger(badgeIndex)?input.querySelectorAll('.todo-badge')[badgeIndex]:null;if(tappedBadge)caretAfterBadge(ctx,tappedBadge);else if(focus)input.focus({preventScroll:true});viewport();
    }catch(error){if(active)detach();onError(error)}
   },
   reset(){if(active){persistActive();detach();}}

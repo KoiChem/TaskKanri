@@ -8,7 +8,7 @@ async (page) => {
  const payload=await p.evaluate(async()=>{
   const c=await import('./taskkanri-core.mjs'),m=await import('./taskkanri-sync-model.mjs'),s=c.defaultState(2026),badge=(n,t)=>`<span class="todo-badge state-${n}" data-state="${n}">${['未','途','済','急'][n]}</span>${t}`;
   s.configEvents['2026-10-15']='職員会議';s.globalTaskData=badge(0,'共通の仕事');s.dayProfiles['2026-10-16']='morning';
-  s.dateSchedules={'2026-10-15':{'１限':'<b>化学</b><br>'+badge(0,'配布'),'２限':badge(2,'済の仕事')+'<br>'+badge(1,'実験準備')},'2026-10-16':{'５限':badge(3,'非表示枠の仕事')}};
+  s.dateSchedules={'2026-10-15':{'１限':'<b>化学</b><br>'+badge(0,'配布'),'２限':badge(2,'済の仕事')+'<br>'+badge(1,'実験準備'),'３限':badge(0,'確認1')+'<br>'+badge(1,'確認2')},'2026-10-16':{'５限':badge(3,'非表示枠の仕事')}};
   return m.toPayload(s);
  });
  let doc={revision:1,updated_at:new Date().toISOString(),payload},writes=0,offline=false,forceConflict=false,holdSaves=false,releaseHold=null,notifyHold=null;
@@ -28,6 +28,7 @@ async (page) => {
  await context.addInitScript(s=>localStorage.setItem('TASKKANRI_SUPABASE_AUTH',JSON.stringify(s)),session);
  const select=async date=>{await p.locator(`[data-date="${date}"]`).click();};
  const input=()=>p.locator('.slot-content [contenteditable="true"]');
+ const caretAfter=async(index=0)=>input().evaluate((e,index)=>{const badge=e.querySelectorAll('.todo-badge')[index],selection=getSelection();let next=badge.nextSibling;while(next?.nodeType===1&&next.firstChild)next=next.firstChild;return selection.isCollapsed&&selection.anchorNode===next&&selection.anchorOffset===0&&document.activeElement===e},index);
  const open=async(slot='１限')=>{await p.locator(`.slot-content[data-slot="${slot}"]`).click();await input().waitFor();};
  const save=async()=>{await p.locator('[data-slot-save]').click();await p.locator('#slot-editor-tools').waitFor({state:'hidden'});};
  try{
@@ -37,17 +38,35 @@ async (page) => {
   const geometry=await p.locator('[data-slot="１限"]').boundingBox();const before=writes;
   await p.locator('[data-slot="１限"] .todo-badge').click();await input().waitFor();
   check(await input().locator('.todo-badge').getAttribute('data-state')==='0','first tap changed task state');
+  check(await caretAfter(),'editing did not start with caret after tapped badge');
   check(await p.locator('#task-sheet').isHidden(),'slot still opens detail dialog');
   const editing=await p.locator('[data-slot="１限"]').boundingBox();check(Math.abs(geometry.width-editing.width)<1&&Math.abs(geometry.height-editing.height)<1,'editing enlarged slot');
   await input().evaluate(e=>{e.focus({preventScroll:true});const range=document.createRange();range.setStart(e.querySelector('b').firstChild,1);range.collapse(true);const selection=getSelection();selection.removeAllRanges();selection.addRange(range)});
   await input().locator('.todo-badge').tap();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','inline state did not cycle');check(writes===before,'draft silently saved');
-  const caret=await input().evaluate(e=>{const selection=getSelection();return {selected:selection.toString(),collapsed:selection.isCollapsed,inBody:selection.anchorNode===e.querySelector('b').firstChild,offset:selection.anchorOffset,focused:document.activeElement===e}});
-  check(caret.selected===''&&caret.collapsed&&caret.inBody&&caret.offset===1&&caret.focused,'task tap selected icon or moved body caret: '+JSON.stringify(caret));
+  check(await caretAfter(),'task tap did not move caret into following text');
   for(const state of ['2','3','0','1']){await input().locator('.todo-badge').click();check(await input().locator('.todo-badge').getAttribute('data-state')===state,'repeated tap cycled more than once')}
   await input().locator('b').dblclick();check(await p.evaluate(()=>getSelection().toString())==='化学','body text selection was disabled');
   await select('2026-10-16');await select('2026-10-15');await open();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','navigation lost draft');
   await p.reload();await p.locator('.slot-content').first().waitFor();await select('2026-10-15');await open();check(await input().locator('.todo-badge').getAttribute('data-state')==='1','reload lost draft');
   await save();check(doc.payload.state.dateSchedules['2026-10-15']['１限'].includes('<b>化学</b>'),'save lost rich formatting');check(doc.payload.state.dateSchedules['2026-10-15']['１限'].includes('data-state="1"'),'save lost task state');
+  await p.locator('[data-slot="３限"] .todo-badge').nth(1).tap();await input().waitFor();check(await caretAfter(1),'second task editing start targeted wrong caret');check(await input().locator('.todo-badge').nth(1).getAttribute('data-state')==='1','editing start cycled second task');
+  const lines=await input().evaluate(e=>{const badges=[...e.querySelectorAll('.todo-badge')],top=badge=>{const range=document.createRange();range.selectNodeContents(badge.nextSibling);return range.getBoundingClientRect().top};return {advance:top(badges[1])-top(badges[0]),lineHeight:parseFloat(getComputedStyle(e).lineHeight)}});
+  check(Math.abs(lines.advance-lines.lineHeight)<1,'task badge enlarged line spacing: '+JSON.stringify(lines));
+  await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-task-lines-v16.png'});
+  await input().locator('.todo-badge').nth(1).tap();await p.keyboard.press('Enter');check(await input().locator('.todo-badge').count()===2,'newline duplicated a task marker');await p.locator('[data-slot-cancel]').click();
+  const mark='<span class="todo-badge state-0" data-state="0">未</span>';
+  for(const [index,body] of [mark,mark+'<br>',mark+'<br>'+mark,mark+'<b><span style="color:#123456">本文</span></b>'].entries()){
+   await open('３限');await input().evaluate((e,body)=>{e.innerHTML=body;e.dispatchEvent(new Event('input',{bubbles:true}))},body);
+   await input().locator('.todo-badge').first().tap();check(await caretAfter(),'no editable caret after task in edge case '+index);await p.keyboard.insertText('追記');
+   check((await input().innerText()).replace(/\u200B/g,'').startsWith('途追記'),'typing did not follow marker in edge case '+index);
+   const draft=await p.evaluate(id=>JSON.parse(localStorage.getItem(`TASKKANRI_USER:${id}:mobile-slot-draft:2026-10-15:３限`)),user.id);
+   check(!draft.html.includes('\u200B')&&!draft.html.includes('data-slot-caret-anchor'),'caret scaffolding leaked into stored draft');
+   if(index===0){await save();check(!doc.payload.state.dateSchedules['2026-10-15']['３限'].includes('\u200B')&&!doc.payload.state.dateSchedules['2026-10-15']['３限'].includes('data-slot-caret-anchor'),'caret scaffolding leaked into saved schedule')}
+   else await p.locator('[data-slot-cancel]').click();
+  }
+  await open('３限');await input().evaluate((e,mark)=>{e.innerHTML=mark+'折り返す長いタスクの本文です。'.repeat(4)+'<br>'+mark+'次の行';e.dispatchEvent(new Event('input',{bubbles:true}))},mark);
+  const wrapped=await input().evaluate(e=>{const marks=e.querySelectorAll('.todo-badge'),first=document.createRange(),last=document.createRange();first.selectNodeContents(marks[0].nextSibling);last.selectNodeContents(marks[1].nextSibling);const rects=[...first.getClientRects()];return {lines:rects.length,advance:last.getBoundingClientRect().top-rects[0].top,lineHeight:parseFloat(getComputedStyle(e).lineHeight)}});
+  check(wrapped.lines>1&&Math.abs(wrapped.advance-wrapped.lines*wrapped.lineHeight)<1,'wrapped task changed line spacing');await p.locator('[data-slot-cancel]').click();
   await open('３限');await input().evaluate(e=>{e.innerHTML='<span class="todo-badge state-0" data-state="0">未</span> スクロール確認<br>'+('次の行<br>'.repeat(30));e.dispatchEvent(new Event('input',{bubbles:true}));e.scrollTop=0});
   const cdp=await context.newCDPSession(p),badgeBox=await input().locator('.todo-badge').boundingBox(),x=badgeBox.x+badgeBox.width/2,y=badgeBox.y+8;
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});for(let i=1;i<=5;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y-i*12}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
@@ -56,7 +75,7 @@ async (page) => {
   await open('朝');await input().fill('朝の新規予定');
   await input().evaluate(e=>{const data=new DataTransfer();data.setData('text/html','<b>貼付</b><script>window.unsafePaste=true</script>');e.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}))});
   check(await input().locator('b').innerText()==='貼付'&&await p.evaluate(()=>!window.unsafePaste),'rich paste safety');
-  await p.locator('[data-slot-add-task]').click();check(await input().locator('.todo-badge').count()===1,'task addition missing');await save();
+  await p.locator('[data-slot-add-task]').click();check(await input().locator('.todo-badge').count()===1,'task addition missing');check(await caretAfter(),'new task caret is not after marker');await p.keyboard.insertText('追加タスク');await save();
   await open();await input().fill('取り消す編集');await p.locator('[data-slot-cancel]').click();await open();check((await input().innerText()).includes('化学'),'cancel lost original');await p.locator('[data-slot-cancel]').click();
   await open();await input().dispatchEvent('compositionstart',{data:'かがく'});await input().fill('変換中の化学');
   check(await p.locator('[data-slot-save]').isDisabled(),'IME composition can be saved');await select('2026-10-16');

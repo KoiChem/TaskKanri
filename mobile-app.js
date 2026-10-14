@@ -80,7 +80,7 @@ function renderContent(){if(revealedSlot&&revealedSlot.dateId!==selected)reveale
    const label=el('div');label.className='slot-time';label.append(el('span',slot));const time=el('span',slotTime(selected,slot,state));time.className='slot-clock';label.append(time);
    const html=getResolvedSlot(selected,slot,state),content=el('div');content.className='slot-content';content.dataset.taskSource='slot';content.dataset.dateId=selected;content.dataset.slot=slot;content.tabIndex=0;content.setAttribute('role','button');content.setAttribute('aria-label',`${slot}の予定を編集`);
    if(stripHtml(html).trim())content.append(rich(html));else{const empty=el('span','予定なし');empty.className='placeholder';content.append(empty)}
-   content.onclick=event=>slotEditor.openEditor({dateId:selected,slot},content,!event.target.closest('.todo-badge'));
+   content.onclick=event=>{const badge=event.target.closest('.todo-badge');slotEditor.openEditor({dateId:selected,slot},content,!badge,badge?[...content.querySelectorAll('.todo-badge')].indexOf(badge):null)};
    content.onkeydown=event=>{if(event.target===content&&['Enter',' '].includes(event.key)){event.preventDefault();slotEditor.openEditor({dateId:selected,slot},content)}};
    row.append(label,content);grid.append(row);
   }
