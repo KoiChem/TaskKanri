@@ -49,6 +49,8 @@ async (page) => {
   await event.locator('[data-editor-save]').click();await event.locator('[data-editor-conflict]').waitFor();check(doc.payload.state.configEvents['2026-10-15']==='別端末の行事'&&await eventInput.innerText()==='競合下書き','event conflict overwrote data');
   await event.locator('[data-confirm-save]').click();await event.waitFor({state:'hidden'});check(doc.payload.state.configEvents['2026-10-15']==='競合下書き','event conflict confirmation failed');
   await p.locator('#selected-event').click();await eventInput.fill('');await event.locator('[data-editor-save]').click();await event.waitFor({state:'hidden'});check(!doc.payload.state.configEvents['2026-10-15'],'event clearing failed');
+  check(await p.locator('#selected-event').innerText()==='行事予定','empty event label');
+  const placeholderColors=await p.evaluate(()=>({event:getComputedStyle(document.querySelector('#selected-event')).color,day:getComputedStyle(document.querySelector('.date-button.no-agenda:not(.today)')).color}));check(placeholderColors.event===placeholderColors.day,'empty event color differs from empty calendar day: '+JSON.stringify(placeholderColors));
   await p.locator('#selected-event').click();await eventInput.fill('職員会議');await event.locator('[data-editor-save]').click();await event.waitFor({state:'hidden'});
   await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-header-event-v17.png'});
   check(await p.locator('.tabs button').count()===3,'missing compact incomplete button');

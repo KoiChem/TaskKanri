@@ -227,6 +227,6 @@ body.slot-editing #agenda{padding-bottom:calc(100px + var(--slot-keyboard-cover,
 .mobile-header{grid-template-columns:minmax(0,1fr) 136px 64px}
 .mobile-header h1{font-size:26px;line-height:36px;letter-spacing:-.5px;min-width:0}
 #selected-date{font-size:inherit;font-variant-numeric:tabular-nums;padding:0;letter-spacing:inherit}
-#selected-event.no-event{font-size:16px;font-weight:400;color:var(--muted)}
+#selected-event.no-event{font-size:16px;font-weight:400;color:#a9b2bf}
 
 .mobile-header #menu{width:64px;margin-right:0;justify-self:end}
