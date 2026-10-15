@@ -33,6 +33,24 @@ async (page) => {
  const save=async()=>{await p.locator('[data-slot-save]').click();await p.locator('#slot-editor-tools').waitFor({state:'hidden'});};
  try{
   await p.reload();await p.locator('.slot-content').first().waitFor();await select('2026-10-15');
+  const header=await p.evaluate(()=>{
+   const date=document.querySelector('#selected-date'),original=date.textContent,tab=document.querySelector('.tabs').getBoundingClientRect();
+   const sizes=[];for(const label of ['1月1日（木）','12月31日（木）']){date.textContent=label;const box=date.getBoundingClientRect();sizes.push({label,size:getComputedStyle(date).fontSize,right:box.right,tabLeft:tab.left,height:box.height});}date.textContent=original;
+   return {sizes,overflow:document.documentElement.scrollWidth>innerWidth};
+  });
+  check(header.sizes.every(s=>s.size==='26px'&&s.right<=s.tabLeft&&s.height<=44)&&!header.overflow,'date header does not fit: '+JSON.stringify(header));
+  await p.locator('#selected-date').click();check(await p.locator('#event-sheet').isVisible(),'date did not open vertical calendar');await p.locator('#close-event').click();await p.locator('#event-sheet').waitFor({state:'hidden'});
+  const event=p.locator('#event-editor-sheet'),eventInput=p.locator('#event-editor-content');
+  await p.locator('#selected-event').click();check(await event.isVisible()&&await p.locator('#event-sheet').isHidden(),'event opened wrong dialog');
+  await eventInput.fill('行事の編集確認');await event.locator('[data-editor-close]').click();await event.waitFor({state:'hidden'});
+  await p.locator('#selected-event').click();check(await eventInput.innerText()==='行事の編集確認','event draft lost');
+  await event.locator('[data-editor-save]').click();await event.waitFor({state:'hidden'});check(doc.payload.state.configEvents['2026-10-15']==='行事の編集確認','event not saved');check(await p.locator('#selected-event').innerText()==='行事の編集確認','event header not updated');
+  await p.locator('#selected-event').click();await eventInput.fill('競合下書き');doc={...doc,revision:doc.revision+1,payload:structuredClone(doc.payload)};doc.payload.state.configEvents['2026-10-15']='別端末の行事';
+  await event.locator('[data-editor-save]').click();await event.locator('[data-editor-conflict]').waitFor();check(doc.payload.state.configEvents['2026-10-15']==='別端末の行事'&&await eventInput.innerText()==='競合下書き','event conflict overwrote data');
+  await event.locator('[data-confirm-save]').click();await event.waitFor({state:'hidden'});check(doc.payload.state.configEvents['2026-10-15']==='競合下書き','event conflict confirmation failed');
+  await p.locator('#selected-event').click();await eventInput.fill('');await event.locator('[data-editor-save]').click();await event.waitFor({state:'hidden'});check(!doc.payload.state.configEvents['2026-10-15'],'event clearing failed');
+  await p.locator('#selected-event').click();await eventInput.fill('職員会議');await event.locator('[data-editor-save]').click();await event.waitFor({state:'hidden'});
+  await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-header-event-v17.png'});
   check(await p.locator('.tabs button').count()===3,'missing compact incomplete button');
   check(await p.locator('#global-tab').innerText()==='共通','common label');
   const geometry=await p.locator('[data-slot="１限"]').boundingBox();const before=writes;
@@ -108,9 +126,9 @@ async (page) => {
   await open();await input().fill('オフライン下書き');offline=true;await context.setOffline(true);await p.locator('[data-slot-save]').waitFor({state:'visible'});await p.waitForFunction(()=>document.querySelector('[data-slot-save]').disabled);
   await select('2026-10-16');await context.setOffline(false);offline=false;await select('2026-10-15');await open();check(await input().innerText()==='オフライン下書き','offline draft lost');await p.locator('[data-slot-cancel]').click();
   const layout=await p.evaluate(()=>{const rect=s=>document.querySelector(s).getBoundingClientRect(),tabs=rect('.tabs'),sync=rect('#menu');return {overflow:document.documentElement.scrollWidth>innerWidth,tabWidths:[...document.querySelectorAll('.tabs button')].map(e=>e.getBoundingClientRect().width),syncGap:sync.left-tabs.right,agenda:getComputedStyle(document.querySelector('#agenda')).backgroundColor,calendar:getComputedStyle(document.querySelector('#calendar')).backgroundColor}});
-  check(!layout.overflow&&layout.tabWidths.every(w=>w>=44&&w<=46)&&layout.syncGap<=10,'header layout');check(layout.agenda==='rgb(255, 255, 255)'&&layout.calendar==='rgb(246, 248, 252)','background hierarchy');
+  check(!layout.overflow&&layout.tabWidths.every(w=>w>=44&&w<=46)&&layout.syncGap>=0&&layout.syncGap<=10,'header layout');check(layout.agenda==='rgb(255, 255, 255)'&&layout.calendar==='rgb(246, 248, 252)','background hierarchy');
   await p.locator('#global-tab').click();await p.locator('.common-card').click();check(await p.locator('#task-sheet').isVisible(),'common detail regression');
-  await p.locator('#edit-common').click();await p.locator('#global-editor-content').fill('共通を編集');await p.locator('[data-editor-save]').click();await p.locator('#global-editor-sheet').waitFor({state:'hidden'});check(doc.payload.state.globalTaskData.includes('共通を編集'),'common editor save regression');
+  await p.locator('#edit-common').click();await p.locator('#global-editor-content').fill('共通を編集');await p.locator('#global-editor-sheet [data-editor-save]').click();await p.locator('#global-editor-sheet').waitFor({state:'hidden'});check(doc.payload.state.globalTaskData.includes('共通を編集'),'common editor save regression');
   await p.locator('#close-sheet').click();await p.locator('#task-sheet').waitFor({state:'hidden'});
   doc={...doc,revision:doc.revision+1,payload:structuredClone(payload)};await p.reload();await p.locator('.slot-content').first().waitFor();await select('2026-10-15');
   await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-inline-agenda.png'});
@@ -118,6 +136,6 @@ async (page) => {
   await p.setViewportSize({width:428,height:600});await p.waitForFunction(()=>{const input=document.querySelector('.is-editing'),tools=document.querySelector('#slot-editor-tools');return input.getBoundingClientRect().bottom<=tools.getBoundingClientRect().top});
   await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-inline-short-viewport.png'});await p.setViewportSize({width:428,height:926});await p.locator('[data-slot-cancel]').click();
   await p.locator('#incomplete-tab').click();await p.screenshot({path:'/Users/ikemon/Documents/codings/GitHub/chem/TaskKanri/.playwright-mcp/mobile-incomplete.png'});await p.goBack();await p.locator('#incomplete-sheet').waitFor({state:'hidden'});
-  check(errors.length===0,errors.join(';'));return {base,writes,layout,pageErrors:errors,checks:'inline/dimensions/first-tap/task-cycle/new-slot/task-add/cancel/draft-navigation/reload/offline/conflict/CAS/hidden-task/jump/completed-row/common-regression',note:'Disposable API fixture; no live account writes'};
+  check(errors.length===0,errors.join(';'));return {base,writes,layout,pageErrors:errors,checks:'fixed-date-size/date-calendar/event-edit/event-draft/event-conflict/event-clear/inline/dimensions/first-tap/task-cycle/new-slot/task-add/cancel/draft-navigation/reload/offline/conflict/CAS/hidden-task/jump/completed-row/common-regression',note:'Disposable API fixture; no live account writes'};
  }finally{await context.close();}
 }

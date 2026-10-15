@@ -36,3 +36,13 @@ test('slot drafts are isolated by account, date and slot and preserve newer edit
  a.write({...draft,id:'2',html:'新しい下書き'});a.clearIfUnchanged(draft);assert.equal(a.read().html,'新しい下書き');a.clearIfUnchanged(a.read());assert.equal(a.read(),null);
  a.write(draft);s.setItem=()=>{throw Error('quota')};assert.throws(()=>a.write({...draft,html:'保存不可'}),/quota/);assert.equal(a.read().html,'下書き');
 });
+test('event edits preserve other data, reject stale changes, and allow clearing',()=>{
+ const state=defaultState(2026);state.configEvents['2026-10-15']='会議';state.globalTaskData='共通';
+ const next=editor.prepareEventSave(state,'2026-10-15','会議','<b>研修</b><script>bad</script>');
+ assert.equal(next.configEvents['2026-10-15'],'<b>研修</b>');assert.equal(next.globalTaskData,'共通');assert.equal(state.configEvents['2026-10-15'],'会議');
+ assert.throws(()=>editor.prepareEventSave(state,'2026-10-15','古い行事','編集'),/更新/);
+ assert.throws(()=>editor.prepareEventSave(state,'2027-04-01','','編集'),/年度/);
+ assert.equal(editor.prepareEventSave(state,'2026-10-15','会議','<br>').configEvents['2026-10-15'],undefined);
+ const s=storage();editor.eventDraftStore(s,'a','2026-10-15').write({id:'1',html:'下書き',originalHtml:'会議'});
+ assert.equal(editor.eventDraftStore(s,'a','2026-10-16').read(),null);assert.equal(editor.eventDraftStore(s,'b','2026-10-15').read(),null);
+});

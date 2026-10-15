@@ -12,10 +12,10 @@ const headerObserver=new ResizeObserver(entries=>document.documentElement.style.
 const q=s=>document.querySelector(s);const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e};
 let state=defaultState(),loaded=false,selected=tokyoToday(),period=selected,tab='agenda',week=localStorage.getItem('TASKKANRI_MOBILE_WEEK')==='true',sheet=null,undo=null,undoTimer=null,opener=null;
 let calendarKey='',calendarScrollFrame=0;
-let globalEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
+let eventEditor=null,globalEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
 const scroll={agenda:0,global:0};const dialog=q('#task-sheet');
-const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!globalEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
- onAccount:user=>{slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login)}},
+const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!eventEditor?.open&&!globalEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
+ onAccount:user=>{eventEditor?.reset();slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login)}},
  onData:(next,doc)=>{
   const first=!loaded;const same=loaded&&samePayload(toPayload(next),toPayload(state));
   state=next;loaded=true;
@@ -25,9 +25,10 @@ const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:(
   if(same){if(undo)undo.revision=doc.revision;updateSheetControls();incomplete?.update();return;}
   undo=null;q('#toast').hidden=true;render();if(dialog.open&&sheet)renderSheet();incomplete?.update();
  },
- onStatus:(text,engine)=>{setSyncStatus(text,engine);globalEditor?.update();slotEditor?.update();incomplete?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
+ onStatus:(text,engine)=>{setSyncStatus(text,engine);eventEditor?.update();globalEditor?.update();slotEditor?.update();incomplete?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
 
 });
+eventEditor=installGlobalEditor({controller,getState:()=>state,eventDate:()=>selected,onSaved:()=>render()});
 globalEditor=installGlobalEditor({controller,getState:()=>state,onSaved:()=>renderContent()});
 slotEditor=installSlotEditor({controller,getState:()=>state,onClosed:()=>{renderContent();renderCalendar()},onError:error=>{ui.tell(error.message);ui.open()}});
 incomplete=installIncompleteList({controller,getState:()=>state,change:changeTaskRef,onJump:ref=>{
@@ -56,7 +57,7 @@ function openDateList(button){
  }
  history.pushState({taskkanriDateList:true},'');q('#event-sheet').showModal();positionDateList();
 }
-q('#selected-date').onclick=e=>openDateList(e.currentTarget);q('#selected-event').onclick=e=>openDateList(e.currentTarget);
+q('#selected-date').onclick=e=>openDateList(e.currentTarget);q('#selected-event').onclick=e=>eventEditor.openEditor(e.currentTarget);
 q('#close-event').onclick=closeDateList;q('#date-list-today').onclick=positionDateList;
 installOutsideDismiss(q('#event-sheet'),closeDateList);
 q('#event-sheet').addEventListener('cancel',e=>{e.preventDefault();closeDateList()});
@@ -65,7 +66,7 @@ q('#event-sheet').addEventListener('close',()=>{q('#date-list').replaceChildren(
 installOutsideDismiss(dialog,closeSheet);
 function setSyncStatus(text,engine){const status=q('#sync-status');status.textContent=mobileSyncLabel(text,engine);status.title=text;status.setAttribute('aria-label',text);q('#menu').setAttribute('aria-label',`同期設定を開く：${text}`);}
 function rich(html){const e=el('div');e.className='rich-text';e.innerHTML=sanitizeHtml(html);return e}
-function render(){q('#selected-date').disabled=!loaded;q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();if(eventText)event.append(el('span',eventText));event.disabled=!eventText;renderContent();renderCalendar();}
+function render(){q('#selected-date').disabled=!loaded;q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();event.append(el('span',eventText||'行事予定を追加'));event.classList.toggle('no-event',!eventText);event.disabled=!loaded;renderContent();renderCalendar();}
 function renderContent(){if(revealedSlot&&revealedSlot.dateId!==selected)revealedSlot=null;q('#incomplete-tab').disabled=!loaded;if(!loaded||slotEditor?.open)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
  if(tab==='global'){
   {const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource='global';button.setAttribute('aria-label','共通タスクの詳細を開く');button.append(stripHtml(state.globalTaskData).trim()?rich(state.globalTaskData):el('span','共通タスクはありません。タップして編集'));button.onclick=e=>openSheet({source:'global'},e.currentTarget);area.append(button)}

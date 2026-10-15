@@ -81,13 +81,13 @@ dialog.mobile-dialog::backdrop{background:transparent}
 #task-sheet.mobile-dialog .mobile-dialog-panel{align-self:end;width:100%;border-radius:24px 24px 0 0;padding:12px 20px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;overflow:hidden}
 #task-sheet.mobile-dialog .mobile-dialog-panel #sheet-body{min-height:0;overflow:auto}
 #task-sheet.mobile-dialog #toast{position:static;margin-top:8px;flex-shrink:0}
-#global-editor-sheet.mobile-dialog{height:var(--editor-viewport-height,100dvh)}
-#global-editor-sheet .mobile-dialog-panel{width:100%;align-self:end;border-radius:24px 24px 0 0;max-height:calc(var(--editor-viewport-height,100dvh) - env(safe-area-inset-top) - 12px);display:flex;flex-direction:column;overflow:hidden;padding:12px 16px calc(8px + env(safe-area-inset-bottom))}
+:is(#global-editor-sheet,#event-editor-sheet).mobile-dialog{height:var(--editor-viewport-height,100dvh)}
+:is(#global-editor-sheet,#event-editor-sheet) .mobile-dialog-panel{width:100%;align-self:end;border-radius:24px 24px 0 0;max-height:calc(var(--editor-viewport-height,100dvh) - env(safe-area-inset-top) - 12px);display:flex;flex-direction:column;overflow:hidden;padding:12px 16px calc(8px + env(safe-area-inset-bottom))}
 .global-editor-scroll{min-height:0;overflow:auto;overscroll-behavior:contain}
 .global-editor-tools{display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:12px;color:var(--muted)}
 .global-editor-tools button{color:var(--blue);border:1px solid var(--line);padding:0 12px}
-#global-editor-content{font-size:16px;line-height:1.5;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;overflow-wrap:anywhere;outline-color:var(--blue)}
-#global-editor-content .todo-badge{user-select:all;-webkit-user-select:all}
+:is(#global-editor-content,#event-editor-content){font-size:16px;line-height:1.5;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;overflow-wrap:anywhere;outline-color:var(--blue)}
+:is(#global-editor-content,#event-editor-content) .todo-badge{user-select:all;-webkit-user-select:all}
 .global-editor-footer{display:flex;justify-content:flex-end;flex-shrink:0;margin-top:4px}
 .global-editor-footer button,[data-confirm-save]{background:var(--blue);color:white;padding:0 18px}
 [data-editor-message]{font-size:13px;line-height:1.4;margin:6px 0 0;flex-shrink:0}
@@ -98,10 +98,10 @@ dialog.mobile-dialog::backdrop{background:transparent}
 .date-button.no-agenda[aria-pressed=true]{color:#5f6b78}
 .date-button.has-agenda[aria-pressed=true]{color:#26334b}
 dialog.mobile-dialog > button.mobile-dialog-backdrop{position:absolute;inset:0;width:100%;height:100%;min-height:0;min-width:0;border:0;border-radius:0;padding:0;background:#15233b65;box-shadow:none;transform:none}
-#event-sheet.mobile-dialog::backdrop,#task-sheet.mobile-dialog::backdrop,#global-editor-sheet.mobile-dialog::backdrop,.sync-dialog.mobile-dialog::backdrop{background:transparent}
-#task-sheet.mobile-dialog,#event-sheet.mobile-dialog,#global-editor-sheet.mobile-dialog,.sync-dialog.mobile-dialog{position:fixed;inset:0;margin:0;padding:0;width:100%;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:hidden}
-#task-sheet.mobile-dialog[open],#event-sheet.mobile-dialog[open],#global-editor-sheet.mobile-dialog[open],.sync-dialog.mobile-dialog[open]{display:grid;place-items:center}
-#global-editor-sheet.mobile-dialog{height:var(--editor-viewport-height,100dvh)}
+#event-sheet.mobile-dialog::backdrop,#task-sheet.mobile-dialog::backdrop,:is(#global-editor-sheet,#event-editor-sheet).mobile-dialog::backdrop,.sync-dialog.mobile-dialog::backdrop{background:transparent}
+#task-sheet.mobile-dialog,#event-sheet.mobile-dialog,:is(#global-editor-sheet,#event-editor-sheet).mobile-dialog,.sync-dialog.mobile-dialog{position:fixed;inset:0;margin:0;padding:0;width:100%;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:hidden}
+#task-sheet.mobile-dialog[open],#event-sheet.mobile-dialog[open],:is(#global-editor-sheet,#event-editor-sheet).mobile-dialog[open],.sync-dialog.mobile-dialog[open]{display:grid;place-items:center}
+:is(#global-editor-sheet,#event-editor-sheet).mobile-dialog{height:var(--editor-viewport-height,100dvh)}
 [data-editor-sync]{font-size:13px;line-height:1.4;margin:6px 0 0;flex-shrink:0;color:var(--muted)}
 [data-editor-sync]:empty{display:none}
 .slot-time .slot-clock{color:var(--blue)}
@@ -146,13 +146,13 @@ body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 #agenda{touch-action:pan-y pinch-zoom}
 .date-button:focus-visible{outline:3px solid #f5a623!important;outline-offset:-3px!important}
 /* Only common-task details and their editor occupy the full usable screen. */
-#task-sheet.common-detail .mobile-dialog-panel,#global-editor-sheet .mobile-dialog-panel{height:100%;max-height:100%;width:100%;max-width:none;border-radius:0;align-self:stretch;padding:calc(env(safe-area-inset-top) + var(--standalone-blur-gap) + 4px) 16px calc(8px + env(safe-area-inset-bottom))}
+#task-sheet.common-detail .mobile-dialog-panel,:is(#global-editor-sheet,#event-editor-sheet) .mobile-dialog-panel{height:100%;max-height:100%;width:100%;max-width:none;border-radius:0;align-self:stretch;padding:calc(env(safe-area-inset-top) + var(--standalone-blur-gap) + 4px) 16px calc(8px + env(safe-area-inset-bottom))}
 #task-sheet.common-detail .mobile-dialog-panel #sheet-body{flex:1}
 #task-sheet.common-detail .status-options{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 #task-sheet.common-detail .status-options button{font-size:13px;padding:0 2px;white-space:nowrap}
 .common-detail-tools{display:flex;justify-content:flex-end}
 .common-detail-tools button{color:var(--blue);font-weight:600}
-#global-editor-sheet .global-editor-scroll{flex:1}
+:is(#global-editor-sheet,#event-editor-sheet) .global-editor-scroll{flex:1}
 
 /* Monday-first mobile controls and compact equal-width tabs. */
 .weekdays span:first-child{color:var(--muted)}
@@ -222,3 +222,11 @@ body.slot-editing #agenda{padding-bottom:calc(100px + var(--slot-keyboard-cover,
 [data-incomplete-notice]{font-size:13px;color:var(--muted);margin:4px 0;line-height:1.5}
 [data-incomplete-notice]:empty{display:none}
 #incomplete-sheet #toast{position:static;margin-top:8px;flex-shrink:0}
+
+/* A fixed date size reserves room for the longest label and all three tabs. */
+.mobile-header{grid-template-columns:minmax(0,1fr) 136px 64px}
+.mobile-header h1{font-size:26px;line-height:36px;letter-spacing:-.5px;min-width:0}
+#selected-date{font-size:inherit;font-variant-numeric:tabular-nums;padding:0;letter-spacing:inherit}
+#selected-event.no-event{font-size:16px;font-weight:400;color:var(--muted)}
+
+.mobile-header #menu{width:64px;margin-right:0;justify-self:end}
