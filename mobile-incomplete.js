@@ -13,7 +13,7 @@ export function installIncompleteList({controller,getState,change,onJump}){
  window.addEventListener('popstate',()=>{if(dialog.open&&!history.state?.taskkanriIncomplete)dialog.close()});
  function update(){
   if(!dialog.open)return;
-  const e=controller.engine,enabled=!!e?.payload&&navigator.onLine&&['synced','pending','saving'].includes(e.status)&&!changing;
+  const e=controller.engine,enabled=!!e?.payload&&(controller.offlineMode||navigator.onLine)&&['synced','pending','saving'].includes(e.status)&&!changing;
   let stale=false;
   for(const row of rows){
    const html=sanitizeHtml(getResolvedSlot(row.ref.dateId,row.ref.slot,getState())),tasks=taskItems(html),template=document.createElement('template');template.innerHTML=html;

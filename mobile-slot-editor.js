@@ -35,7 +35,7 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
  }
  function update(){
   if(!active)return;
-  const e=controller.engine,saving=active.saving,ready=!!e?.payload&&navigator.onLine&&!e.busy&&!e.pending&&!['blocked','conflict','offline','empty','loading'].includes(e.status);
+  const e=controller.engine,saving=active.saving,ready=!!e?.payload&&(controller.offlineMode||navigator.onLine)&&!e.busy&&(controller.offlineMode||!e.pending)&&!['blocked','conflict','offline','empty','loading'].includes(e.status);
   q('[data-slot-save]').disabled=saving||active.composing||!ready;q('[data-slot-confirm]').disabled=saving||active.composing||!ready;
   q('[data-slot-cancel]').disabled=saving;q('[data-slot-add-task]').disabled=saving||active.composing;
   active.input.contentEditable=saving?'false':'true';

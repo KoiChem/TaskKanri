@@ -15,7 +15,7 @@ let calendarKey='',calendarScrollFrame=0;
 let eventEditor=null,globalEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
 const scroll={agenda:0,global:0};const dialog=q('#task-sheet');
 const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!eventEditor?.open&&!globalEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
- onAccount:user=>{eventEditor?.reset();slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login)}},
+ onAccount:user=>{eventEditor?.reset();slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login);addOfflineButton()}},
  onData:(next,doc)=>{
   const first=!loaded;const same=loaded&&samePayload(toPayload(next),toPayload(state));
   state=next;loaded=true;
@@ -40,7 +40,9 @@ q('#incomplete-tab').onclick=event=>incomplete.openList(event.currentTarget);
 document.addEventListener('click',event=>{
  if(slotEditor.open&&event.target.closest('.mobile-header button,#calendar button')&&!slotEditor.suspend()){event.preventDefault();event.stopImmediatePropagation()}
 },true);
-let ui=installSyncUI(controller,{mobile:true});q('#menu').onclick=e=>ui.open(e);q('#start-login').onclick=e=>ui.open(e);
+let ui=installSyncUI(controller,{mobile:true,getInitialState:()=>state});q('#menu').onclick=e=>ui.open(e);q('#start-login').onclick=e=>ui.open(e);
+function addOfflineButton(){if(controller.user)return;const button=el('button','オフラインで使う');button.type='button';button.onclick=()=>controller.enterOffline().catch(error=>{ui.tell(error.message);ui.open()});q('#agenda').append(button)}
+addOfflineButton();
 function positionDateList(){
  const list=q('#date-list'),today=list.querySelector('[data-today="true"]'),target=today||list.querySelector(`[data-date-list="${selected}"]`);
  q('#date-list-today').disabled=!today;
@@ -157,7 +159,7 @@ q('#calendar-mode').onclick=()=>{week=!week;localStorage.setItem('TASKKANRI_MOBI
 q('#today').onclick=()=>{if(!loaded)return;const today=tokyoToday(),bounds=academicYearBounds(state.currentYear);if(today<bounds.start||today>bounds.end){ui.tell('今日は表示中の年度外です。PC版で年度を切り替えてください。');ui.open();return}selected=today;tab='agenda';scroll.agenda=0;render();scrollCalendarTo(today);q('#agenda').scrollTop=0};
 for(const [id,next] of [['#agenda-tab','agenda'],['#global-tab','global']])q(id).onclick=()=>{scroll[tab]=q('#agenda').scrollTop;tab=next;renderContent();q('#agenda').scrollTop=scroll[tab]};
 function openSheet(ref,button){opener=button;const html=ref.source==='global'?state.globalTaskData:getResolvedSlot(ref.dateId,ref.slot,state);sheet={...ref,revision:controller.engine.revision,originalHtml:sanitizeHtml(html)};renderSheet();dialog.querySelector('.mobile-dialog-panel').append(q('#toast'));history.pushState({taskkanriSheet:true},'');dialog.showModal();}
-function taskEditingEnabled(){const e=controller.engine;return !!e?.payload&&navigator.onLine&&['synced','pending','saving'].includes(e.status);}
+function taskEditingEnabled(){const e=controller.engine;return !!e?.payload&&(controller.offlineMode||navigator.onLine)&&['synced','pending','saving'].includes(e.status);}
 function updateSheetControls(){
  if(!sheet)return;
  const tasks=taskItems(sheet.originalHtml);const enabled=taskEditingEnabled()&&!sheet.invalidBadgeFormat;

@@ -1,6 +1,7 @@
 import {supabaseConfig} from './supabase-config.js';
 import {SyncEngine} from './taskkanri-sync-engine.mjs';
 import {acquireClientId,syncStore} from './taskkanri-device-storage.mjs';
+import {defaultState} from './taskkanri-core.mjs';
 import {mergePayload,toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
 const blockedCodes=new Set(['42501','22023','PGRST202','PGRST301']);
@@ -18,9 +19,12 @@ export class SyncController {
   this.interval=setInterval(()=>{if(document.visibilityState==='visible')void this.refresh()},15000);
  }
  async start() {
-  const {createClient}=await import('./vendor/supabase.js');
-  this.client=createClient(supabaseConfig.url,supabaseConfig.publishableKey,{auth:{storageKey:'TASKKANRI_SUPABASE_AUTH',persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
   this.id=await acquireClientId(sessionStorage);
+  if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true'){await this.enterOffline();return;}
+  if(this.offlineMode)return;
+  const {createClient}=await import('./vendor/supabase.js');
+  if(this.offlineMode)return;
+  this.client=createClient(supabaseConfig.url,supabaseConfig.publishableKey,{auth:{storageKey:'TASKKANRI_SUPABASE_AUTH',persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
   this.client.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT')void this.activate(null);else if(['SIGNED_IN','USER_UPDATED','TOKEN_REFRESHED'].includes(event) && (session?.user.id!==this.user?.id || event==='TOKEN_REFRESHED' && this.engine?.status==='blocked'))setTimeout(()=>void this.activate(session).catch(e=>this.onStatus(e.message)),0)});
   const {data,error}=await this.client.auth.getSession();if(error)throw error;
   await this.activate(data.session);
@@ -28,6 +32,7 @@ export class SyncController {
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload()});
  }
  async activate(session) {
+  if(this.offlineMode)return;
   if(session?.user?.id===this.user?.id && this.engine)return;
   const hadUser=!!this.user;
   const generation=++this.generation;this.engine?.stop();this.engine=null;clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);this.user=null;this.retry=0;
@@ -45,7 +50,7 @@ export class SyncController {
     offline=true;
   }
   if(generation!==this.generation)return;
-  this.user=session.user;this.onAccount(this.user);
+  this.user=session.user;localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:this.user.id,email:this.user.email}));this.onAccount(this.user);
   const transport={get:async meta=>checked(await this.client.from('taskkanri_documents').select(meta?'revision,updated_at':'revision,updated_at,payload').eq('user_id',session.user.id).maybeSingle()),save:async req=>checked(await this.client.rpc('save_taskkanri_document',{expected_revision:req.expectedRevision,mutation_id:req.mutationId,payload:req.payload}))};
   this.engine=new SyncEngine({transport,store,canApply:this.canApply,
    onChange:engine=>{this.onStatus(statusLabel(engine),engine);},onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
@@ -62,13 +67,15 @@ export class SyncController {
   const engine=this.engine;if(!engine?.payload)return;
   const latest=engine.pending?.nextPayload||engine.pending?.request.payload||engine.payload;
   if(samePayload(toPayload(state),latest))return;
-  engine.queue(state);this.schedule();
+  if(this.offlineMode&&this.localOnly){engine.accept({revision:engine.revision+1,payload:toPayload(state)});return;}
+  engine.queue(state);if(!this.offlineMode)this.schedule();
  }
  schedule() {
   clearTimeout(this.sendTimer);this.sendTimer=setTimeout(()=>{if(this.composing){this.schedule();return;}void this.flush()},800);
   if(!this.maxTimer)this.maxTimer=setTimeout(()=>{this.maxTimer=null;if(!this.composing)void this.flush()},5000);
  }
  async flush() {
+  if(this.offlineMode)return {status:'pending'};
   if(this.composing)return {status:'pending'};
   clearTimeout(this.sendTimer);clearTimeout(this.maxTimer);this.maxTimer=null;
   const engine=this.engine;if(!engine)return {status:'stopped'};
@@ -79,6 +86,7 @@ export class SyncController {
   return result;
  }
  async refresh(){
+  if(this.offlineMode)return {status:'synced'};
   if(!this.engine)return {status:'stopped',error:new Error('ログインしてから更新してください。')};
   const engine=this.engine;const before=engine.revision;
   try{
@@ -95,10 +103,45 @@ export class SyncController {
    return {status:'error',error:e};
   }
  }
- async login(email,password){const result=await this.client.auth.signInWithPassword({email,password});checked(result);await this.activate(result.data.session);}
+ async login(email,password){if(!this.client)throw new Error('オンラインに戻ってからログインしてください。');const result=await this.client.auth.signInWithPassword({email,password});checked(result);await this.activate(result.data.session);}
  async logout(){clearTimeout(this.retryTimer);const result=await this.client.auth.signOut({scope:'local'});checked(result);await this.activate(null);}
  async initialize(state){if(!this.engine||this.engine.status!=='empty')throw new Error('初期登録できません。同期状態を確認してください');this.engine.queue(state,{initial:true});return this.flush();}
+ async enterOffline(){
+  if(this.offlineMode)return;
+  if(this.engine?.busy)throw new Error('保存中です。保存結果を確認してから切り替えてください。');
+  let account=this.user;
+  if(!account){try{account=JSON.parse(localStorage.getItem('TASKKANRI_LAST_ACCOUNT'))||JSON.parse(localStorage.getItem('TASKKANRI_SUPABASE_AUTH'))?.user;}catch{}}
+  const accountStore=account&&this.id?syncStore(localStorage,account.id,this.id):null;
+  const cache=accountStore?.read('cache');
+  const current=this.getState();
+  if(account&&!cache&&!this.engine?.payload)account=null;
+  const store=account?accountStore:syncStore(localStorage,'offline-local','shared');
+  const existing=this.engine;
+  // Persist the preference before changing the visible account or stopping requests.
+  localStorage.setItem('TASKKANRI_OFFLINE_MODE','true');
+  this.offlineMode=true;this.localOnly=!account;++this.generation;this.client?.auth.stopAutoRefresh();
+  clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);this.maxTimer=null;
+  this.engine=null;existing?.stop();
+  this.user=account||{id:'offline-local',email:'この端末専用'};this.onAccount(this.user);
+  const transport={get:async()=>store.read('cache'),save:async req=>{
+   const document={revision:req.expectedRevision+1,payload:req.payload,updated_at:new Date().toISOString()};
+   store.write('cache',document);return {status:'saved',appliedRevision:document.revision,updatedAt:document.updated_at};
+  }};
+  this.engine=new SyncEngine({store,transport,canApply:this.canApply,onChange:e=>this.onStatus('オフラインモード',e),onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
+  this.engine.manualOffline=true;
+  if(!this.engine.loadCached())this.engine.accept({revision:1,payload:toPayload(this.mode==='desktop'?current:defaultState())});
+  this.engine.emit('synced');
+ }
+ resumeOnline(){localStorage.removeItem('TASKKANRI_OFFLINE_MODE');location.reload();}
  async save(state,{defer=false}={}){
+  if(this.offlineMode){
+   const e=this.engine;if(!e?.payload)throw new Error('端末のデータを読み込んでください。');
+   e.queue(state);
+   if(this.localOnly)return e.flush();
+   this.onData(mergePayload(toPayload(state),this.getState()),{revision:e.revision,payload:toPayload(state)});
+   return {status:'saved'};
+  }
+
   const e=this.engine;
   if(!e||!navigator.onLine||!e.payload||['blocked','conflict','empty','loading','offline'].includes(e.status)||!defer&&(e.pending||e.busy||e.status!=='synced'))throw new Error('同期を確認してから操作してください。');
   e.queue(state);if(defer){this.schedule();return {status:'pending'};}return this.flush();

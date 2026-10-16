@@ -1,4 +1,5 @@
 export function mobileSyncLabel(text,engine){
+ if(engine?.manualOffline)return 'オフラインモード';
  if(!engine)return text==='未接続'?'未接続':text==='読み込み中'?'読込中':'同期停止';
  if(engine.status==='synced'){
   const date=new Date(engine.lastSuccessfulSyncAt || NaN);

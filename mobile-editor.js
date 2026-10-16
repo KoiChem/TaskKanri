@@ -49,7 +49,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
  q('[data-add-task]').onpointerdown=event=>event.preventDefault();
  q('[data-add-task]').onclick=()=>{if(!active||active.saving)return;const fragment=document.createDocumentFragment(),badge=document.createElement('span');badge.className='todo-badge state-0';badge.dataset.state='0';badge.textContent='未';badge.contentEditable='false';fragment.append(badge,document.createTextNode(' '));insert(fragment)};
  function update(){
-  const saving=!!active?.saving,e=controller.engine;const canSave=!!active&&!saving&&!composing&&navigator.onLine&&!!e?.payload&&!e.busy&&!e.pending&&!['blocked','conflict','offline','empty','loading'].includes(e.status);
+  const saving=!!active?.saving,e=controller.engine;const canSave=!!active&&!saving&&!composing&&(controller.offlineMode||navigator.onLine)&&!!e?.payload&&!e.busy&&(controller.offlineMode||!e.pending)&&!['blocked','conflict','offline','empty','loading'].includes(e.status);
   q('[data-editor-save]').disabled=!canSave;q('[data-confirm-save]').disabled=!canSave;q('[data-add-task]').disabled=!active||saving;
   q('[data-editor-sync]').textContent=!active||saving||canSave||composing?'':navigator.onLine===false||e?.status==='offline'?'オフラインです。下書きを保持し、接続後に保存できます。':'同期を確認してから保存できます。';
   input.contentEditable=saving?'false':'true';
