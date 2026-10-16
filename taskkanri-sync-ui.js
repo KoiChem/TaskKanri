@@ -1,14 +1,14 @@
 import {installOutsideDismiss,mobileSyncLabel} from './mobile-ui.mjs';
 import {serializePayload,formatStateSummary,summarizeState} from './taskkanri-core.mjs';
-export function exportFilename(identifier='',date=new Date()) {
- const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Tokyo',year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(date);
- const value=type=>parts.find(part=>part.type===type).value;
- return `${value('year')}${value('month')}${value('day')}${identifier?'_'+identifier:''}_TaskKanri.json`;
-}
-export function downloadJson(data,name=exportFilename()) {const a=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-export function installSyncUI(controller,{mobile=false,getInitialState,onLocalReset=()=>{}}={}) {
+import {exportFilename,downloadJson} from './taskkanri-export.mjs';
+export {exportFilename,downloadJson} from './taskkanri-export.mjs';
+import {installDataTransfer} from './taskkanri-transfer-ui.js';
+export function installSyncUI(controller,{mobile=false,getInitialState,prepareImport,saveImportedState}={}) {
  const dialog=document.createElement('dialog');dialog.className='sync-dialog';dialog.setAttribute('aria-label','同期とアカウント');
- dialog.innerHTML='<div class="sync-heading"><h2>同期とアカウント</h2><button type="button" data-close>閉じる</button></div><p data-state role="status"></p><p data-account></p><p data-time></p><p data-message role="status"></p><p data-offline-info></p><button type="button" data-offline>オフラインで使う</button><button type="button" data-online hidden>オンラインに戻る</button><form><label>メールアドレス<input name="email" type="email" autocomplete="username" required></label><label>パスワード<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">ログイン</button></form><div data-actions><p data-summary></p><button type="button" data-backup>データを書き出す</button><button type="button" data-initialize>このデータで同期を開始</button><button type="button" data-draft>未送信データを書き出す</button><button type="button" data-reload>最新データを読み込む</button><button type="button" data-refresh>今すぐ同期</button><button type="button" data-logout>ログアウト</button></div><p><a href="'+(mobile?'index.html':'mobile.html')+'">'+(mobile?'PC版を開く':'モバイル版を開く')+'</a></p>';
+ dialog.innerHTML=`<div class="sync-heading"><h2>同期とアカウント</h2><button type="button" data-close>閉じる</button></div>
+ <section class="sync-section"><h3>接続状態</h3><p data-state role="status"></p><p data-time></p><p data-offline-info></p><button type="button" data-offline>オフラインで使う</button><button type="button" data-online hidden>オンラインに戻る</button><p data-message role="status"></p></section>
+ <section class="sync-section"><h3>データの移動</h3><div class="sync-transfer-actions"><button type="button" data-backup>エクスポート</button><button type="button" data-import>インポート</button></div><p class="sync-hint">予定・タスク・設定をファイルで移動できます。</p></section>
+ <section class="sync-section"><h3>アカウント</h3><p data-account></p><form><label>メールアドレス<input name="email" type="email" autocomplete="username" required></label><label>パスワード<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">ログイン</button></form><div data-actions><p data-summary></p><button type="button" data-initialize>このデータで同期を開始</button><button type="button" data-draft>未送信データを書き出す</button><button type="button" data-reload>最新データを読み込む</button><button type="button" data-refresh>今すぐ同期</button><button type="button" data-logout>ログアウト</button></div></section><p><a href="${mobile?'index.html':'mobile.html'}">${mobile?'PC版を開く':'モバイル版を開く'}</a></p>`;
  const quarantineButton=document.createElement('button');quarantineButton.type='button';quarantineButton.textContent='受信データを書き出す';quarantineButton.hidden=true;dialog.querySelector('[data-actions]').append(quarantineButton);
  quarantineButton.onclick=()=>run(quarantineButton,'書き出しています…',()=>downloadJson(controller.engine.quarantined||controller.engine.store.read('quarantine'),exportFilename('received')),'ダウンロードを開始しました。');
  document.body.append(dialog);if(mobile)installOutsideDismiss(dialog,()=>dialog.close());let opener;
@@ -34,19 +34,23 @@ export function installSyncUI(controller,{mobile=false,getInitialState,onLocalRe
  q('[data-online]').onclick=()=>controller.resumeOnline();
  q('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('close',()=>opener?.focus());
  q('form').onsubmit=e=>{e.preventDefault();const f=e.currentTarget;const email=f.email.value;const password=f.password.value;f.password.value='';void run(q('form button'),'ログイン中…',()=>controller.login(email,password),'ログインしました。');};
- q('[data-backup]').onclick=()=>run(q('[data-backup]'),'書き出しています…',()=>downloadJson(serialized(getInitialState())),'ダウンロードを開始しました。');
+ const transfer=installDataTransfer({controller,getState:getInitialState,prepareImport,saveImportedState,beforeOpen:()=>{if(dialog.open)dialog.close()},onReturn:()=>{update();if(!dialog.open)dialog.showModal()}});
+ transfer.dialog.addEventListener('close',()=>{if(dialog.open)opener?.focus()});
+ const openExport=event=>{dialog.close();transfer.exportMenu(event)};
+ q('[data-backup]').onclick=openExport;q('[data-import]').onclick=()=>transfer.chooseImport();
+
  q('[data-initialize]').onclick=()=>run(q('[data-initialize]'),'同期を開始しています…',async()=>{const state=getInitialState();const check=serialized(state);if(!confirm('この端末の予定・共通タスクで同期を開始しますか？\n先に「データを書き出す」でバックアップできます。'))return {cancelled:true};localStorage.setItem('TASKKANRI_PRE_SYNC_BACKUP:'+controller.user.id,JSON.stringify(check));return controller.initialize(state)},'初回同期が完了しました。');
  q('[data-draft]').onclick=()=>run(q('[data-draft]'),'書き出しています…',()=>downloadJson({app:'TaskKanri',exportedAt:new Date().toISOString(),pending:controller.engine?.pending},exportFilename('unsent')),'ダウンロードを開始しました。');
  q('[data-reload]').onclick=()=>run(q('[data-reload]'),'読み込み中…',async()=>{if(controller.engine?.pending){downloadJson({app:'TaskKanri',pending:controller.engine.pending},exportFilename('unsent'));if(!confirm('未送信データを書き出しました。クラウドの最新データを読み込みますか？'))return {cancelled:true};}await controller.engine?.discardPending();return {status:controller.engine?.status||'stopped'}},'最新データを読み込みました。');
  q('[data-refresh]').onclick=()=>run(q('[data-refresh]'),'確認中…',async()=>{const result=await controller.refresh();return {...result,status:controller.engine?.status||'stopped'}},result=>result?.changed?'変更を取得しました。':'最新の状態です。');
  q('[data-logout]').onclick=()=>run(q('[data-logout]'),'ログアウト中…',async()=>{if(controller.engine?.pending&&!confirm('未送信の変更をこの端末に保持してログアウトしますか？'))return {cancelled:true};await controller.logout()},'ログアウトしました。');
  function update(){const e=controller.engine;
- q('[data-offline]').hidden=!!controller.offlineMode;q('[data-offline]').disabled=!!e?.busy;
+ q('[data-offline]').hidden=!!controller.offlineMode;q('[data-offline]').disabled=false;
  q('[data-online]').hidden=!controller.offlineMode;q('[data-online]').disabled=!!e?.busy;
- q('[data-offline-info]').textContent=controller.offlineMode?(controller.localOnly?'この端末専用で保存します。クラウドへは自動統合されません。必要なデータは「データを書き出す」で保管できます。':'通信を停止しています。変更はこの端末に保存し、オンラインに戻ると同期します。'):'通信できないときは、端末に保存されたデータで利用できます。';q('form').hidden=!!controller.user;q('[data-actions]').hidden=!controller.user;q('[data-account]').textContent=controller.user?.email||'';
+ q('[data-offline-info]').textContent=controller.offlineMode?(controller.localOnly?'この端末専用で保存します。クラウドへは自動統合されません。必要なデータはエクスポートで保管できます。':'通信を停止しています。変更はこの端末に保存し、オンラインに戻ると同期します。'):'通信できないときは、端末に保存されたデータで利用できます。';q('form').hidden=!!controller.user;q('[data-actions]').hidden=!controller.user;q('[data-account]').textContent=controller.user?.email||'';
  quarantineButton.hidden=!e?.quarantined;
  q('[data-logout]').hidden=!!controller.offlineMode;
- q('[data-initialize]').hidden=mobile||e?.status!=='empty';q('[data-backup]').hidden=!controller.offlineMode&&(mobile||!['empty','blocked','conflict'].includes(e?.status));q('[data-draft]').hidden=!e?.pending;q('[data-reload]').hidden=controller.offlineMode||!e?.pending && !['blocked','conflict'].includes(e?.status);
+ q('[data-initialize]').hidden=mobile||e?.status!=='empty';q('[data-draft]').hidden=!e?.pending;q('[data-reload]').hidden=controller.offlineMode||!e?.pending && !['blocked','conflict'].includes(e?.status);
  q('[data-state]').textContent=mobileSyncLabel(controller.user?'読み込み中':'未接続',e);
  const timestamp=e?.lastSuccessfulSyncAt?new Date(e.lastSuccessfulSyncAt):null;
  const cloudTime=e?.updatedAt?new Date(e.updatedAt):null;
@@ -58,5 +62,5 @@ export function installSyncUI(controller,{mobile=false,getInitialState,onLocalRe
  dialog.querySelectorAll('form input,form button,[data-actions] button').forEach(button=>button.disabled=busy);
  if(!busy&&e?.error&&!q('[data-message]').textContent)tell(e.error);
  }
- return {open(event){opener=event?.currentTarget||document.activeElement;update();if(!dialog.open)dialog.showModal()},update,tell,dialog};
+ return {exportData:openExport,importFile:transfer.importFile,open(event){opener=event?.currentTarget||document.activeElement;update();if(!dialog.open)dialog.showModal()},update,tell,dialog};
 }

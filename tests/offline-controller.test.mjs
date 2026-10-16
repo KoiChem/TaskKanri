@@ -22,12 +22,34 @@ test('cached account edits retain the cloud revision and durable pending mutatio
  assert.equal(store.read('cache').payload.state.globalTaskData,'取得済み');assert.equal(store.read('pending').request.expectedRevision,7);assert.equal(store.read('pending').request.payload.state.globalTaskData,'続けて編集');
  const next=new SyncController({mode:'mobile',getState:defaultState,onData:s=>state=s});clearInterval(next.interval);next.id='tab-a';await next.enterOffline();assert.equal(state.globalTaskData,'続けて編集');assert.equal(next.user.id,'account-a');
 });
-test('switching while saving refuses without enabling offline preference',async()=>{
- data.clear();const c=new SyncController({getState:defaultState});clearInterval(c.interval);c.engine={busy:true};await assert.rejects(c.enterOffline(),/保存中/);assert.equal(localStorage.getItem('TASKKANRI_OFFLINE_MODE'),null);
+test('switching during a stalled save preserves the attempted request for safe retry',async()=>{
+ data.clear();const {syncStore}=await import('../taskkanri-device-storage.mjs');const {toPayload}=await import('../taskkanri-sync-model.mjs');const {SyncEngine}=await import('../taskkanri-sync-engine.mjs');
+ const original=globalThis.fetch;globalThis.fetch=async(_url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));
+ const store=syncStore(localStorage,'saving-account','saving-tab');let state=defaultState();store.write('cache',{revision:8,payload:toPayload(state)});
+ const c=new SyncController({mode:'mobile',getState:()=>state,onData:s=>state=s});c.id='saving-tab';c.user={id:'saving-account'};
+ try{
+  c.engine=new SyncEngine({store,transport:{get:async()=>store.read('cache'),save:()=>c.fetchOnline('https://example.test')}});await c.engine.load();state.globalTaskData='保存中の編集';c.engine.queue(state);
+  const saving=c.flush();const mutation=store.read('pending').request.mutationId;assert.equal(c.engine.busy,true);
+  await c.enterOffline();assert.equal((await saving).status,'stopped');assert.equal(c.offlineMode,true);assert.equal(store.read('pending').request.mutationId,mutation);assert.equal(store.read('pending').request.attempted,true);assert.equal(state.globalTaskData,'保存中の編集');
+  state.globalTaskData='さらに編集';await c.save(state);assert.equal(store.read('pending').request.mutationId,mutation);assert.equal(store.read('pending').nextPayload.state.globalTaskData,'さらに編集');
+ }finally{clearInterval(c.interval);globalThis.fetch=original}
 });
 test('resuming against a newer cloud revision preserves offline edits as a conflict',async()=>{
  data.clear();const {syncStore}=await import('../taskkanri-device-storage.mjs');const {toPayload}=await import('../taskkanri-sync-model.mjs');const {SyncEngine}=await import('../taskkanri-sync-engine.mjs');
  const store=syncStore(localStorage,'account-b','tab-b');store.write('cache',{revision:3,payload:toPayload(defaultState())});localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:'account-b'}));
  let state=defaultState();const c=new SyncController({mode:'mobile',getState:()=>state,onData:s=>state=s});clearInterval(c.interval);c.id='tab-b';await c.enterOffline();state.globalTaskData='オフラインの変更';await c.save(state);
  let writes=0;const resumed=new SyncEngine({store,transport:{get:async()=>({revision:4,payload:toPayload(defaultState())}),save:async()=>{writes++;}}});await resumed.load();assert.equal(resumed.status,'conflict');assert.equal(resumed.pending.request.payload.state.globalTaskData,'オフラインの変更');await resumed.flush();assert.equal(writes,0);
+});
+test('manual offline aborts in-flight network requests and prevents new requests and timers',async()=>{
+ data.clear();const original=globalThis.fetch;let sent=0;
+ globalThis.fetch=async(_url,{signal})=>{sent++;return new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true})})};
+ const c=new SyncController({getState:defaultState});
+ try{const pending=c.fetchOnline('https://example.test').catch(e=>e.name);await c.enterOffline();assert.equal(await pending,'AbortError');await assert.rejects(c.fetchOnline('https://example.test'),/オフライン/);c.schedule();assert.equal(sent,1);assert.equal(c.interval,null);assert.equal(c.sendTimer,undefined)}finally{clearInterval(c.interval);globalThis.fetch=original}
+});
+test('cancelled initial mobile save restores its pending payload even without cache',async()=>{
+ data.clear();const {syncStore}=await import('../taskkanri-device-storage.mjs');const {SyncEngine}=await import('../taskkanri-sync-engine.mjs');
+ const original=globalThis.fetch;globalThis.fetch=async(_url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));
+ const store=syncStore(localStorage,'initial-account','initial-tab');let state=defaultState();state.globalTaskData='初回の取り込み';state.configEvents={'2026-10-20':'保持する行事'};
+ const c=new SyncController({mode:'mobile',getState:()=>state,onAccount:()=>state=defaultState(),onData:s=>state=s});c.id='initial-tab';c.user={id:'initial-account'};
+ try{c.engine=new SyncEngine({store,transport:{save:()=>c.fetchOnline('https://example.test')}});c.engine.queue(state,{initial:true});const saving=c.flush();const mutation=store.read('pending').request.mutationId;await c.enterOffline();await saving;assert.equal(state.globalTaskData,'初回の取り込み');assert.equal(state.configEvents['2026-10-20'],'保持する行事');state.globalTaskData='続けて編集';await c.save(state);assert.equal(store.read('pending').request.mutationId,mutation);assert.equal(store.read('pending').request.expectedRevision,0);assert.equal(store.read('pending').nextPayload.state.configEvents['2026-10-20'],'保持する行事')}finally{clearInterval(c.interval);globalThis.fetch=original}
 });

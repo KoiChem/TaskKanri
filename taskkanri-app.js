@@ -1583,29 +1583,19 @@ function timetableOptions(){const table={};qa('#weekly-tbody input').forEach(inp
 function currentTimetableFingerprint(){return JSON.stringify({state:appState,options:timetableOptions()});}
 function previewTimetable(){const root=document.getElementById('timetable-result');root.replaceChildren();if(!canCloudEdit()||storageService.isReadOnly())return;if(syncController?.engine?.status==='deferred'){root.textContent='ほかの端末の変更を確認してから実行してください。入力は保持しています。';return;}const options=timetableOptions();if(options.mode==='replace'&&!options.emptyMode){root.textContent='上書きする空欄の扱いを選択してください。';return;}const result=planTimetableInput(appState,options);if(!result.ok){root.textContent=result.error;return;}timetablePreview=result.value;timetableFingerprint=currentTimetableFingerprint();const count=summarizeTimetableChanges(result.value.changes),excluded={};result.value.excluded.forEach(x=>excluded[x.reason]=(excluded[x.reason]||0)+1);root.append(el('p',`${count.days}日・${count.slots}コマを${options.mode==='append'?'追加':'置換'}。削除 ${count.deleted}コマ、タスクを含む変更 ${count.tasks}コマ。除外 ${result.value.excluded.length}コマ。${Object.entries(excluded).map(([reason,n])=>`${reason}: ${n}`).join(' / ')}`));if(options.mode==='replace')root.append(el('p','上書きすると対象コマのメモとタスクも置き換わります。'));if(!count.slots)root.append(el('p','変更対象がありません。期間・授業日・表示する枠・入力内容を確認してください。'));const list=el('div');list.className='timetable-changes';result.value.changes.forEach(change=>{const row=el('section');row.append(el('h4',`${change.dateId} ${change.slot}`));const before=el('div'),after=el('div');before.append(el('strong','変更前'));appendSafeRich(before,change.before);after.append(el('strong','変更後'));appendSafeRich(after,change.after);row.append(before,after);list.append(row);});root.append(list);const execute=document.getElementById('timetable-execute');execute.hidden=!count.slots;execute.textContent=options.mode==='append'?'予定に追加する':'予定を上書きする';}
 function executeTimetable(){if(timetableBusy||!timetablePreview)return;if(timetableFingerprint!==currentTimetableFingerprint()){document.getElementById('timetable-result').textContent='入力や予定が変わりました。変更内容をもう一度確認してください。';timetablePreview=null;document.getElementById('timetable-execute').hidden=true;return;}if(!canCloudEdit()||storageService.isReadOnly()||syncController?.engine?.busy||syncController?.engine?.status==='deferred')return;timetableBusy=true;const button=document.getElementById('timetable-execute');button.disabled=true;try{const backup=storageService.createRecoverySnapshot();if(!backup.ok){notifySaveFailure(backup);return;}if(commitState(state=>Object.assign(state,timetablePreview.state),{historyLabel:'時間割の期間入力',historyScope:'schedule',refresh:true})){timetableDraft=false;timetablePreview=null;button.hidden=true;document.getElementById('timetable-result').textContent=syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました。「元に戻す」で一括して取り消せます。';}}finally{timetableBusy=false;button.disabled=false;}}
-function exportData() {
-  const serialized = serializePayload(appState); if (!serialized.ok) { showAlert(serialized.error); return; }
-  const filename = exportFilename();
-  const url = URL.createObjectURL(new Blob([JSON.stringify(serialized.value, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+function exportData() { syncUI.exportData(); }
 function importData(event) {
-  if (!canCloudEdit()) return;
-  if (syncController?.engine?.pending || syncController?.engine?.busy) { showAlert("先に同期を完了するか、未送信データを保全してください。"); return; }
-  const input = event?.target; const file = input?.files?.[0];
-  if (!file) { if (input) input.value = ''; return; }
-  const reader = new FileReader();
-  reader.onload = loadEvent => {
-    try {
-      const prepared = normalizeImportedPayload(loadEvent.target.result);
-      if (!prepared.ok) { showAlert(`インポートを中止しました。${prepared.error}`); return; }
-      const result = storageService.importRaw(loadEvent.target.result, { confirm: summary => showConfirm(`このデータを読み込みますか？\n${formatStateSummary(summary)}\n\n読み込み前に復旧用バックアップを作成します。`) });
-      if (!result.ok) { if (!result.cancelled) showAlert(result.error); return; }
-      appState = result.state; queueCloudSave(appState); historyManager.clear(); updateHistoryControls(); showStorageWarning(); renderQuarantineUI(); refreshMainUI(); showAlert(`インポートが完了しました。${formatStateSummary(result.summary)}`);
-    } catch (error) { showAlert(`ファイルの読み込みに失敗しました。${String(error?.message || error)}`); }
-    finally { input.value = ''; }
-  };
-  reader.onerror = () => { input.value = ''; showAlert('ファイルの読み込みに失敗しました。'); };
-  reader.readAsText(file);
+ const input=event?.target,file=input?.files?.[0];if(input)input.value='';if(file)void syncUI.importFile(file);
+}
+function prepareFileImport(){
+ if(settingsDirtySections.size||timetableDraft||isDateListContextMenuOpen())throw new Error('保存前の入力があります。保存してからインポートしてください。');
+ if(document.body.classList.contains('cloud-signed-out'))return syncController.enterOffline();
+}
+function saveImportedState(next){
+ if(!canCloudEdit())throw new Error('同期設定を確認してください。');
+ const result=storageService.importRaw(serializePayload(next).value);
+ if(!result.ok)throw new Error(result.error);
+ appState=result.state;document.getElementById('settings-view').style.display='none';document.getElementById('timetable-view').style.display='none';queueCloudSave(appState);historyManager.clear();updateHistoryControls();showStorageWarning();renderQuarantineUI();refreshMainUI();
 }
 function openResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'flex'; document.getElementById('btn-reset-cancel')?.focus(); }
 function closeResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'none'; }
@@ -1698,11 +1688,11 @@ function installCloudSync() {
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
-    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・同期中…',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
+    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・同期中…',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
-  syncController.start().catch(error=>{status.textContent=error.message;syncUI.tell(error.message)});
+  syncController.start().catch(error=>{if(syncController.offlineMode)return;status.textContent=error.message;syncUI.tell(error.message)});
 }
 function initStartupDates() {
   const today = new Date(); let base = getIsoDateStr(today);
