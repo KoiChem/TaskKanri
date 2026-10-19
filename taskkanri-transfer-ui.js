@@ -1,3 +1,4 @@
+import {importErrorMessage} from './taskkanri-transfer-errors.mjs';
 import {serializePayload,normalizeImportedPayload} from './taskkanri-core.mjs';
 import {planImport,applyImport,importValueText} from './taskkanri-import.mjs';
 import {exportFilename,downloadJson} from './taskkanri-export.mjs';
@@ -73,18 +74,26 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
     const count=checkboxes().filter(b=>b.checked).length;
     const completed=shell('取り込みが完了しました');completed.body.append(el('p',`${count}件の変更をこの端末に保存しました。`),el('p',controller.offlineMode?'オフラインモードのため、通信は行っていません。':controller.user?'変更は同期の対象になります。同期状況は設定で確認できます。':'端末に保存しました。'));
     const backup=el('button','取り込み前のデータを書き出す','transfer-option');backup.type='button';backup.onclick=()=>downloadJson(previousExport,exportFilename('before-import'));completed.body.append(backup);const done=el('button','完了','transfer-primary');done.type='button';done.onclick=finish;completed.footer.append(done);
-   }catch(error){message.textContent=error.message}
+   }catch(error){message.textContent=importErrorMessage(error,'save')}
    finally{saving=false;dialog.removeAttribute('aria-busy');dialog.querySelectorAll('button,input').forEach(node=>node.disabled=false);if(q('[data-import-id]'))update()}
   };
   show();
  }
  async function importFile(file){
-  if(!file)return;
-  if(saving)return;
-  opener=document.activeElement;
-  try{if(file.size>16*1024*1024)throw new Error('ファイルが大きすぎます。16MB以下のTaskKanriファイルを選んでください。');raw=await file.text();const validated=normalizeImportedPayload(raw);if(!validated.ok)throw new Error(validated.error);await prepareImport();checkReady();filename=file.name;preview()}
-  catch(error){const {message}=shell('インポートを確認してください');message.textContent=error.message;show()}
+  if(!file||saving)return;
+  opener=document.activeElement;let stage='read';
+  try{
+   if(file.size>16*1024*1024)throw new Error('ファイルが大きすぎます。16MB以下のTaskKanriファイルを選んでください。');
+   raw=await file.text();
+   stage='validate';const validated=normalizeImportedPayload(raw);if(!validated.ok)throw new Error(validated.error);
+   stage='prepare';await prepareImport();
+   stage='ready';checkReady();
+   stage='preview';filename=file.name;preview();
+  }catch(error){
+   const {message,footer}=shell('インポートできませんでした');message.textContent=importErrorMessage(error,stage);
+   const retry=el('button','ファイルを選び直す','transfer-primary');retry.type='button';retry.onclick=()=>input.click();footer.append(retry);show();
+  }
  }
- input.onchange=()=>{const file=input.files?.[0];input.value='';void importFile(file)};
+ input.onchange=async()=>{const file=input.files?.[0];try{await importFile(file)}finally{input.value=''}};
  return {exportMenu,importFile,chooseImport(){input.click()},dialog};
 }
