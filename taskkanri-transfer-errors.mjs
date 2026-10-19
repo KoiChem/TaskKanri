@@ -11,7 +11,8 @@ export function importErrorMessage(error,stage='preview'){
  return `${stages[stage]||stages.preview}で処理を中止しました。\n${reason}\n\nエラー情報：TK-IMPORT-${stage.toUpperCase()} / ${name}`;
 }
 
-export function importReadinessError(engine){
+export function importReadinessError(engine,offlineMode=false){
+ if(offlineMode)return null;
  if(!engine)return null;
  const stopped={blocked:['ImportSyncBlockedError','同期が停止しています。同期設定で理由を確認してください。'],conflict:['ImportConflictError','別の端末の変更と競合しています。未送信データを保管し、同期設定で競合を確認してください。'],deferred:['ImportEditingError','編集中の内容と、ほかの端末から届いた更新を確認してから取り込んでください。']};
  let name,message,canUseOffline=false;

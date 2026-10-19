@@ -20,7 +20,7 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
  function show(){beforeOpen();if(!dialog.open)dialog.showModal()}
  function capture(){const result=serializePayload(getState());if(!result.ok)throw new Error(result.error);return result.value}
  function checkReady(){
-  const error=importReadinessError(controller.engine);if(error)throw error;
+  const error=importReadinessError(controller.engine,controller.offlineMode);if(error)throw error;
  }
  function offerOffline(footer,error){
   if(!error?.canUseOffline||footer.querySelector('[data-import-offline]'))return;
