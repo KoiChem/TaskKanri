@@ -29,6 +29,7 @@ import {toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
 import {planTimetableInput} from './taskkanri-timetable.mjs';
 import {parseBulkDateRows,formatBulkDateText,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
+import {saveOfflineImport} from './taskkanri-offline-import.mjs';
 import {mobileSyncLabel} from './mobile-ui.mjs';
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1593,10 +1594,11 @@ function prepareFileImport(){
  if(document.body.classList.contains('cloud-signed-out'))return syncController.enterOffline();
 }
 function saveImportedState(next){
- if(!canCloudEdit())throw new Error('同期設定を確認してください。');
- const result=storageService.importRaw(serializePayload(next).value);
+ const offline=!!syncController?.offlineMode;
+ if(!offline&&!canCloudEdit())throw new Error('同期設定を確認してください。');
+ const result=offline?saveOfflineImport(syncController,storageService,storageLike,APP_CONFIG.storeKey,next):storageService.importRaw(serializePayload(next).value);
  if(!result.ok)throw new Error(result.error);
- appState=result.state;document.getElementById('settings-view').style.display='none';document.getElementById('timetable-view').style.display='none';queueCloudSave(appState);historyManager.clear();updateHistoryControls();showStorageWarning();renderQuarantineUI();refreshMainUI();
+ appState=result.state;document.getElementById('settings-view').style.display='none';document.getElementById('timetable-view').style.display='none';if(!offline)queueCloudSave(appState);historyManager.clear();updateHistoryControls();showStorageWarning();renderQuarantineUI();refreshMainUI();
 }
 function openResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'flex'; document.getElementById('btn-reset-cancel')?.focus(); }
 function closeResetModal() { const modal = document.getElementById('reset-confirm-modal'); if (modal) modal.style.display = 'none'; }

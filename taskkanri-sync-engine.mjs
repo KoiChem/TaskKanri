@@ -38,8 +38,8 @@ export class SyncEngine {
     this.payload=document.payload;this.revision=document.revision;this.updatedAt=document.updated_at;
     if(document.payload.contractVersion===1)this.queue(mergePayload(document.payload));else this.emit('synced');
   }
-  queue(state,{initial=false}={}) {
-    if(!this.active||this.status==='conflict'||this.status==='blocked')throw new Error('同期を確認してから操作してください。');
+  queue(state,{initial=false,offline=false}={}) {
+    if(!this.active||!offline&&(this.status==='conflict'||this.status==='blocked'))throw new Error('同期を確認してから操作してください。');
     if(!this.payload&&!initial)throw new Error('PC版で同期を開始してください。');
     const payload=toPayload(state);
     if(this.pending) {

@@ -77,8 +77,8 @@ export class SyncController {
   const engine=this.engine;if(!engine?.payload)return;
   const latest=engine.pending?.nextPayload||engine.pending?.request.payload||engine.payload;
   if(samePayload(toPayload(state),latest))return;
-  if(this.offlineMode&&this.localOnly){engine.accept({revision:engine.revision+1,payload:toPayload(state)});return;}
-  engine.queue(state);if(!this.offlineMode)this.schedule();
+  if(this.offlineMode&&this.localOnly){engine.queue(state,{offline:true});void engine.flush();return;}
+  engine.queue(state,{offline:!!this.offlineMode});if(!this.offlineMode)this.schedule();
  }
  schedule() {
   if(this.offlineMode)return;
@@ -147,10 +147,30 @@ export class SyncController {
   this.engine.emit('synced');
  }
  resumeOnline(){localStorage.removeItem('TASKKANRI_OFFLINE_MODE');location.reload();}
+ stageOfflineImport(state){
+  const e=this.engine;
+  if(!this.offlineMode||!e?.active)throw new Error('端末内の保存処理を準備できません。保存データを消さずにページを開き直してください。');
+  const previous={pending:e.pending,cache:e.store.read('cache'),payload:e.payload,revision:e.revision,status:e.status,error:e.error};
+  let cacheChanged=false;
+  try{
+   e.manualOffline=true;e.queue(state,{offline:true,initial:!e.payload});
+   if(!e.payload){
+    const document={revision:Math.max(1,e.pending.request.expectedRevision),payload:toPayload(state)};
+    e.store.write('cache',document);cacheChanged=true;e.payload=document.payload;e.revision=document.revision;
+   }
+  }catch(error){
+   try{
+    if(e.pending!==previous.pending){if(previous.pending)e.store.write('pending',previous.pending);else e.store.remove('pending')}
+    if(cacheChanged){if(previous.cache)e.store.write('cache',previous.cache);else e.store.remove('cache')}
+    e.pending=previous.pending;e.payload=previous.payload;e.revision=previous.revision;e.status=previous.status;e.error=previous.error;
+   }catch{throw new Error('端末内の未送信データを復元できません。保存データを消さずに確認してください。')}
+   throw error;
+  }
+ }
  async save(state,{defer=false}={}){
   if(this.offlineMode){
    const e=this.engine;if(!e?.payload)throw new Error('端末のデータを読み込んでください。');
-   e.queue(state);
+   e.queue(state,{offline:true});
    if(this.localOnly)return e.flush();
    this.onData(mergePayload(toPayload(state),this.getState()),{revision:e.revision,payload:toPayload(state)});
    return {status:'saved'};
