@@ -1,4 +1,4 @@
-import {importErrorMessage} from './taskkanri-transfer-errors.mjs';
+import {importErrorMessage,importReadinessError} from './taskkanri-transfer-errors.mjs';
 import {serializePayload,normalizeImportedPayload} from './taskkanri-core.mjs';
 import {planImport,applyImport,importValueText} from './taskkanri-import.mjs';
 import {exportFilename,downloadJson} from './taskkanri-export.mjs';
@@ -20,8 +20,18 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
  function show(){beforeOpen();if(!dialog.open)dialog.showModal()}
  function capture(){const result=serializePayload(getState());if(!result.ok)throw new Error(result.error);return result.value}
  function checkReady(){
-  const e=controller.engine;
-  if(e?.busy||['blocked','conflict','loading','deferred'].includes(e?.status))throw new Error('同期または編集中の内容を確認してから取り込んでください。');
+  const error=importReadinessError(controller.engine);if(error)throw error;
+ }
+ function offerOffline(footer,error){
+  if(!error?.canUseOffline||footer.querySelector('[data-import-offline]'))return;
+  const offline=el('button','オフラインで差分を確認',footer.querySelector('.transfer-primary')?'':'transfer-primary');offline.type='button';offline.dataset.importOffline='';
+  offline.onclick=async()=>{
+   footer.querySelectorAll('button').forEach(button=>button.disabled=true);
+   try{await controller.enterOffline();await prepareImport();checkReady();preview()}
+   catch(failure){q('.transfer-message').textContent=importErrorMessage(failure,'prepare')}
+   finally{footer.querySelectorAll('button').forEach(button=>button.disabled=false)}
+  };
+  footer.prepend(offline);
  }
  function exportMenu(event){
   opener=event?.currentTarget||document.activeElement;
@@ -74,7 +84,7 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
     const count=checkboxes().filter(b=>b.checked).length;
     const completed=shell('取り込みが完了しました');completed.body.append(el('p',`${count}件の変更をこの端末に保存しました。`),el('p',controller.offlineMode?'オフラインモードのため、通信は行っていません。':controller.user?'変更は同期の対象になります。同期状況は設定で確認できます。':'端末に保存しました。'));
     const backup=el('button','取り込み前のデータを書き出す','transfer-option');backup.type='button';backup.onclick=()=>downloadJson(previousExport,exportFilename('before-import'));completed.body.append(backup);const done=el('button','完了','transfer-primary');done.type='button';done.onclick=finish;completed.footer.append(done);
-   }catch(error){message.textContent=importErrorMessage(error,'save')}
+   }catch(error){message.textContent=importErrorMessage(error,'save');offerOffline(footer,error)}
    finally{saving=false;dialog.removeAttribute('aria-busy');dialog.querySelectorAll('button,input').forEach(node=>node.disabled=false);if(q('[data-import-id]'))update()}
   };
   show();
@@ -84,14 +94,14 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
   opener=document.activeElement;let stage='read';
   try{
    if(file.size>16*1024*1024)throw new Error('ファイルが大きすぎます。16MB以下のTaskKanriファイルを選んでください。');
-   raw=await file.text();
+   raw=await file.text();filename=file.name;
    stage='validate';const validated=normalizeImportedPayload(raw);if(!validated.ok)throw new Error(validated.error);
    stage='prepare';await prepareImport();
    stage='ready';checkReady();
    stage='preview';filename=file.name;preview();
   }catch(error){
    const {message,footer}=shell('インポートできませんでした');message.textContent=importErrorMessage(error,stage);
-   const retry=el('button','ファイルを選び直す','transfer-primary');retry.type='button';retry.onclick=()=>input.click();footer.append(retry);show();
+   const retry=el('button','ファイルを選び直す');retry.type='button';retry.onclick=()=>input.click();footer.append(retry);offerOffline(footer,error);show();
   }
  }
  input.onchange=async()=>{const file=input.files?.[0];try{await importFile(file)}finally{input.value=''}};
