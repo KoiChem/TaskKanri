@@ -30,6 +30,7 @@ import {toPayload,samePayload} from './taskkanri-sync-model.mjs';
 import {planTimetableInput} from './taskkanri-timetable.mjs';
 import {parseBulkDateRows,formatBulkDateText,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
 import {saveOfflineImport} from './taskkanri-offline-import.mjs';
+import {archiveRecovery} from './taskkanri-recovery-archive.mjs';
 import {mobileSyncLabel} from './mobile-ui.mjs';
 const APP_CONFIG = CORE_CONFIG;
 const PERIOD_SLOTS = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -1593,10 +1594,12 @@ function prepareFileImport(){
  if(settingsDirtySections.size||timetableDraft||isDateListContextMenuOpen())throw new Error('保存前の入力があります。保存してからインポートしてください。');
  if(document.body.classList.contains('cloud-signed-out'))return syncController.enterOffline();
 }
-function saveImportedState(next){
- const offline=!!syncController?.offlineMode;
+async function saveImportedState(next){
+ const controller=syncController,service=storageService,storage=storageLike,engine=controller?.engine,identity=controller?.user?.id;
+ const offline=!!controller?.offlineMode;
  if(!offline&&!canCloudEdit())throw new Error('同期設定を確認してください。');
- const result=offline?saveOfflineImport(syncController,storageService,storageLike,APP_CONFIG.storeKey,next):storageService.importRaw(serializePayload(next).value);
+ const result=offline?await saveOfflineImport(controller,service,storage,APP_CONFIG.storeKey,next):await service.importRawWithRecovery(serializePayload(next).value,record=>archiveRecovery(record,{namespace:identity}));
+ if(controller!==syncController||service!==storageService||engine!==controller.engine||identity!==controller.user?.id||offline!==!!controller.offlineMode)throw new Error('保存中にアカウントまたは利用モードが変わりました。ファイルを選び直してください。');
  if(!result.ok)throw new Error(result.error);
  appState=result.state;document.getElementById('settings-view').style.display='none';document.getElementById('timetable-view').style.display='none';if(!offline)queueCloudSave(appState);historyManager.clear();updateHistoryControls();showStorageWarning();renderQuarantineUI();refreshMainUI();
 }

@@ -1368,8 +1368,9 @@ export function createStorageService(storage, options = {}) {
     try {
       storage.setItem(key, JSON.stringify(record));
       return { ok: true, key };
-    } catch {
-      return { ok: false, error: '復旧snapshotを作成できないため、インポートを中止しました。' };
+    } catch (error) {
+      const storageError = error?.name || 'Error';
+      return { ok: false, snapshotFailed: true, storageError, error: `取り込み前のバックアップを端末に保存できませんでした（${storageError}）。元のデータは変更していません。` };
     }
   }
 
@@ -1381,15 +1382,40 @@ export function createStorageService(storage, options = {}) {
     if (typeof confirm === 'function' && !confirm(summary, prepared.value)) return { ok: false, cancelled: true, summary };
     const snapshot = createRecoverySnapshot();
     if (!snapshot.ok) return snapshot;
-    const serialized = serializePayload(prepared.value, typeof options.now === 'function' ? options.now() : new Date());
+    return commitImport(prepared.value, summary, snapshot.key);
+  }
+
+  function commitImport(candidate, summary, snapshotKey) {
+    const serialized = serializePayload(candidate, typeof options.now === 'function' ? options.now() : new Date());
     if (!serialized.ok) return serialized;
     try {
       storage.setItem(APP_CONFIG.storeKey, JSON.stringify(serialized.value));
     } catch {
-      return { ok: false, error: 'インポートデータの保存に失敗しました。現行データは変更されていません。', snapshotKey: snapshot.key };
+      return { ok: false, error: 'インポートデータの保存に失敗しました。現行データは変更されていません。', snapshotKey };
     }
-    state = clone(prepared.value);
-    return { ok: true, state: clone(state), summary, snapshotKey: snapshot.key };
+    state = clone(candidate);
+    return { ok: true, state: clone(state), summary, snapshotKey };
+  }
+
+  async function importRawWithRecovery(raw, archiveRecovery) {
+    const result = importRaw(raw);
+    if (!result.snapshotFailed || result.storageError !== 'QuotaExceededError' || typeof archiveRecovery !== 'function') return result;
+    const previousRaw = storage.getItem(APP_CONFIG.storeKey);
+    const previousState = JSON.stringify(state);
+    const prepared = normalizeImportedPayload(raw);
+    if (!prepared.ok) return prepared;
+    let snapshotKey;
+    try {
+      snapshotKey = await archiveRecovery({ createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw: previousRaw, state: clone(state) });
+      if (typeof snapshotKey !== 'string' || !snapshotKey) throw new Error('バックアップの保存完了を確認できません。');
+    } catch (error) {
+      return { ok: false, error: `取り込み前のバックアップを保存できませんでした（${error?.name || 'Error'}）。元のデータは変更していません。${error?.message || ''}` };
+    }
+    // Other tabs or an arriving sync update may have changed the master while awaiting IndexedDB.
+    if (readOnly || previousRaw !== storage.getItem(APP_CONFIG.storeKey) || previousState !== JSON.stringify(state)) {
+      return { ok: false, error: 'バックアップ中に保存データが変更されました。ファイルを選び直して差分を確認してください。', snapshotKey };
+    }
+    return commitImport(prepared.value, summarizeState(prepared.value), snapshotKey);
   }
 
   function reset() {
@@ -1430,6 +1456,7 @@ export function createStorageService(storage, options = {}) {
     load,
     saveAll,
     importRaw,
+    importRawWithRecovery,
     createRecoverySnapshot,
     reset,
     getState: () => clone(state),
