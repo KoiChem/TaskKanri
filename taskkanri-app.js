@@ -1673,6 +1673,8 @@ function decorateStorageService() {
 function installCloudSync() {
   document.body.classList.toggle('cloud-signed-out',localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true');
   const landing=el('section');landing.id='sync-landing';landing.innerHTML='<h2>TaskKanri</h2><p>本人のアカウントでログインして予定を表示します。</p><button type="button">ログイン</button><button type="button" data-start-offline>オフラインで使う</button>';landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
+  // Keep editing blocked until the saved account is restored, without flashing the login screen.
+  if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')landing.hidden=true;
   const controls=el('div');controls.className='sync-controls';const button=el('button','未接続');button.type='button';button.className='sync-text-button';button.setAttribute('aria-label','同期設定を開く。未接続');const status=button;controls.append(button);document.body.append(controls);
   syncController=new SyncController({mode:'desktop',getState:()=>appState,
     canApply:()=>!hasOpenUnsavedForm()&&!isTextEditingTarget(document.activeElement),

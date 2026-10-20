@@ -53,3 +53,13 @@ test('cancelled initial mobile save restores its pending payload even without ca
  const c=new SyncController({mode:'mobile',getState:()=>state,onAccount:()=>state=defaultState(),onData:s=>state=s});c.id='initial-tab';c.user={id:'initial-account'};
  try{c.engine=new SyncEngine({store,transport:{save:()=>c.fetchOnline('https://example.test')}});c.engine.queue(state,{initial:true});const saving=c.flush();const mutation=store.read('pending').request.mutationId;await c.enterOffline();await saving;assert.equal(state.globalTaskData,'初回の取り込み');assert.equal(state.configEvents['2026-10-20'],'保持する行事');state.globalTaskData='続けて編集';await c.save(state);assert.equal(store.read('pending').request.mutationId,mutation);assert.equal(store.read('pending').request.expectedRevision,0);assert.equal(store.read('pending').nextPayload.state.configEvents['2026-10-20'],'保持する行事')}finally{clearInterval(c.interval);globalThis.fetch=original}
 });
+
+test('saved offline preference is announced before waiting for the tab lock',async()=>{
+ data.clear();localStorage.setItem('TASKKANRI_OFFLINE_MODE','true');
+ const oldSession=globalThis.sessionStorage;const oldNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+ globalThis.sessionStorage={getItem:()=> 'startup-tab',setItem(){}};
+ let grant;Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{request:(_name,_options,callback)=>{grant=callback;return new Promise(()=>{})}}}});
+ const labels=[];const c=new SyncController({mode:'desktop',getState:defaultState,onStatus:label=>labels.push(label)});
+ try{const started=c.start();assert.equal(labels[0],'オフラインモード');grant({});await started;assert.equal(c.offlineMode,true);assert.equal(c.client,null);}
+ finally{clearInterval(c.interval);globalThis.sessionStorage=oldSession;if(oldNavigator)Object.defineProperty(globalThis,'navigator',oldNavigator);else delete globalThis.navigator;}
+});

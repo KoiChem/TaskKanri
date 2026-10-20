@@ -78,6 +78,7 @@ button:disabled{cursor:default;opacity:.55}
 .sync-text-button{background:transparent;border:0;color:#334155;min-height:44px;cursor:pointer}
 .sync-text-button:hover{text-decoration:underline}
 :focus-visible{outline:3px solid #245a86;outline-offset:3px}
+.slot-input:focus-visible{outline:none}
 #settings-view :focus-visible,#timetable-view :focus-visible{outline:3px solid #245a86;outline-offset:3px}
 @media(max-width:1150px){.settings-schedule-grid{grid-template-columns:1fr}.settings-schedule-grid .time-table{max-width:540px}}
 @media(max-width:700px){#settings-view,#timetable-view{padding:0 12px 24px}.settings-date-columns{grid-template-columns:1fr;gap:20px}.settings-header{flex-wrap:wrap;gap:8px}.settings-save-actions{gap:8px}#settings-status{max-width:150px}.settings-row{align-items:flex-start}.settings-row .button-group{flex-basis:100%}.settings-section-heading{align-items:flex-start}.layout-options{gap:8px 16px}}

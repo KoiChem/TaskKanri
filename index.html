@@ -125,7 +125,7 @@
   .time-disp { font-size: 11px; color: #718096; font-weight: normal; margin-top: 2px; }
   
   .slot-input { flex: 1; min-width: 0; min-height: 30px; padding: 6px; border: 1px solid #e2e8f0; border-radius: 4px; line-height: 1.4; background: #fff; outline: none; word-break: break-all; }
-  .slot-input:focus { border-color: var(--primary); background: #fffaf0; box-shadow: 0 0 0 1px var(--primary); }
+  .slot-input:focus { background: #fffaf0; }
   
   #top-panel .slot-input { font-size: 15px; }
   #bottom-wrapper .slot-input { font-size: 13px; }
@@ -325,7 +325,7 @@
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
-<link rel="stylesheet" href="settings-ui.css?v=20261015-mobile-inline-v14">
+<link rel="stylesheet" href="settings-ui.css?v=20261020-desktop-offline-v26">
 </head>
 <body class="layout-portrait"> 
 
@@ -627,5 +627,5 @@
 </dialog>
 <dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261019-recovery-capacity-v25"></script>
+<script type="module" src="taskkanri-app.js?v=20261020-desktop-offline-v26"></script>
 </body></html>

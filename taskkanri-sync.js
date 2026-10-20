@@ -28,6 +28,8 @@ export class SyncController {
   finally{source?.removeEventListener('abort',cancel);this.networkRequests.delete(abort)}
  }
  async start() {
+  // Show the saved mode immediately, while retaining the tab lock before loading edits.
+  if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')this.onStatus('オフラインモード');
   this.id=await acquireClientId(sessionStorage);
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true'){await this.enterOffline();return;}
   if(this.offlineMode)return;
