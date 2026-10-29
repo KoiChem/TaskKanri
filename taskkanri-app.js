@@ -1145,7 +1145,19 @@ function buildTaskTabs() {
     if(value==='todo')renderList();
   };
   ['共通タスク','ToDo一覧'].forEach((label,i)=>{const button=el('button',label);button.type='button';button.id=i?'todo-task-tab':'common-task-tab';button.setAttribute('role','tab');button.setAttribute('aria-controls',i?'todo-task-panel':'common-task-panel');button.onclick=()=>select(i?'todo':'common');button.onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?1:1-i;select(next?'todo':'common');buttons[next].focus();}};buttons.push(button);tabs.append(button);});
-  area.append(tabs,common,list);select(taskTab);return area;
+  const body=el('div');body.className='task-tab-body';body.id='task-tab-body';body.append(common,list);
+  const handle=el('div');handle.className='task-height-handle';handle.tabIndex=0;
+  handle.setAttribute('role','separator');handle.setAttribute('aria-label','タスク枠の高さ');handle.setAttribute('aria-orientation','horizontal');handle.setAttribute('aria-controls',body.id);handle.setAttribute('aria-valuemin','120');
+  const heightKey='TASKKANRI_TASK_PANEL_HEIGHT';let height=300,drag=null;
+  try{const saved=Number(localStorage.getItem(heightKey));if(Number.isFinite(saved)&&saved>=120)height=saved;}catch{}
+  const resize=value=>{height=Math.max(120,Math.round(value));body.style.height=height+'px';handle.setAttribute('aria-valuenow',String(height));};
+  const persist=()=>{try{localStorage.setItem(heightKey,String(height));}catch{}};
+  handle.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();drag={y:event.clientY,height};handle.setPointerCapture(event.pointerId);});
+  handle.addEventListener('pointermove',event=>{if(drag)resize(drag.height+event.clientY-drag.y);});
+  const finish=()=>{if(!drag)return;drag=null;persist();};
+  handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);handle.addEventListener('lostpointercapture',finish);
+  handle.addEventListener('keydown',event=>{if(!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();resize(height+(event.key==='ArrowUp'?-20:20));persist();});
+  resize(height);area.append(tabs,body,handle);select(taskTab);return area;
 }
 
 function getFirstWord(html) {

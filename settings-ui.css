@@ -108,7 +108,12 @@ button:disabled{cursor:default;opacity:.55}
 .task-tab-buttons button{padding:6px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f7fafc;color:#46566e;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
 .task-tab-buttons button[aria-selected=true]{background:#e4edfa;color:#193964;border-color:#8aa8cf}
 .task-tabs [hidden]{display:none!important}
-.task-tab-content{box-sizing:border-box;height:160px;min-height:74px;max-height:200px;overflow:auto;font-size:14px}
+.task-tab-body{height:300px;min-height:120px}
+.task-tab-content{box-sizing:border-box;height:100%;min-height:0;max-height:none;overflow:auto;font-size:14px}
+.task-height-handle{height:18px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;user-select:none}
+.task-height-handle::after{content:"";width:48px;height:4px;border-radius:2px;background:#94a3b8}
+.task-height-handle:hover::after,.task-height-handle:focus-visible::after{background:#2458be}
+.task-height-handle:focus-visible{outline:2px solid #2458be;outline-offset:1px}
 .todo-inline-list{border:1px solid #cbd5e1;border-radius:6px;padding:6px;display:flex;flex-direction:column;gap:6px}
 .todo-inline-item{display:flex;align-items:flex-start;gap:12px;flex-shrink:0;width:100%;text-align:left;padding:8px;border:1px solid #dce4ed;border-radius:5px;background:white;color:#243047;font:inherit;cursor:pointer;overflow-wrap:anywhere}
 .todo-inline-location{flex:0 0 130px;color:#526176}.todo-inline-item .todo-badge{margin-right:8px}
