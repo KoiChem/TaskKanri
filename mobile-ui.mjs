@@ -5,7 +5,7 @@ export function mobileSyncLabel(text,engine){
   const date=new Date(engine.lastSuccessfulSyncAt || NaN);
   return Number.isFinite(date.getTime())?`${date.toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'})}同期`:'同期済み';
  }
- return ({loading:'読込中',empty:'未登録',pending:'未送信',saving:'同期中',offline:'オフライン',conflict:'要確認',deferred:'要確認',blocked:'要確認'})[engine.status]||'未接続';
+ return ({loading:'読込中',cached:'端末の保存内容',unloaded:'未取得',empty:'未登録',pending:'未送信',saving:'同期中',offline:'オフライン',conflict:'要確認',deferred:'要確認',blocked:'要確認'})[engine.status]||'未接続';
 }
 export function centerCalendarPeriod(pages,position,size){
  const center=position+size/2;

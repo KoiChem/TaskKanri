@@ -4,12 +4,17 @@ import {acquireClientId,syncStore} from './taskkanri-device-storage.mjs';
 import {defaultState} from './taskkanri-core.mjs';
 import {mergePayload,toPayload,samePayload} from './taskkanri-sync-model.mjs';
 
+export function consumeDesktopStartup(storage,navigationType) {
+ const seen=storage.getItem('TASKKANRI_DESKTOP_OPENED');
+ storage.setItem('TASKKANRI_DESKTOP_OPENED','true');
+ return !seen && navigationType==='navigate';
+}
 const blockedCodes=new Set(['42501','22023','PGRST202','PGRST301']);
 function checked(result) {if(result.error){const e=new Error(result.error.message==='app_update_required'?'アプリを更新してください。未送信データは保持しています。':result.error.code==='42501'?'このアカウントは同期を許可されていません。':result.error.code==='PGRST202'?'Supabaseの初期設定が必要です。':result.error.message);e.blocked=blockedCodes.has(result.error.code);e.permissionDenied=result.error.code==='42501';throw e}return result.data}
 export function statusLabel(engine) {
  if(engine?.manualOffline)return 'オフラインモード';
  const stamp=engine?.lastSuccessfulSyncAt?new Date(engine.lastSuccessfulSyncAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';
- return ({loading:'読み込み中',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
+ return ({loading:'読み込み中',cached:'端末の保存内容',unloaded:'同期して最新データを取得',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
 }
 export class SyncController {
  constructor({mode,getState,onAccount=()=>{},onData=()=>{},onStatus=()=>{},canApply=()=>true}) {
@@ -17,7 +22,7 @@ export class SyncController {
   this.visibility=()=>{if(document.visibilityState==='visible')void this.refresh()};
   document.addEventListener('visibilitychange',this.visibility);window.addEventListener('online',this.visibility);
   document.addEventListener('compositionstart',()=>this.composing=true);document.addEventListener('compositionend',()=>{this.composing=false;if(this.engine?.pending)this.schedule()});
-  this.interval=setInterval(()=>{if(document.visibilityState==='visible')void this.refresh()},15000);
+  this.interval=mode==='desktop'?null:setInterval(()=>{if(document.visibilityState==='visible')void this.refresh()},15000);
  }
  async fetchOnline(input,init={}) {
   if(this.offlineMode)throw new Error('オフラインモードでは通信しません。');
@@ -30,6 +35,7 @@ export class SyncController {
  async start() {
   // Show the saved mode immediately, while retaining the tab lock before loading edits.
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')this.onStatus('オフラインモード');
+  if(this.mode==='desktop')this.allowStartupRead=consumeDesktopStartup(sessionStorage,globalThis.performance?.getEntriesByType?.('navigation')?.[0]?.type);
   this.id=await acquireClientId(sessionStorage);
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true'){await this.enterOffline();return;}
   if(this.offlineMode)return;
@@ -72,18 +78,22 @@ export class SyncController {
   }
   if(offline){this.engine.loadCached();this.engine.emit('offline');return;}
   const engine=this.engine;
+  if(this.mode==='desktop') {
+    const read=this.allowStartupRead&&!engine.pending;this.allowStartupRead=false;
+    if(!read){engine.loadCached();engine.emit(engine.pending?'pending':engine.payload?'cached':'unloaded');return;}
+  }
   try{await engine.load();if(engine===this.engine&&engine.pending&&engine.status!=='conflict')this.schedule();}
   catch(e){if(engine!==this.engine||this.offlineMode)return;engine.emit(e.blocked?'blocked':'offline',e.message);throw e;}
  }
  dirty(state) {
-  const engine=this.engine;if(!engine?.payload)return;
+  const engine=this.engine;if(!engine||!engine.payload&&!engine.pending)return;
   const latest=engine.pending?.nextPayload||engine.pending?.request.payload||engine.payload;
   if(samePayload(toPayload(state),latest))return;
   if(this.offlineMode&&this.localOnly){engine.queue(state,{offline:true});void engine.flush();return;}
-  engine.queue(state,{offline:!!this.offlineMode});if(!this.offlineMode)this.schedule();
+  engine.queue(state,{offline:!!this.offlineMode,initial:!engine.payload&&!!engine.pending});if(!this.offlineMode)this.schedule();
  }
  schedule() {
-  if(this.offlineMode)return;
+  if(this.offlineMode||this.mode==='desktop')return;
   clearTimeout(this.sendTimer);this.sendTimer=setTimeout(()=>{if(this.composing){this.schedule();return;}void this.flush()},800);
   if(!this.maxTimer)this.maxTimer=setTimeout(()=>{this.maxTimer=null;if(!this.composing)void this.flush()},5000);
  }
@@ -94,11 +104,12 @@ export class SyncController {
   const engine=this.engine;if(!engine)return {status:'stopped'};
   const result=await engine.flush();if(engine!==this.engine)return {status:'stopped'};
   if(result.error?.permissionDenied){await this.activate(null);this.onStatus(result.error.message);return result;}
-  if(result.status==='error'&&!result.error.blocked){const delay=[2000,5000,15000][this.retry++]||60000;clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>{if(document.visibilityState==='visible')void this.flush()},delay);}
+  if(this.mode!=='desktop'&&result.status==='error'&&!result.error.blocked){const delay=[2000,5000,15000][this.retry++]||60000;clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>{if(document.visibilityState==='visible')void this.flush()},delay);}
   else if(result.status==='saved'||result.status==='duplicate'){this.retry=0;if(engine.pending)this.schedule();}
   return result;
  }
- async refresh(){
+ async refresh({manual=false}={}){
+  if(this.mode==='desktop'&&!manual)return {status:this.engine?.status||'stopped'};
   if(this.offlineMode)return {status:'synced'};
   if(!this.engine)return {status:'stopped',error:new Error('ログインしてから更新してください。')};
   const engine=this.engine;const before=engine.revision;
@@ -108,7 +119,7 @@ export class SyncController {
    if(data.session.user.id!==this.user?.id){await this.activate(data.session);return {status:this.engine?.status||'stopped'};}
    if(!checked(await this.client.rpc('taskkanri_is_allowed'))){const e=new Error('このアカウントは同期を許可されていません。');e.permissionDenied=true;throw e;}
    if(engine!==this.engine)return {status:'stopped'};
-   if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else await engine.refresh();
+   if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else if(!engine.payload)await engine.load();else await engine.refresh();
    return {status:engine.status,changed:engine.revision!==before,error:engine.error?new Error(engine.error):undefined};
   }catch(e){
    if(engine!==this.engine)return {status:'stopped',error:e};
@@ -116,7 +127,7 @@ export class SyncController {
    return {status:'error',error:e};
   }
  }
- async login(email,password){if(!this.client)throw new Error('オンラインに戻ってからログインしてください。');const generation=this.generation;const result=await this.client.auth.signInWithPassword({email,password});if(this.offlineMode||generation!==this.generation)return {cancelled:true};checked(result);await this.activate(result.data.session);}
+ async login(email,password){if(!this.client)throw new Error('オンラインに戻ってからログインしてください。');const generation=this.generation;const result=await this.client.auth.signInWithPassword({email,password});if(this.offlineMode||generation!==this.generation)return {cancelled:true};checked(result);this.allowStartupRead=true;await this.activate(result.data.session);}
  async logout(){clearTimeout(this.retryTimer);const result=await this.client.auth.signOut({scope:'local'});checked(result);await this.activate(null);}
  async initialize(state){if(!this.engine||this.engine.status!=='empty')throw new Error('初期登録できません。同期状態を確認してください');this.engine.queue(state,{initial:true});return this.flush();}
  async enterOffline(){

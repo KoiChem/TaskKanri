@@ -57,6 +57,9 @@ let countDragState = null;
 let wakeLock = null;
 let syncController;
 let syncUI;
+let taskTab='common';
+let todoScroll=0;
+let todoReveal=null;
 let cloudUser = null;
 let applyingCloud = false;
 let initialized = false;
@@ -642,6 +645,7 @@ function createSlotEditor(dateId, slot, isShortChime, isExamChime, hideChime = f
   const input = el('div');
   input.className = 'slot-input';
   input.contentEditable = 'true';
+  input.dataset.slot=slot;input.dataset.dateId=dateId;
   const resolved = resolvedSlot(dateId, slot);
   appendSafeRich(input, resolved);
   input.addEventListener('blur', () => updateSlot(dateId, slot, editorHtml(input)));
@@ -657,6 +661,7 @@ function renderEditor(dateId, position) {
   if (!target || !date) return;
   activePanels[targetPosition] = dateId;
   if (targetPosition === 'top') currentMainDateId = dateId;
+  if(targetPosition==='top'){const list=target.querySelector('[data-todo-list]');if(list)todoScroll=list.scrollTop;}
   target.replaceChildren();
   target.appendChild(buildPanelHeader(dateId, targetPosition));
   const content = el('div');
@@ -695,23 +700,12 @@ function renderEditor(dateId, position) {
     }
   }
   addSlots(['放課後']);
+  if(targetPosition==='top'&&todoReveal?.dateId===dateId&&![...content.querySelectorAll('[data-slot]')].some(input=>input.dataset.slot===todoReveal.slot))content.appendChild(createSlotEditor(dateId,todoReveal.slot,isShortChime,isExamChime,hideChime,true));
   if (targetPosition === 'top') {
-    const globalArea = el('div');
-    setStyle(globalArea, { marginTop: '10px', paddingTop: '8px', flexShrink: '0' });
-    const title = el('div', '共通タスク');
-    setStyle(title, { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', marginBottom: '4px' });
-    const globalInput = el('div');
-    globalInput.className = 'slot-input';
-    globalInput.contentEditable = 'true';
-    globalInput.style.minHeight = '60px';
-    globalInput.style.fontSize = '14px';
-    appendSafeRich(globalInput, appState.globalTaskData);
-    globalInput.addEventListener('blur', () => updateGlobalTask(editorHtml(globalInput)));
-    globalInput.addEventListener('paste', handlePaste);
-    globalArea.append(title, globalInput);
-    content.appendChild(globalArea);
+    content.appendChild(buildTaskTabs());
   }
   target.appendChild(content);
+  if(targetPosition==='top'&&taskTab==='todo')target.querySelector('[data-todo-list]').scrollTop=todoScroll;
   if (targetPosition === 'top') updateToolbarState();
 }
 function refreshMainUI() {
@@ -741,11 +735,13 @@ function setUserOverride(state,dateId,slot,htmlValue){
  else {delete state.dateSchedules[dateId]?.[slot];if(state.dateSchedules[dateId]&&!Object.keys(state.dateSchedules[dateId]).length)delete state.dateSchedules[dateId];}
 }
 function updateSlot(dateId, slot, htmlValue) {
+  if(sanitizeHtml(htmlValue)===sanitizeHtml(resolvedSlot(dateId,slot)))return true;
   const ok = commitState(state => { setUserOverride(state, dateId, slot, htmlValue); }, { historyLabel: '日別予定の変更', historyScope: 'schedule' });
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
 function updateGlobalTask(htmlValue) {
+  if(sanitizeHtml(htmlValue)===sanitizeHtml(appState.globalTaskData))return true;
   return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); }, { historyLabel: '共通タスクの変更', historyScope: 'task' });
 }
 
@@ -1105,7 +1101,7 @@ function bindEditorEvents() {
   });
   right.addEventListener('click', event => {
     const badge = event.target.closest?.('.todo-badge');
-    if (!badge || !right.contains(badge)) return;
+    if (!badge || !right.contains(badge) || !badge.closest('.slot-input')) return;
     if(!canCloudEdit())return;
     const next = (Number(badge.dataset.state) + 1) % 4;
     updateBadgeElement(badge, next);
@@ -1116,28 +1112,41 @@ function bindEditorEvents() {
 function extractTasksForDisplay(html, dateId, slotName) {
   return extractTodoItems(html).map(item => ({ ...item, dateId, slotName }));
 }
-function openTodoModal() {
-  const tbody = document.getElementById('todo-list-tbody'); if (!tbody) return;
-  tbody.replaceChildren();
-  const tasks = extractTasksForDisplay(appState.globalTaskData, 'GLOBAL', '共通タスク');
-  academicDateIds().forEach(dateId => APP_CONFIG.slotsAll.forEach(slot => tasks.push(...extractTasksForDisplay(resolvedSlot(dateId, slot), dateId, slot))));
-  if (!tasks.length) {
-    const row = el('tr'); const cell = el('td', '未完了のタスクはありません。\nお疲れ様です🍡🍡🍡'); cell.colSpan = 3; cell.style.whiteSpace = 'pre-line'; cell.style.textAlign = 'center'; cell.style.padding = '40px'; row.appendChild(cell); tbody.appendChild(row);
-  } else tasks.forEach(task => {
-    const row = el('tr'); row.className = 'todo-row';
-    row.addEventListener('click', () => task.dateId === 'GLOBAL' ? closeTodoModal() : jumpToDateFromTodo(task.dateId));
-    const dateCell = el('td', task.dateId === 'GLOBAL' ? '共通' : (() => { const date = dateFromIso(task.dateId); return `${date.getMonth() + 1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]})`; })());
-    const slotCell = el('td', task.slotName);
-    const taskCell = el('td');
-    const badge = el('span', ({ 0: '未', 1: '途', 3: '急' })[task.state] || '未'); badge.className = `todo-badge state-${task.state}`; badge.style.cursor = 'default'; badge.style.marginRight = '8px';
-    taskCell.append(badge, document.createTextNode(task.text));
-    [dateCell, slotCell, taskCell].forEach(cell => { cell.style.border = '1px solid #cbd5e0'; cell.style.padding = '8px'; });
-    tbody.appendChild(row).append(dateCell, slotCell, taskCell);
-  });
-  document.getElementById('todo-modal').style.display = 'flex';
+function buildTaskTabs() {
+  const area=el('section');area.className='task-tabs';
+  const tabs=el('div');tabs.className='task-tab-buttons';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','タスク表示');
+  const common=el('div');common.className='slot-input task-tab-content';common.id='common-task-panel';common.dataset.commonEditor='';common.contentEditable='true';common.setAttribute('role','tabpanel');common.setAttribute('aria-labelledby','common-task-tab');
+  appendSafeRich(common,appState.globalTaskData);common.addEventListener('blur',()=>updateGlobalTask(editorHtml(common)));common.addEventListener('paste',handlePaste);
+  const list=el('div');list.className='task-tab-content todo-inline-list';list.id='todo-task-panel';list.dataset.todoList='';list.setAttribute('role','tabpanel');list.setAttribute('aria-labelledby','todo-task-tab');
+  list.addEventListener('scroll',()=>todoScroll=list.scrollTop);
+  const renderList=()=>{
+    list.replaceChildren();
+    const tasks=extractTasksForDisplay(appState.globalTaskData,'GLOBAL','共通タスク');
+    academicDateIds().forEach(dateId=>APP_CONFIG.slotsAll.forEach(slot=>tasks.push(...extractTasksForDisplay(resolvedSlot(dateId,slot),dateId,slot))));
+    if(!tasks.length)list.append(el('p','未完了のタスクはありません。'));
+    tasks.forEach(task=>{
+      const button=el('button');button.type='button';button.className='todo-inline-item';
+      const date=task.dateId==='GLOBAL'?null:dateFromIso(task.dateId);
+      const location=el('span',date?`${date.getMonth()+1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]}) ${task.slotName}`:'共通');location.className='todo-inline-location';
+      const text=el('span');const badge=el('span',({0:'未',1:'途',3:'急'})[task.state]);badge.className=`todo-badge state-${task.state}`;text.append(badge,document.createTextNode(task.text));button.append(location,text);
+      button.onclick=()=>{
+        todoScroll=list.scrollTop;
+        if(!date){select('common');common.focus();return;}
+        todoReveal={dateId:task.dateId,slot:task.slotName};renderEditor(task.dateId,'top');executeJump(task.dateId);
+        const input=[...document.querySelectorAll('#top-panel .slot-input[data-slot]')].find(node=>node.dataset.slot===task.slotName);input?.focus();input?.scrollIntoView({block:'nearest'});
+      };list.append(button);
+    });list.scrollTop=todoScroll;
+  };
+  const buttons=[];
+  const select=value=>{
+    if(taskTab==='todo'&&list.childElementCount)todoScroll=list.scrollTop;
+    taskTab=value;common.hidden=value!=='common';list.hidden=value!=='todo';
+    buttons.forEach((button,i)=>{const selected=(i===0)===(value==='common');button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;});
+    if(value==='todo')renderList();
+  };
+  ['共通タスク','ToDo一覧'].forEach((label,i)=>{const button=el('button',label);button.type='button';button.id=i?'todo-task-tab':'common-task-tab';button.setAttribute('role','tab');button.setAttribute('aria-controls',i?'todo-task-panel':'common-task-panel');button.onclick=()=>select(i?'todo':'common');button.onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?1:1-i;select(next?'todo':'common');buttons[next].focus();}};buttons.push(button);tabs.append(button);});
+  area.append(tabs,common,list);select(taskTab);return area;
 }
-function closeTodoModal() { const modal = document.getElementById('todo-modal'); if (modal) modal.style.display = 'none'; }
-function jumpToDateFromTodo(dateId) { closeTodoModal(); renderEditor(dateId, 'top'); executeJump(dateId); }
 
 function getFirstWord(html) {
   return stripHtml(html).replace(/^\s*(?:[①-⑳㉑-㉟㊱-㊿]|\(\d+\))\s*/, '').trim().split(/[\s\u00a0　]+/)[0] || '';
@@ -1572,7 +1581,7 @@ function saveSettings(){
   qa('#day-slot-tbody input[data-instruction-day]').forEach(input=>next.instructionDayConfig[input.dataset.instructionDay]=input.checked);
   try{Object.assign(next,planSettingsDateMaps(appState,{events:settingsDirtySections.has('events')?collectBulkDateRows('events'):undefined,holidays:settingsDirtySections.has('holidays')?collectBulkDateRows('holidays'):undefined}));for(const kind of ['events','holidays']){document.getElementById(`${kind}-error`).textContent='';document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui').removeAttribute('aria-invalid');}}catch(e){const node=document.getElementById(`${e.section}-error`);node.textContent=e.message;const input=document.getElementById(e.section==='events'?'annual-text-ui':'holiday-text-ui');input.setAttribute('aria-invalid','true');input.scrollIntoView({block:'center'});input.focus();return false;}
   if(!commitState(state=>Object.assign(state,next),{historyLabel:'設定の保存',historyScope:'settings'}))return false;
-  settingsDirtySections.clear();document.body.classList.toggle('layout-landscape',next.isLandscapeMode);document.body.classList.toggle('layout-portrait',!next.isLandscapeMode);refreshMainUI();updateSettingsStatus(syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました');return true;
+  settingsDirtySections.clear();document.body.classList.toggle('layout-landscape',next.isLandscapeMode);document.body.classList.toggle('layout-portrait',!next.isLandscapeMode);refreshMainUI();updateSettingsStatus(syncController?.engine?.pending?'端末に保存しました。未送信の変更があります。':'保存しました');return true;
  }catch(e){updateSettingsStatus(e.message);return false;}
 }
 function leaveSettings(action){if(!settingsDirtySections.size){action();return;}pendingSettingsLeave=action;document.getElementById('settings-leave-dialog').showModal();}
@@ -1584,7 +1593,7 @@ function closeTimetableView(){if(timetableDraft&&!showConfirm('未実行の入�
 function timetableOptions(){const table={};qa('#weekly-tbody input').forEach(input=>{table[input.dataset.day]??={};table[input.dataset.day][input.dataset.slot]=input.value;});return {start:document.getElementById('tmpl-start').value,end:document.getElementById('tmpl-end').value,table,mode:q('[name=timetable-mode]:checked').value,emptyMode:q('[name=empty-mode]:checked')?.value};}
 function currentTimetableFingerprint(){return JSON.stringify({state:appState,options:timetableOptions()});}
 function previewTimetable(){const root=document.getElementById('timetable-result');root.replaceChildren();if(!canCloudEdit()||storageService.isReadOnly())return;if(syncController?.engine?.status==='deferred'){root.textContent='ほかの端末の変更を確認してから実行してください。入力は保持しています。';return;}const options=timetableOptions();if(options.mode==='replace'&&!options.emptyMode){root.textContent='上書きする空欄の扱いを選択してください。';return;}const result=planTimetableInput(appState,options);if(!result.ok){root.textContent=result.error;return;}timetablePreview=result.value;timetableFingerprint=currentTimetableFingerprint();const count=summarizeTimetableChanges(result.value.changes),excluded={};result.value.excluded.forEach(x=>excluded[x.reason]=(excluded[x.reason]||0)+1);root.append(el('p',`${count.days}日・${count.slots}コマを${options.mode==='append'?'追加':'置換'}。削除 ${count.deleted}コマ、タスクを含む変更 ${count.tasks}コマ。除外 ${result.value.excluded.length}コマ。${Object.entries(excluded).map(([reason,n])=>`${reason}: ${n}`).join(' / ')}`));if(options.mode==='replace')root.append(el('p','上書きすると対象コマのメモとタスクも置き換わります。'));if(!count.slots)root.append(el('p','変更対象がありません。期間・授業日・表示する枠・入力内容を確認してください。'));const list=el('div');list.className='timetable-changes';result.value.changes.forEach(change=>{const row=el('section');row.append(el('h4',`${change.dateId} ${change.slot}`));const before=el('div'),after=el('div');before.append(el('strong','変更前'));appendSafeRich(before,change.before);after.append(el('strong','変更後'));appendSafeRich(after,change.after);row.append(before,after);list.append(row);});root.append(list);const execute=document.getElementById('timetable-execute');execute.hidden=!count.slots;execute.textContent=options.mode==='append'?'予定に追加する':'予定を上書きする';}
-function executeTimetable(){if(timetableBusy||!timetablePreview)return;if(timetableFingerprint!==currentTimetableFingerprint()){document.getElementById('timetable-result').textContent='入力や予定が変わりました。変更内容をもう一度確認してください。';timetablePreview=null;document.getElementById('timetable-execute').hidden=true;return;}if(!canCloudEdit()||storageService.isReadOnly()||syncController?.engine?.busy||syncController?.engine?.status==='deferred')return;timetableBusy=true;const button=document.getElementById('timetable-execute');button.disabled=true;try{const backup=storageService.createRecoverySnapshot();if(!backup.ok){notifySaveFailure(backup);return;}if(commitState(state=>Object.assign(state,timetablePreview.state),{historyLabel:'時間割の期間入力',historyScope:'schedule',refresh:true})){timetableDraft=false;timetablePreview=null;button.hidden=true;document.getElementById('timetable-result').textContent=syncController?.engine?.pending?'端末に保存しました。同期中…':'保存しました。「元に戻す」で一括して取り消せます。';}}finally{timetableBusy=false;button.disabled=false;}}
+function executeTimetable(){if(timetableBusy||!timetablePreview)return;if(timetableFingerprint!==currentTimetableFingerprint()){document.getElementById('timetable-result').textContent='入力や予定が変わりました。変更内容をもう一度確認してください。';timetablePreview=null;document.getElementById('timetable-execute').hidden=true;return;}if(!canCloudEdit()||storageService.isReadOnly()||syncController?.engine?.busy||syncController?.engine?.status==='deferred')return;timetableBusy=true;const button=document.getElementById('timetable-execute');button.disabled=true;try{const backup=storageService.createRecoverySnapshot();if(!backup.ok){notifySaveFailure(backup);return;}if(commitState(state=>Object.assign(state,timetablePreview.state),{historyLabel:'時間割の期間入力',historyScope:'schedule',refresh:true})){timetableDraft=false;timetablePreview=null;button.hidden=true;document.getElementById('timetable-result').textContent=syncController?.engine?.pending?'端末に保存しました。未送信の変更があります。':'保存しました。「元に戻す」で一括して取り消せます。';}}finally{timetableBusy=false;button.disabled=false;}}
 function exportData() { syncUI.exportData(); }
 async function importData(event) {
  const input=event?.target,file=input?.files?.[0];
@@ -1659,7 +1668,7 @@ function initializeStorage() {
 }
 function canCloudEdit() {
   if (document.body.classList.contains('cloud-signed-out')) { showAlert('同期設定からログインしてください。'); return false; }
-  if ((cloudUser && !syncController?.engine) || ['conflict','blocked'].includes(syncController?.engine?.status)) { syncUI.open(); return false; }
+  if ((cloudUser && !syncController?.engine) || ['conflict','blocked','unloaded'].includes(syncController?.engine?.status)) { syncUI.open(); return false; }
   return true;
 }
 function queueCloudSave(state) {
@@ -1696,9 +1705,9 @@ function installCloudSync() {
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
-    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・同期中…',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
+    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.hasAttribute('data-common-editor')?updateGlobalTask(html):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
   syncController.start().catch(error=>{if(syncController.offlineMode)return;status.textContent=error.message;syncUI.tell(error.message)});
 }
@@ -1752,6 +1761,7 @@ function initApp() {
   document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
   document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
   document.addEventListener('keydown', event => {
+    if((event.ctrlKey&&event.altKey&&!event.metaKey||event.metaKey&&event.altKey&&!event.ctrlKey)&&!event.shiftKey&&event.code==='KeyS'){event.preventDefault();if(!event.repeat&&!event.isComposing&&event.keyCode!==229&&!syncController.composing)void syncUI.requestSync();return;}
     if (event.key === 'Escape' && isDateListContextMenuOpen()) { event.preventDefault(); closeDateListContextMenu(true); return; }
     if (event.isComposing || event.keyCode === 229 || isTextEditingTarget(event.target) || hasOpenUnsavedForm()) return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -1783,7 +1793,7 @@ Object.assign(window, {
   APP_CONFIG, AppStorage: { init: initializeStorage, saveAll: () => storageService.saveAll(appState) }, DayStateEngine, EditorCmd,
   clearSearch, executeJump, executeSearch, renderEditor, shiftDate, toggleClock, toggleWakeLock, handlePaste,
   toggleMainState,
-  openTodoModal, closeTodoModal, jumpToDateFromTodo, openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
+  openCountModal, closeCountModal, switchCountMode, addCountConditionRow, removeCountConditionRow,
   updateCondWord, updateCondMode, updateCondStart, updateCountDateRange, toggleTrash, togglePreviewCheck, moveCountCondition, applyCountColumn,
   applyCountAll, applyGridCleaning, exportCountToCSV, startCountDrag, openBulkCalendarModal, closeBulkCalendarModal, handleBulkCalendarModalKeydown,
   openBulkCalendarContextMenu, closeBulkCalendarContextMenu, clearBulkCalendarSelection, setBulkCalendarSelectionMode, setBulkCalendarMonthLayout,

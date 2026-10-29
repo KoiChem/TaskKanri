@@ -102,3 +102,15 @@ button:disabled{cursor:default;opacity:.55}
 #date-editor-dialog :focus-visible{outline:3px solid #245a86;outline-offset:3px}
 @media(max-width:600px){#date-editor-dialog{width:calc(100vw - 24px);padding:16px}.date-editor-footer{align-items:flex-end;flex-direction:column}.date-editor-header h2{font-size:18px}}
 @media(pointer:coarse){#date-editor-dialog button{min-height:44px;min-width:44px}}
+
+.task-tabs{margin-top:10px;padding-top:8px;flex-shrink:0;min-width:0}
+.task-tab-buttons{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.task-tab-buttons button{padding:6px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f7fafc;color:#46566e;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.task-tab-buttons button[aria-selected=true]{background:#e4edfa;color:#193964;border-color:#8aa8cf}
+.task-tabs [hidden]{display:none!important}
+.task-tab-content{box-sizing:border-box;height:160px;min-height:74px;max-height:200px;overflow:auto;font-size:14px}
+.todo-inline-list{border:1px solid #cbd5e1;border-radius:6px;padding:6px;display:flex;flex-direction:column;gap:6px}
+.todo-inline-item{display:flex;align-items:flex-start;gap:12px;flex-shrink:0;width:100%;text-align:left;padding:8px;border:1px solid #dce4ed;border-radius:5px;background:white;color:#243047;font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.todo-inline-location{flex:0 0 130px;color:#526176}.todo-inline-item .todo-badge{margin-right:8px}
+.task-tabs button:focus-visible{outline:3px solid #2458be;outline-offset:2px}
+@media(max-width:700px){.todo-inline-item{flex-direction:column;gap:4px}.todo-inline-location{flex-basis:auto}}

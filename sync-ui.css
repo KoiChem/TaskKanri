@@ -16,3 +16,5 @@
 .transfer-wide .transfer-body{flex:1}
 
 .transfer-footer{flex-wrap:wrap;gap:10px}.transfer-footer button{max-width:100%}
+.sync-dialog [data-shortcut]{margin-left:10px;font-size:12px;color:#526176}
+.sync-dialog [data-refresh]{margin-bottom:10px}

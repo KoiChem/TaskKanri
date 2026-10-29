@@ -5,7 +5,7 @@
 <meta name="taskkanri-build-version" content="20261015-mobile-inline-v14">
 <meta name="taskkanri-schema-version" content="8">
 <title>タスク管理くん</title>
-<link rel="stylesheet" href="sync-ui.css?v=20261019-recovery-capacity-v25">
+<link rel="stylesheet" href="sync-ui.css?v=20261029-manual-sync-v27">
 <style>
   :root { 
     --primary: #3182ce; --bg: #f8fafc; --border: #cbd5e0; --text: #2d3748;
@@ -325,7 +325,7 @@
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
-<link rel="stylesheet" href="settings-ui.css?v=20261020-desktop-offline-v26">
+<link rel="stylesheet" href="settings-ui.css?v=20261029-manual-sync-v27">
 </head>
 <body class="layout-portrait"> 
 
@@ -350,9 +350,6 @@
   <div id="date-list"></div>
   
   <div class="sidebar-ctrl-area">
-    <button class="btn-settings" title="ToDo一覧を抽出" onclick="openTodoModal()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><line x1="9" y1="14" x2="15" y2="14"></line><line x1="9" y1="10" x2="15" y2="10"></line></svg>
-    </button>
     <button class="btn-settings" title="授業時数マネージャー" onclick="openCountModal()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14.01"></line><line x1="12" y1="14" x2="12" y2="14.01"></line><line x1="8" y1="14" x2="8" y2="14.01"></line><line x1="16" y1="18" x2="16" y2="18.01"></line><line x1="12" y1="18" x2="12" y2="18.01"></line><line x1="8" y1="18" x2="8" y2="18.01"></line></svg>
     </button>
@@ -447,26 +444,6 @@
     <input id="date-list-context-holiday-name" type="text" placeholder="休日・祝日名">
     <button type="button" onclick="saveDateListContextHoliday()">休日に設定</button>
     <button type="button" onclick="clearDateListContextHoliday()">解除</button>
-  </div>
-</div>
-
-<div id="todo-modal" class="modal-overlay" style="z-index: 2500;">
-  <div class="menu-box" style="width: 700px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column;">
-    <h2 style="margin:0 0 10px 0; text-align:center; color:#2d3748;">📋 未完了タスク一覧</h2>
-    <p style="font-size:12px; color:#718096; margin-top:0; text-align:center;">スケジュールに登録されている「急」「未」「途」のバッジを自動抽出しています。<br>（クリックでその日にジャンプします）</p>
-    <div style="flex:1; overflow-y:auto; border:1px solid #cbd5e0; border-radius:4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
-      <table style="width:100%; border-collapse: collapse; font-size: 14px; background: #fff;">
-        <thead style="position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
-           <tr style="background:#edf2f7;">
-             <th style="border:1px solid #cbd5e0; padding:8px; width:140px;">日付</th>
-             <th style="border:1px solid #cbd5e0; padding:8px; width:70px;">時限</th>
-             <th style="border:1px solid #cbd5e0; padding:8px;">タスク内容</th>
-           </tr>
-        </thead>
-        <tbody id="todo-list-tbody"></tbody>
-      </table>
-    </div>
-    <button class="menu-btn" style="background:#4a5568; color:white; margin-top:15px;" onclick="closeTodoModal()">閉じる</button>
   </div>
 </div>
 
@@ -627,5 +604,5 @@
 </dialog>
 <dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261020-desktop-offline-v26"></script>
+<script type="module" src="taskkanri-app.js?v=20261029-manual-sync-v27"></script>
 </body></html>
