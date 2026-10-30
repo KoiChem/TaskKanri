@@ -13,7 +13,7 @@ export function planTimetableInput(state,{start,end,table,mode,emptyMode}={}) {
   if(!/^[0-6]$/.test(day)||!isPlainObject(slots))return fail('曜日の入力が不正です。');
   for(const [slot,text] of Object.entries(slots))if(!APP_CONFIG.slotsAll.includes(slot)||typeof text!=='string')return fail('コマの入力が不正です。');
  }
- const next=clone(checked.value),changes=[],excluded=[];
+ const next=clone(checked.value),changes=[],excluded=[],words=new Set(next.timetableWords);
  for(let dateId=start;dateId<=end;){
   const day=weekdayForDateId(dateId),policy=getDateSchedulePolicy(dateId,next),slots=table[day]||{};
   const reason=policy.isEffectiveHoliday?'休日':policy.isFixedOffActive?'休業日':['exam','mock-exam'].includes(policy.profile)?'考査':policy.profile.startsWith('noclass')?'授業なし':'';
@@ -29,8 +29,13 @@ export function planTimetableInput(state,{start,end,table,mode,emptyMode}={}) {
    if(after){next.dateSchedules[dateId]||={};next.dateSchedules[dateId][slot]=after;}
    else {delete next.dateSchedules[dateId]?.[slot];if(next.dateSchedules[dateId]&&!Object.keys(next.dateSchedules[dateId]).length)delete next.dateSchedules[dateId];}
    changes.push({dateId,slot,before,after});
+   if(raw && !['朝','昼休み','放課後'].includes(slot)) {
+    const word=raw.replace(/^\s*(?:[①-⑳㉑-㉟㊱-㊿]|\(\d+\))\s*/, '').trim().split(/[\s\u00a0　]+/)[0];
+    if(word)words.add(word);
+   }
   }
   const date=new Date(dateId+'T00:00:00Z');date.setUTCDate(date.getUTCDate()+1);dateId=date.toISOString().slice(0,10);
  }
+ next.timetableWords=[...words];
  return {ok:true,value:{state:next,changes,excluded}};
 }

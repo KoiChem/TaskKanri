@@ -1145,6 +1145,10 @@ function buildTaskTabs() {
     if(value==='todo')renderList();
   };
   ['共通タスク','ToDo一覧'].forEach((label,i)=>{const button=el('button',label);button.type='button';button.id=i?'todo-task-tab':'common-task-tab';button.setAttribute('role','tab');button.setAttribute('aria-controls',i?'todo-task-panel':'common-task-panel');button.onclick=()=>select(i?'todo':'common');button.onkeydown=event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?1:1-i;select(next?'todo':'common');buttons[next].focus();}};buttons.push(button);tabs.append(button);});
+  const header=el('div');header.className='task-panel-header';
+  const actions=el('div');actions.className='task-management-actions';
+  [['授業時数',openCountModal],['日付の一括設定',openBulkCalendarModal],['設定',openSettingsView]].forEach(([label,open])=>{const button=el('button',label);button.type='button';button.addEventListener('click',open);actions.append(button);});
+  header.append(tabs,actions);
   const body=el('div');body.className='task-tab-body';body.id='task-tab-body';body.append(common,list);
   const handle=el('div');handle.className='task-height-handle';handle.tabIndex=0;
   handle.setAttribute('role','separator');handle.setAttribute('aria-label','タスク枠の高さ');handle.setAttribute('aria-orientation','horizontal');handle.setAttribute('aria-controls',body.id);handle.setAttribute('aria-valuemin','120');
@@ -1157,7 +1161,7 @@ function buildTaskTabs() {
   const finish=()=>{if(!drag)return;drag=null;persist();};
   handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);handle.addEventListener('lostpointercapture',finish);
   handle.addEventListener('keydown',event=>{if(!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();resize(height+(event.key==='ArrowUp'?-20:20));persist();});
-  resize(height);area.append(tabs,body,handle);select(taskTab);return area;
+  resize(height);area.append(header,body,handle);select(taskTab);return area;
 }
 
 function getFirstWord(html) {
@@ -1229,9 +1233,8 @@ function scanSchedulesForCount() {
 function renderCountTags() {
   const container = document.getElementById('count-tags-container'); if (!container) return;
   container.replaceChildren();
-  const tags = new Set();
-  Object.values(appState.dateSchedules).forEach(slots=>Object.values(slots).forEach(value=>{const word=getFirstWord(value);if(word)tags.add(word);}));
-  if(!tags.size){container.appendChild(el('span','予定から授業名を抽出します'));return;}
+  const tags = new Set(appState.timetableWords);
+  if(!tags.size)return;
   Array.from(tags).sort().forEach(tag => {
     const button = el('button', `${appState.countSettings.some(condition => condition.word.trim() === tag) ? '✓ ' : '＋ '}${tag}`);
     button.type = 'button'; button.className = 'btn-s'; button.disabled = appState.countSettings.some(condition => condition.word.trim() === tag);
@@ -1241,7 +1244,7 @@ function renderCountTags() {
 }
 function insertCountTag(tag) {
   const active = document.activeElement;
-  if (active?.classList.contains('cond-word-input')) { active.value = tag; updateCondWord(Number(active.dataset.idx), tag); return; }
+  if (active?.classList.contains('cond-word-input')) { updateCondWord(Number(active.dataset.idx), tag); return; }
   const empty = appState.countSettings.findIndex(condition => !condition.word.trim());
   if (empty >= 0) updateCondWord(empty, tag); else addCountConditionRow(tag);
 }
@@ -1454,6 +1457,8 @@ function updateCondWord(index, value) {
   if (!appState.countSettings[index]) return;
   if (appState.countSettings[index]?.word === nextWord) return;
   if (!commitState(state => { state.countSettings[index].word = nextWord; }, { historyLabel: '時数条件名の変更', historyScope: 'count' })) return;
+  const wordInput = document.querySelector(`.cond-word-input[data-idx="${index}"]`);
+  if (wordInput && wordInput.value !== nextWord) wordInput.value = nextWord;
   scanSchedulesForCount();
   if (appState.countSettings[index].mode === 'down') {
     const nextStart = previewCountData[index].hits.filter(hit => hit.checked && !hit.trashed && !hit.excluded).length;
@@ -1600,7 +1605,7 @@ function leaveSettings(action){if(!settingsDirtySections.size){action();return;}
 function resolveSettingsLeave(choice){if(choice==='save'&&!saveSettings())return;document.getElementById('settings-leave-dialog').close();const action=pendingSettingsLeave;pendingSettingsLeave=null;if(choice!=='cancel'){settingsDirtySections.clear();action?.();}}
 function showSelectedYear(){const year=Number(document.getElementById('academic-year-input').value);leaveSettings(()=>{const plan=planAcademicYearChange(appState,year);if(!plan.ok){showAlert(plan.error);return;}if(commitState(state=>{state.currentYear=year;state.countDateRange=plan.value.nextCountDateRange;state.calendarHolidays=plan.value.nextCalendarHolidays;},{historyLabel:'表示年度の変更',historyScope:'settings',refresh:true}))openSettingsView();});}
 function openNextYear(){document.getElementById('academic-year-input').value=appState.currentYear+1;showSelectedYear();}
-function openTimetableView(){const start=()=>{timetableInvoker=document.activeElement;timetableFromSettings=document.getElementById('settings-view').style.display==='block';document.getElementById('settings-view').style.display='none';const root=document.getElementById('timetable-view'),bounds=academicYearBounds(appState.currentYear);root.style.display='block';document.getElementById('timetable-year').textContent=`${appState.currentYear}年度（${bounds.start}〜${bounds.end}）`;for(const id of ['tmpl-start','tmpl-end']){const input=document.getElementById(id);input.min=bounds.start;input.max=bounds.end;}const today=getIsoDateStr(new Date());document.getElementById('tmpl-start').value=today>=bounds.start&&today<=bounds.end?today:bounds.start;document.getElementById('tmpl-end').value=bounds.end;qa('[name=timetable-mode]')[0].checked=true;qa('[name=empty-mode]').forEach(input=>input.checked=false);document.getElementById('empty-options').hidden=true;document.getElementById('timetable-result').replaceChildren();document.getElementById('timetable-execute').hidden=true;const body=document.getElementById('weekly-tbody');body.replaceChildren();APP_CONFIG.slotsAll.forEach(slot=>{const row=el('tr');row.append(el('th',slot));[1,2,3,4,5,6,0].forEach(day=>{const cell=el('td'),input=el('input');input.type='text';input.dataset.day=day;input.dataset.slot=slot;input.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日 ${slot}`);input.disabled=!appState.daySlotConfig[day][slot];input.title=input.disabled?'授業日・表示する枠の設定により対象外':'';cell.append(input);row.append(cell);});body.append(row);});timetableDraft=false;timetablePreview=null;document.getElementById('tmpl-start').focus();};if(document.getElementById('settings-view').style.display==='block')leaveSettings(start);else start();}
+function openTimetableView(){const start=()=>{timetableInvoker=document.activeElement;timetableFromSettings=document.getElementById('settings-view').style.display==='block';document.getElementById('settings-view').style.display='none';const root=document.getElementById('timetable-view'),bounds=academicYearBounds(appState.currentYear);root.style.display='block';document.getElementById('timetable-year').textContent=`${appState.currentYear}年度（${bounds.start}〜${bounds.end}）`;for(const id of ['tmpl-start','tmpl-end']){const input=document.getElementById(id);input.min=bounds.start;input.max=bounds.end;}const today=getIsoDateStr(new Date());document.getElementById('tmpl-start').value=today>=bounds.start&&today<=bounds.end?today:bounds.start;document.getElementById('tmpl-end').value=bounds.end;qa('[name=timetable-mode]')[0].checked=true;qa('[name=empty-mode]').forEach(input=>input.checked=false);document.getElementById('empty-options').hidden=true;document.getElementById('timetable-result').replaceChildren();document.getElementById('timetable-execute').hidden=true;const body=document.getElementById('weekly-tbody');body.replaceChildren();APP_CONFIG.slotsAll.forEach(slot=>{const row=el('tr');row.append(el('th',slot));[1,2,3,4,5,6,0].forEach(day=>{const cell=el('td'),input=el('input');cell.className=day===6?'timetable-saturday':day===0?'timetable-sunday':['朝','昼休み','放課後'].includes(slot)?'timetable-break':'';input.type='text';input.dataset.day=day;input.dataset.slot=slot;input.setAttribute('aria-label',`${APP_CONFIG.daysStr[day]}曜日 ${slot}`);input.disabled=!appState.daySlotConfig[day][slot];input.title=input.disabled?'授業日・表示する枠の設定により対象外':'';cell.append(input);row.append(cell);});body.append(row);});timetableDraft=false;timetablePreview=null;document.getElementById('tmpl-start').focus();};if(document.getElementById('settings-view').style.display==='block')leaveSettings(start);else start();}
 function closeTimetableView(){if(timetableDraft&&!showConfirm('未実行の入力を破棄して閉じますか？'))return;document.getElementById('timetable-view').style.display='none';timetableDraft=false;if(timetableFromSettings)openSettingsView();timetableInvoker?.focus?.();void syncController?.refresh();}
 function timetableOptions(){const table={};qa('#weekly-tbody input').forEach(input=>{table[input.dataset.day]??={};table[input.dataset.day][input.dataset.slot]=input.value;});return {start:document.getElementById('tmpl-start').value,end:document.getElementById('tmpl-end').value,table,mode:q('[name=timetable-mode]:checked').value,emptyMode:q('[name=empty-mode]:checked')?.value};}
 function currentTimetableFingerprint(){return JSON.stringify({state:appState,options:timetableOptions()});}
@@ -1693,7 +1698,21 @@ function decorateStorageService() {
 }
 function installCloudSync() {
   document.body.classList.toggle('cloud-signed-out',localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true');
-  const landing=el('section');landing.id='sync-landing';landing.innerHTML='<h2>TaskKanri</h2><p>本人のアカウントでログインして予定を表示します。</p><button type="button">ログイン</button><button type="button" data-start-offline>オフラインで使う</button>';landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
+  const landing=el('section');landing.id='sync-landing';landing.setAttribute('aria-labelledby','start-title');
+  landing.innerHTML=`<h1 id="start-title">TaskKanri</h1><div data-start-choice><p>使い方を選んでください</p><div class="start-options"><div><button type="button" data-start-login>ログインして使う</button><p>ほかの端末と同期して使えます</p></div><div><button type="button" data-start-offline>オフラインで使う</button><p>この端末に保存します</p></div></div></div><form data-start-form hidden><h2>ログイン</h2><label>メールアドレス<input name="email" type="email" autocomplete="username" required></label><label>パスワード<input name="password" type="password" autocomplete="current-password" required></label><p data-start-message role="status"></p><div class="start-form-actions"><button type="submit">ログイン</button><button type="button" data-start-back>戻る</button></div></form>`;
+  landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
+  const startForm=landing.querySelector('form'),startChoice=landing.querySelector('[data-start-choice]'),startLogin=landing.querySelector('[data-start-login]'),startMessage=landing.querySelector('[data-start-message]');
+  startLogin.onclick=()=>{startChoice.hidden=true;startForm.hidden=false;startMessage.textContent='';startForm.elements.email.focus();};
+  landing.querySelector('[data-start-back]').onclick=()=>{startForm.reset();startForm.hidden=true;startChoice.hidden=false;startMessage.textContent='';startLogin.focus();};
+  startForm.onsubmit=async event=>{
+    event.preventDefault();if(startForm.getAttribute('aria-busy')==='true')return;
+    const email=startForm.elements.email.value,password=startForm.elements.password.value;
+    startForm.elements.password.value='';startForm.setAttribute('aria-busy','true');
+    startForm.querySelectorAll('input,button').forEach(node=>node.disabled=true);startMessage.textContent='ログイン中…';
+    try{const result=await syncController.login(email,password);if(result?.cancelled)startMessage.textContent='ログインを中止しました。';}
+    catch(error){startMessage.textContent='ログインできませんでした。'+error.message;}
+    finally{startForm.removeAttribute('aria-busy');startForm.querySelectorAll('input,button').forEach(node=>node.disabled=false);if(!landing.hidden)startForm.elements.password.focus();else document.getElementById('common-task-tab')?.focus();}
+  };
   // Keep editing blocked until the saved account is restored, without flashing the login screen.
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')landing.hidden=true;
   const controls=el('div');controls.className='sync-controls';const button=el('button','未接続');button.type='button';button.className='sync-text-button';button.setAttribute('aria-label','同期設定を開く。未接続');const status=button;controls.append(button);document.body.append(controls);
@@ -1717,9 +1736,9 @@ function installCloudSync() {
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
-    onStatus:(label,engine)=>{status.textContent=mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
+    onStatus:(label,engine)=>{status.textContent='同期設定：'+mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.hasAttribute('data-common-editor')?updateGlobalTask(html):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('button').onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.hasAttribute('data-common-editor')?updateGlobalTask(html):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
   syncController.start().catch(error=>{if(syncController.offlineMode)return;status.textContent=error.message;syncUI.tell(error.message)});
 }

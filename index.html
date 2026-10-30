@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="taskkanri-build-version" content="20261015-mobile-inline-v14">
+<meta name="taskkanri-build-version" content="20261030-ui-refresh-v29">
 <meta name="taskkanri-schema-version" content="8">
 <title>タスク管理くん</title>
-<link rel="stylesheet" href="sync-ui.css?v=20261029-task-height-v28">
+<link rel="stylesheet" href="sync-ui.css?v=20261030-ui-refresh-v29">
 <style>
   :root { 
     --primary: #3182ce; --bg: #f8fafc; --border: #cbd5e0; --text: #2d3748;
@@ -325,7 +325,7 @@
     .calendar-workspace, .calendar-control-panel { overflow:auto; }
   }
 </style>
-<link rel="stylesheet" href="settings-ui.css?v=20261029-task-height-v28">
+<link rel="stylesheet" href="settings-ui.css?v=20261030-ui-refresh-v29">
 </head>
 <body class="layout-portrait"> 
 
@@ -349,23 +349,6 @@
   
   <div id="date-list"></div>
   
-  <div class="sidebar-ctrl-area">
-    <button class="btn-settings" title="授業時数マネージャー" onclick="openCountModal()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14.01"></line><line x1="12" y1="14" x2="12" y2="14.01"></line><line x1="8" y1="14" x2="8" y2="14.01"></line><line x1="16" y1="18" x2="16" y2="18.01"></line><line x1="12" y1="18" x2="12" y2="18.01"></line><line x1="8" y1="18" x2="8" y2="18.01"></line></svg>
-    </button>
-    <button class="btn-settings" title="日付の一括設定" onclick="openBulkCalendarModal()" aria-label="日付の一括設定">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><line x1="8" y1="14" x2="8.01" y2="14"></line><line x1="12" y1="14" x2="12.01" y2="14"></line><line x1="16" y1="14" x2="16.01" y2="14"></line><line x1="8" y1="18" x2="8.01" y2="18"></line><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-    </button>
-    <button class="btn-settings" title="各種予定登録・詳細設定" onclick="openSettingsView()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-    </button>
-    <button class="btn-settings" title="データをエクスポート" onclick="exportData()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-    </button>
-    <button class="btn-settings" title="データをインポート" onclick="document.getElementById('import-file').click()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-    </button>
-  </div>
 </div>
 <input type="file" id="import-file" style="display:none" accept=".json" onchange="importData(event)">
 
@@ -454,7 +437,7 @@
       <details class="count-settings-panel" open>
         <summary>コマを数える授業</summary>
         <div id="count-tags-container"></div>
-        <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px; margin-bottom:8px;" onclick="addCountConditionRow()">＋ 自由に追加</button>
+        <button class="btn-s" style="padding:4px 10px; font-weight:bold; font-size:12px; margin-bottom:8px;" onclick="addCountConditionRow()">授業を追加</button>
         <div id="count-settings-container" style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; max-height: 25vh; overflow-y: auto; padding-right:5px;"></div>
       </details>
       <div style="font-size:13px; color:#4a5568; display:flex; flex-wrap:wrap; align-items:center; gap:5px; background:#fff; border:1px solid #cbd5e0; border-radius:4px; padding:4px 6px; margin-top:8px; width:max-content; max-width:100%; box-sizing:border-box;">
@@ -590,7 +573,6 @@
     </div>
   </section>
   <section id="settings-data"><h3>データとバックアップ</h3>
-    <div class="button-group"><button onclick="exportData()">ファイルに書き出す</button><button onclick="document.getElementById('import-file').click()">ファイルから読み込む</button></div>
     <details><summary>この端末の保存容量</summary><p>現在のデータ使用量: <span id="storage-usage-disp">0</span> KB</p><p>保存に失敗した場合はデータを書き出し、端末の空き容量を確認してください。</p></details>
     <details id="settings-recovery"><summary>読み込めなかったデータの保全・復旧</summary><p id="storage-guard-status"></p><div id="quarantine-list" class="quarantine-list"></div><div class="button-group"><button onclick="downloadQuarantinedData()">保全データを書き出す</button><button onclick="deleteAllQuarantinedData()">保全データを削除</button></div></details>
     <details class="settings-danger"><summary>端末のデータを削除</summary><p>クラウドとほかの端末の予定は削除しません。未送信データを保全してログアウトします。</p><button id="settings-reset-button" onclick="openResetModal()">この端末の予定と設定をすべて削除</button></details>
@@ -604,5 +586,5 @@
 </dialog>
 <dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261029-task-height-v28"></script>
+<script type="module" src="taskkanri-app.js?v=20261030-ui-refresh-v29"></script>
 </body></html>

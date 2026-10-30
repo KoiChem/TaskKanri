@@ -119,3 +119,22 @@ button:disabled{cursor:default;opacity:.55}
 .todo-inline-location{flex:0 0 130px;color:#526176}.todo-inline-item .todo-badge{margin-right:8px}
 .task-tabs button:focus-visible{outline:3px solid #2458be;outline-offset:2px}
 @media(max-width:700px){.todo-inline-item{flex-direction:column;gap:4px}.todo-inline-location{flex-basis:auto}}
+
+/* Keep task navigation and management actions distinct at every panel width. */
+.task-panel-header{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin-bottom:6px}
+.task-panel-header .task-tab-buttons{margin-bottom:0}
+.task-management-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;justify-content:flex-end}
+.task-management-actions button{min-height:34px;padding:6px 12px;border:1px solid #a3b2c4;border-radius:6px;background:#fff;color:#334155;font:inherit;font-size:13px;cursor:pointer}
+.task-management-actions button:hover{background:#f1f5f9}
+.timetable-scroll{max-height:60dvh}
+.timetable-scroll table{border-collapse:separate;border-spacing:0}
+.timetable-scroll th,.timetable-scroll td{border-top:0;border-left:0}
+.timetable-scroll th:first-child{position:sticky;left:0;z-index:1;min-width:68px;white-space:nowrap;background:#fff;border-left:1px solid #ccc}
+.timetable-scroll thead th{position:sticky;top:0;z-index:2;background:#fff;border-top:1px solid #ccc}
+.timetable-scroll thead th:first-child{z-index:3}
+.timetable-scroll .timetable-saturday,.timetable-scroll thead th:nth-child(7){background:#edf7ff}
+.timetable-scroll .timetable-sunday,.timetable-scroll thead th:nth-child(8){background:#fff0f0}
+.timetable-scroll .timetable-break{background:#f3f4f6}
+#timetable-view .timetable-scroll input{background:transparent}
+#timetable-view .timetable-scroll input:focus{background:transparent}
+.count-settings-panel #count-tags-container:empty{display:none}

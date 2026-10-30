@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '78',
   compatibilityVersion: '73',
-  buildVersion: '20261014-date-editor-v13',
+  buildVersion: '20261030-ui-refresh-v29',
   schemaVersion: 8,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -51,7 +51,7 @@ const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIX
 const STATE_KEYS = Object.freeze([
   'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'dateSchedules', 'configEvents', 'calendarHolidays',
   'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
-  'bulkCalendarSelectionMode', 'bulkCalendarMonthLayout', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig'
+  'bulkCalendarSelectionMode', 'bulkCalendarMonthLayout', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig', 'timetableWords'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
 const PERIOD_SLOT_SET = new Set(['１限', '２限', '３限', '４限', '５限', '６限', '７限']);
@@ -166,6 +166,7 @@ export function defaultState(year = 2026) {
     bulkCalendarSelectionMode: 'standard',
     bulkCalendarMonthLayout: 'horizontal',
     countSettings: [{ word: '', mode: 'down', start: 1 }],
+    timetableWords: [],
     countDateRange: { start: '', end: '' },
     daySlotConfig: defaultDaySlotConfig(),
     instructionDayConfig: defaultInstructionDayConfig()
@@ -886,6 +887,10 @@ export function normalizeState(input) {
   if (own(input, 'globalTaskData')) {
     if (typeof input.globalTaskData !== 'string') return fail('文字列が必要です', 'globalTaskData');
     state.globalTaskData = sanitizeHtml(input.globalTaskData);
+  }
+  if (own(input, 'timetableWords')) {
+    if (!Array.isArray(input.timetableWords) || input.timetableWords.some(word => typeof word !== 'string')) return fail('文字列の配列が必要です', 'timetableWords');
+    state.timetableWords = [...new Set(input.timetableWords.map(word => word.trim()).filter(Boolean))];
   }
   if (own(input, 'countSettings')) {
     const normalized = normalizeCountSettings(input.countSettings);

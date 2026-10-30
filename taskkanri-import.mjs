@@ -1,6 +1,6 @@
 import {clone,normalizeState,normalizeImportedPayload,migrateToCurrent,sanitizeHtml,stripHtml} from './taskkanri-core.mjs';
 import {samePayload} from './taskkanri-sync-model.mjs';
-const names={currentYear:'表示する年度',dateSchedules:'予定',configEvents:'行事',globalTaskData:'共通タスク',calendarHolidays:'暦の祝日',customHolidays:'学校独自休日',dayProfiles:'日別の時程',timeConfig:'チャイム設定',daySlotConfig:'曜日ごとの表示枠',instructionDayConfig:'授業曜日',countSettings:'カウント設定',countDateRange:'カウント対象期間',isLandscapeMode:'画面の向き',isClockVisible:'時計表示',isWakeLockRequested:'画面の点灯維持',bulkCalendarSelectionMode:'カレンダーの選択方法',bulkCalendarMonthLayout:'カレンダーの並び方'};
+const names={timetableWords:'時間割からの候補',currentYear:'表示する年度',dateSchedules:'予定',configEvents:'行事',globalTaskData:'共通タスク',calendarHolidays:'暦の祝日',customHolidays:'学校独自休日',dayProfiles:'日別の時程',timeConfig:'チャイム設定',daySlotConfig:'曜日ごとの表示枠',instructionDayConfig:'授業曜日',countSettings:'カウント設定',countDateRange:'カウント対象期間',isLandscapeMode:'画面の向き',isClockVisible:'時計表示',isWakeLockRequested:'画面の点灯維持',bulkCalendarSelectionMode:'カレンダーの選択方法',bulkCalendarMonthLayout:'カレンダーの並び方'};
 const maps=new Set(['dateSchedules','configEvents','customHolidays','calendarHolidays','dayProfiles']);
 const aliases={currentYear:['academicYear'],dateSchedules:['scheduleData','teacherSchedule','configWeekly','weeklyTemplate','weeklyRules','dateOverrides'],dayProfiles:['noClassData','shortData','examData']};
 const own=(o,k)=>Object.hasOwn(o,k);

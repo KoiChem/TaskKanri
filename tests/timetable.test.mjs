@@ -25,3 +25,30 @@ test('planner rejects malformed ranges and safely escapes plain timetable input'
  const state=defaultState();for(const range of [{start:'2026-02-30',end:'2026-10-14'},{start:'2026-10-15',end:'2026-10-14'},{start:'2026-10-14',end:'2027-04-01'}])assert.equal(planTimetableInput(state,{...options,...range}).ok,false);
  const result=planTimetableInput(state,{...options,table:{3:{'１限':'<script>alert(1)</script> & 化学'}}});assert.equal(result.value.state.dateSchedules['2026-10-14']['１限'],'&lt;script&gt;alert(1)&lt;/script&gt; &amp; 化学');
 });
+
+test('bulk input records only applied lesson words, deduplicated without scanning ordinary notes',()=>{
+ const state=defaultState();state.timetableWords=['既存授業'];state.dateSchedules={'2026-10-14':{'２限':'メモ'} };
+ const original=JSON.stringify(state);
+ const result=planTimetableInput(state,{start:'2026-10-14',end:'2026-10-14',mode:'append',table:{3:{'朝':'朝会','１限':'化学 2A','２限':'化学 2B','３限':'２−３＠602','昼休み':'会議','放課後':'部活'},4:{'１限':'期間外'}}});
+ assert.equal(result.ok,true);assert.deepEqual(result.value.state.timetableWords,['既存授業','化学','２−３＠602']);assert.equal(JSON.stringify(state),original);
+ assert.ok(result.value.state.dateSchedules['2026-10-14']['２限'].startsWith('メモ<br>'));
+});
+test('excluded or blank timetable entries cannot seed candidates',()=>{
+ const state=defaultState();state.customHolidays['2026-10-14']='休み';
+ assert.deepEqual(planTimetableInput(state,{...options,start:'2026-10-14',end:'2026-10-14'}).value.state.timetableWords,[]);
+ assert.equal(planTimetableInput(state,{...options,end:'invalid'}).ok,false);
+});
+test('candidate history survives backup, selective import and cloud receive without changing shared contract',async()=>{
+ const {serializePayload,normalizeImportedPayload,normalizeState}=await import('../taskkanri-core.mjs');
+ const {planImport,applyImport}=await import('../taskkanri-import.mjs');
+ const {toPayload,mergePayload}=await import('../taskkanri-sync-model.mjs');
+ const state=defaultState();state.timetableWords=['化学','２−３＠602'];
+ const exported=serializePayload(state);assert.equal(exported.ok,true);
+ assert.deepEqual(normalizeImportedPayload(exported.value).value.timetableWords,['化学','２−３＠602']);
+ const target=defaultState(),plan=planImport(target,exported.value),row=plan.rows.find(r=>r.path[0]==='timetableWords');assert.ok(row);
+ assert.deepEqual(applyImport(target,plan,[row.id]).timetableWords,['化学','２−３＠602']);
+ assert.deepEqual(mergePayload(toPayload(defaultState()),state).timetableWords,['化学','２−３＠602']);
+ assert.equal('timetableWords' in toPayload(state).state,false);
+ assert.deepEqual(normalizeState({currentYear:2026}).value.timetableWords,[]);
+ assert.equal(normalizeState({...state,timetableWords:[42]}).ok,false);
+});
