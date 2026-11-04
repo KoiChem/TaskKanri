@@ -63,6 +63,7 @@ let todoReveal=null;
 let cloudUser = null;
 let applyingCloud = false;
 let initialized = false;
+let startupPositionPending = true;
 const historyManager = new HistoryManager();
 const settingsDirtySections = new Set();
 let isHydratingSettings = false;
@@ -1728,7 +1729,7 @@ function installCloudSync() {
         if(!hasMaster) { const result=storageService.saveAll(candidate);if(!result.ok)throw new Error(result.error);loaded=result; }
         appState=loaded.state;decorateStorageService();localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
       } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(localStorage,'logged-out');storageService=createStorageService(storageLike);storageService.load();decorateStorageService();document.body.classList.add('cloud-signed-out'); }
-      landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
+      landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
     },
     onData:next=>{
       if(samePayload(toPayload(next),toPayload(appState)))return;
@@ -1770,6 +1771,17 @@ function scrollDateListToRow(dateId, rowNumber = 7) {
   list.scrollTop += anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
   list.style.scrollBehavior = originalScrollBehavior;
 }
+function positionStartupDate() {
+  const list = document.getElementById('date-list');
+  if (!startupPositionPending || !list || !list.getClientRects().length || !list.children.length) return;
+  const today = getIsoDateStr(new Date());
+  const target = document.getElementById(`preview-${today}`) ? today : `${appState.currentYear}-04-01`;
+  const rows = qa('.date-item', list);
+  const last = rows.at(-1), anchor = rows[Math.max(0, rows.length - 8)];
+  if (last && anchor) list.style.paddingBottom = `${Math.max(0, list.clientHeight - (last.getBoundingClientRect().bottom - anchor.getBoundingClientRect().top))}px`;
+  scrollDateListToRow(target, 8);
+  startupPositionPending = false;
+}
 function initApp() {
   if (initialized) return; initialized = true;
   document.documentElement.style.setProperty('--bg-exam', APP_CONFIG.theme.exam); document.documentElement.style.setProperty('--bg-short', APP_CONFIG.theme.short); document.documentElement.style.setProperty('--bg-noclass', APP_CONFIG.theme.noclass);
@@ -1792,7 +1804,7 @@ function initApp() {
   document.addEventListener('copy', event => copySelection(event)); document.addEventListener('cut', event => copySelection(event, true));
   document.addEventListener('pointerdown', event => { const menu = document.getElementById('bulk-calendar-context-menu'); if (menu && !menu.hidden && !menu.contains(event.target)) closeBulkCalendarContextMenu(); const dateMenu = document.getElementById('date-list-context-menu'); if (dateMenu && !dateMenu.hidden && !dateMenu.contains(event.target)) closeDateListContextMenu(); });
   document.addEventListener('keydown', event => {
-    if((event.ctrlKey&&event.altKey&&!event.metaKey||event.metaKey&&event.altKey&&!event.ctrlKey)&&!event.shiftKey&&event.code==='KeyS'){event.preventDefault();if(!event.repeat&&!event.isComposing&&event.keyCode!==229&&!syncController.composing)void syncUI.requestSync();return;}
+    if((event.ctrlKey&&event.altKey&&!event.metaKey||event.metaKey&&event.altKey&&!event.ctrlKey)&&!event.shiftKey&&event.code==='KeyS'){event.preventDefault();if(!event.repeat&&!event.isComposing&&event.keyCode!==229&&!syncController.composing)void syncUI.requestSync({closeOnSuccess:true});return;}
     if (event.key === 'Escape' && isDateListContextMenuOpen()) { event.preventDefault(); closeDateListContextMenu(true); return; }
     if (event.isComposing || event.keyCode === 229 || isTextEditingTarget(event.target) || hasOpenUnsavedForm()) return;
     if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -1804,7 +1816,7 @@ function initApp() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
   document.body.classList.toggle('layout-landscape',appState.isLandscapeMode); document.body.classList.toggle('layout-portrait',!appState.isLandscapeMode); document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
-  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToRow(startupDateId, 8)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
+  generateDateList(); initStartupDates(); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); }, 1000);
 }
 

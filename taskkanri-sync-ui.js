@@ -42,17 +42,17 @@ export function installSyncUI(controller,{mobile=false,getInitialState,prepareIm
  q('[data-initialize]').onclick=()=>run(q('[data-initialize]'),'同期を開始しています…',async()=>{const state=getInitialState();const check=serialized(state);if(!confirm('この端末の予定・共通タスクで同期を開始しますか？\n先に「データを書き出す」でバックアップできます。'))return {cancelled:true};localStorage.setItem('TASKKANRI_PRE_SYNC_BACKUP:'+controller.user.id,JSON.stringify(check));return controller.initialize(state)},'初回同期が完了しました。');
  q('[data-draft]').onclick=()=>run(q('[data-draft]'),'書き出しています…',()=>downloadJson({app:'TaskKanri',exportedAt:new Date().toISOString(),pending:controller.engine?.pending},exportFilename('unsent')),'ダウンロードを開始しました。');
  q('[data-reload]').onclick=()=>run(q('[data-reload]'),'読み込み中…',async()=>{if(controller.engine?.pending){downloadJson({app:'TaskKanri',pending:controller.engine.pending},exportFilename('unsent'));if(!confirm('未送信データを書き出しました。クラウドの最新データを読み込みますか？'))return {cancelled:true};}await controller.engine?.discardPending();return {status:controller.engine?.status||'stopped'}},'最新データを読み込みました。');
- const requestSync=async()=>{
+ const requestSync=async({closeOnSuccess=false}={})=>{
   if(busy)return;
   if(controller.offlineMode){tell('オフラインモードです。同期するにはオンラインに戻ってください。');if(!dialog.open)dialog.showModal();return;}
   if(controller.composing){tell('日本語の変換を確定してから同期してください。');return;}
   try{beforeRefresh();}catch(error){tell(error.message);if(!dialog.open)dialog.showModal();return;}
   if(!dialog.open){opener=document.activeElement;dialog.showModal();}
   return run(q('[data-refresh]'),'同期中…',async()=>{
-    const result=await controller.refresh({manual:true});return {...result,status:result.error?result.status:controller.engine?.status||'stopped'};
+    const result=await controller.refresh({manual:true});const status=result.error?result.status:controller.engine?.status||'stopped';if(closeOnSuccess&&status==='synced'&&!result.error&&!controller.engine?.pending&&dialog.open)dialog.close();return {...result,status};
   },mobile?result=>result?.changed?'変更を取得しました。':'最新の状態です。':'同期が完了しました。');
  };
- q('[data-refresh]').onclick=requestSync;
+ q('[data-refresh]').onclick=()=>requestSync();
  q('[data-shortcut]').hidden=mobile;
  q('[data-shortcut]').textContent=/Mac/.test(navigator.platform)?'⌘ + Option + S':'Ctrl + Alt + S';
  q('[data-logout]').onclick=()=>run(q('[data-logout]'),'ログアウト中…',async()=>{if(controller.engine?.pending&&!confirm('未送信の変更をこの端末に保持してログアウトしますか？'))return {cancelled:true};await controller.logout()},'ログアウトしました。');
