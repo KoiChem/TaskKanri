@@ -1804,7 +1804,7 @@ function initApp() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && appState.isWakeLockRequested) requestWakeLock(); });
   window.addEventListener('beforeunload', () => { if (wakeLock) releaseWakeLock(); });
   document.body.classList.toggle('layout-landscape',appState.isLandscapeMode); document.body.classList.toggle('layout-portrait',!appState.isLandscapeMode); document.body.classList.toggle('hide-clock', !appState.isClockVisible); updateWakeBtnUI(appState.isWakeLockRequested && Boolean(wakeLock));
-  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToRow(startupDateId)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
+  generateDateList(); const startupDateId = initStartupDates(); requestAnimationFrame(() => scrollDateListToRow(startupDateId, 8)); renderQuarantineUI(); showStorageWarning(); updateHistoryControls();
   setInterval(() => { const time = new Date(); const value = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`; qa('.digital-clock-display').forEach(node => { node.textContent = value; }); }, 1000);
 }
 
