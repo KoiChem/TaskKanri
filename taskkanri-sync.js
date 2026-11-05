@@ -128,6 +128,9 @@ export class SyncController {
   }
  }
  async login(email,password){if(!this.client)throw new Error('オンラインに戻ってからログインしてください。');const generation=this.generation;const result=await this.client.auth.signInWithPassword({email,password});if(this.offlineMode||generation!==this.generation)return {cancelled:true};checked(result);this.allowStartupRead=true;await this.activate(result.data.session);}
+ stopForReset(){
+  this.offlineMode=true;++this.generation;clearInterval(this.interval);clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);for(const request of this.networkRequests)request.abort();this.client?.auth.stopAutoRefresh();this.engine?.stop();this.engine=null;
+ }
  async logout(){clearTimeout(this.retryTimer);const result=await this.client.auth.signOut({scope:'local'});checked(result);await this.activate(null);}
  async initialize(state){if(!this.engine||this.engine.status!=='empty')throw new Error('初期登録できません。同期状態を確認してください');this.engine.queue(state,{initial:true});return this.flush();}
  async enterOffline(){

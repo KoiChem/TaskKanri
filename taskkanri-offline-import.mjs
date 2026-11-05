@@ -1,12 +1,12 @@
 import {serializePayload} from './taskkanri-core.mjs';
-import {archiveRecovery} from './taskkanri-recovery-archive.mjs';
+import {saveBoundedRecovery} from './taskkanri-recovery-archive.mjs';
 
 // The local master and durable offline queue must agree before reporting success.
-export async function saveOfflineImport(controller,service,storage,masterKey,next){
+export async function saveOfflineImport(controller,service,storage,masterKey,next,archive=record=>saveBoundedRecovery(record,{namespace:controller.user?.id})){
  if(!controller.offlineMode)throw new Error('端末への取り込みはオフラインモードで実行してください。');
  const serialized=serializePayload(next);if(!serialized.ok)throw new Error(serialized.error);
- const previous=storage.getItem(masterKey),engine=controller.engine;
- const result=await service.importRawWithRecovery(serialized.value,record=>archiveRecovery(record,{namespace:controller.user?.id}));if(!result.ok)throw new Error(result.error);
+ const previous=storage.getItem(masterKey),engine=controller.engine,identity=controller.user?.id;
+ const result=await service.importRawArchived(serialized.value,archive,()=>controller.offlineMode&&controller.engine===engine&&controller.user?.id===identity);if(!result.ok)throw new Error(result.error);
  try{if(controller.engine!==engine)throw new Error('保存中に利用するアカウントが変わりました。ファイルを選び直してください。');controller.stageOfflineImport(result.state)}
  catch(error){
   try{if(previous===null)storage.removeItem(masterKey);else storage.setItem(masterKey,previous);service.load()}

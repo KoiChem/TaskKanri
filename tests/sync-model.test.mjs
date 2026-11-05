@@ -33,3 +33,8 @@ test('times respect fixed off and exam profiles; calendar always has 42 cells', 
   s.dayProfiles['2026-10-12']='exam'; assert.equal(slotTime('2026-10-12','１限',s), s.timeConfig.exam['１限']);
   assert.equal(calendarDays('2026-10-01').length,42);
 });
+
+test('a local state that differs from the last accepted cloud state requires a recovery copy',async()=>{
+ const {requiresCloudRecovery,toPayload}=await import('../taskkanri-sync-model.mjs');const local=defaultState();local.globalTaskData='local unsent';const baseline=defaultState();
+ assert.equal(requiresCloudRecovery(local,toPayload(baseline),local),true);assert.equal(requiresCloudRecovery(local,toPayload(local),local),false);assert.equal(requiresCloudRecovery(local,null,local),true);assert.equal(requiresCloudRecovery(local,toPayload(local),baseline),true);
+});

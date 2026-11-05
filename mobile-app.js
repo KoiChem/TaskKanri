@@ -6,6 +6,7 @@ import {scheduleCells,calendarPages,hasMobileAgenda,mobileDayBackground,mobileWe
 import {APP_CONFIG,defaultState,sanitizeHtml,stripHtml,getResolvedSlot,getDateSchedulePolicy,academicYearBounds,getHolidayName,serializePayload,normalizeState} from './taskkanri-core.mjs';
 import {taskItems,changeTask,undoTask,slotTime,tokyoToday,addDays,TASK_LABELS,samePayload,toPayload,SHARED_KEYS} from './taskkanri-sync-model.mjs';
 import {SyncController} from './taskkanri-sync.js';
+import {acquireStorageGate,installResetListener} from './taskkanri-storage-gate.mjs';
 import {installSyncUI} from './taskkanri-sync-ui.js';
 const standalone=window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;document.documentElement.classList.toggle('standalone',standalone);
 const headerObserver=new ResizeObserver(entries=>document.documentElement.style.setProperty('--mobile-header-height',`${entries[0].target.getBoundingClientRect().height}px`));headerObserver.observe(document.querySelector('.mobile-header'),{box:'border-box'});
@@ -227,4 +228,4 @@ q('#undo-task').onclick=async()=>{
 };
 function closeSheet(){if(history.state?.taskkanriSheet)history.back();else if(dialog.open)dialog.close();}
 q('#close-sheet').onclick=closeSheet;dialog.addEventListener('cancel',e=>{e.preventDefault();closeSheet()});window.addEventListener('popstate',()=>{if(dialog.open&&!history.state?.taskkanriSheet)dialog.close()});dialog.addEventListener('close',()=>{document.body.append(q('#toast'));const wasGlobal=sheet?.source==='global';sheet=null;dialog.classList.remove('common-detail');if(wasGlobal&&loaded){tab='agenda';renderContent();q('#agenda').scrollTop=scroll.agenda;}opener?.isConnected?opener.focus():q('#agenda').focus();void controller.refresh()});
-renderCalendar();controller.start().catch(e=>{if(controller.offlineMode)return;setSyncStatus(e.message,controller.engine);ui.tell(e.message)});
+renderCalendar();acquireStorageGate().then(gate=>{window.addEventListener('pagehide',()=>void gate.release(),{once:true});installResetListener(()=>{controller.stopForReset();location.replace('reset-closed.html')});return controller.start()}).catch(e=>{if(controller.offlineMode)return;setSyncStatus(e.message,controller.engine);ui.tell(e.message)});

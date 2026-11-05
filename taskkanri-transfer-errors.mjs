@@ -25,3 +25,6 @@ export function importReadinessError(engine,offlineMode=false){
  }else return null;
  const error=new Error([message,engine.error].filter(Boolean).join('\n'));error.name=name;error.canUseOffline=canUseOffline;return error;
 }
+export function importStillReady(snapshot,controller){
+ return snapshot.controller===controller&&snapshot.engine===controller?.engine&&snapshot.identity===controller?.user?.id&&snapshot.offline===!!controller?.offlineMode&&!importReadinessError(controller?.engine,!!controller?.offlineMode);
+}

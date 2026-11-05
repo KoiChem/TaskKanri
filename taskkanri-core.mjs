@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '78',
   compatibilityVersion: '73',
-  buildVersion: '20261030-ui-refresh-v29',
+  buildVersion: '20261105-storage-reset-v30',
   schemaVersion: 8,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -1369,7 +1369,10 @@ export function createStorageService(storage, options = {}) {
   function createRecoverySnapshot() {
     if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
     const key = createUniqueKey(storage, APP_CONFIG.recoveryPrefix, timestamp(options));
-    const record = { createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw: storage.getItem(APP_CONFIG.storeKey), state: clone(state) };
+    const raw = storage.getItem(APP_CONFIG.storeKey);
+    const parsed = raw === null ? null : normalizeImportedPayload(raw);
+    const retainState = !parsed?.ok || JSON.stringify(parsed.value) !== JSON.stringify(state);
+    const record = { createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw, ...(retainState ? { state: clone(state) } : {}) };
     try {
       storage.setItem(key, JSON.stringify(record));
       return { ok: true, key };
@@ -1377,6 +1380,20 @@ export function createStorageService(storage, options = {}) {
       const storageError = error?.name || 'Error';
       return { ok: false, snapshotFailed: true, storageError, error: `取り込み前のバックアップを端末に保存できませんでした（${storageError}）。元のデータは変更していません。` };
     }
+  }
+
+  function saveCloudWithRecovery(candidate) {
+    if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
+    const raw = storage.getItem(APP_CONFIG.storeKey);
+    const key = APP_CONFIG.recoveryPrefix + 'CLOUD_PENDING';
+    try {
+      const existing = storage.getItem(key);
+      if (existing !== null && JSON.parse(existing).raw !== raw) return { ok: false, error: '以前の復旧データを保全してから同期してください。' };
+      if (existing === null) storage.setItem(key, JSON.stringify({ createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw }));
+    } catch { return { ok: false, error: '同期前のデータを保全できません。元のデータは変更していません。' }; }
+    const result = saveAll(candidate);
+    if (result.ok) { try { storage.removeItem(key); } catch { /* retain backup */ } }
+    return result;
   }
 
   function importRaw(raw, { confirm = null } = {}) {
@@ -1400,6 +1417,22 @@ export function createStorageService(storage, options = {}) {
     }
     state = clone(candidate);
     return { ok: true, state: clone(state), summary, snapshotKey };
+  }
+
+  async function importRawArchived(raw, archiveRecovery, stillValid = () => true) {
+    if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
+    const prepared = normalizeImportedPayload(raw);
+    if (!prepared.ok) return prepared;
+    const previousRaw = storage.getItem(APP_CONFIG.storeKey), previousState = JSON.stringify(state);
+    const stored = previousRaw === null ? null : normalizeImportedPayload(previousRaw);
+    if (!stored?.ok || JSON.stringify(stored.value) !== previousState) return { ok: false, error: '別のタブで保存データが変更されました。データを確認してから取り込んでください。' };
+    let snapshotKey;
+    try {
+      snapshotKey = await archiveRecovery({ createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw: previousRaw });
+      if (typeof snapshotKey !== 'string' || !snapshotKey) throw new Error('保存完了を確認できません。');
+    } catch (error) { return { ok: false, error: `取り込み前のバックアップを保存できませんでした。${error?.message || ''}` }; }
+    if (readOnly || !stillValid() || previousRaw !== storage.getItem(APP_CONFIG.storeKey) || previousState !== JSON.stringify(state)) return { ok: false, error: 'バックアップ中に保存データまたは利用状態が変更されました。ファイルを選び直してください。', snapshotKey };
+    return commitImport(prepared.value, summarizeState(prepared.value), snapshotKey);
   }
 
   async function importRawWithRecovery(raw, archiveRecovery) {
@@ -1462,7 +1495,9 @@ export function createStorageService(storage, options = {}) {
     saveAll,
     importRaw,
     importRawWithRecovery,
+    importRawArchived,
     createRecoverySnapshot,
+    saveCloudWithRecovery,
     reset,
     getState: () => clone(state),
     isReadOnly: () => readOnly,

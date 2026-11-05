@@ -10,6 +10,7 @@ export function toPayload(state) {
   const checked=normalizeState(state); if(!checked.ok) throw new Error(checked.error);
   return {contractVersion:2, appSchemaVersion:8, state:Object.fromEntries(SHARED_KEYS.map(k=>[k,clone(checked.value[k])]))};
 }
+export function requiresCloudRecovery(local,baseline,stored) {return !baseline||!samePayload(toPayload(local),baseline)||!stored||JSON.stringify(stored)!==JSON.stringify(local);}
 export function mergePayload(payload, local=defaultState()) {
   const legacy=payload?.contractVersion===1 && payload?.appSchemaVersion===7;
   const current=payload?.contractVersion===2 && payload?.appSchemaVersion===8;

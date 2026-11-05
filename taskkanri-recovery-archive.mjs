@@ -1,4 +1,4 @@
-import {APP_CONFIG} from './taskkanri-core.mjs';
+import {APP_CONFIG,normalizeImportedPayload} from './taskkanri-core.mjs';
 
 const DATABASE='TaskKanriRecovery',STORE='backups';
 function openDatabase(indexedDB){
@@ -44,4 +44,51 @@ export async function archiveRecovery(record,{namespace,storage=globalThis.local
   for(const item of records)if(storage.getItem(item.key)===item.raw)storage.removeItem(item.key);
   return 'indexeddb:'+bundle.id;
  }finally{db.close()}
+}
+
+// These records are separate from legacy bundles, which may contain data from
+// several accounts and must not be pruned without inspecting their contents.
+async function boundedRows(db,namespace){
+ return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly'),request=tx.objectStore(STORE).getAll();tx.oncomplete=()=>resolve(request.result.filter(row=>row.kind==='bounded'&&row.namespace===namespace));tx.onabort=()=>reject(tx.error||new Error('復旧データを読み取れません。'));});
+}
+export async function listBoundedRecovery({namespace,indexedDB=globalThis.indexedDB}={}){
+ const db=await openDatabase(indexedDB);try{return await boundedRows(db,namespace||'legacy')}finally{db.close()}
+}
+export async function saveBoundedRecovery(record,{namespace,indexedDB=globalThis.indexedDB,locks=globalThis.navigator?.locks}={}){
+ const name=namespace||'legacy';if(typeof record.raw!=='string')throw new Error('復旧データを保存できません。');
+ if(!locks)throw new Error('復旧データの同時保存を保護できません。');
+ return locks.request('TASKKANRI_RECOVERY:'+name,async()=>{
+  const db=await openDatabase(indexedDB);
+  try{
+   const rows=await boundedRows(db,name);const duplicate=rows.find(row=>row.raw===record.raw);
+   const provided=record.createdAt===undefined?null:Date.parse(record.createdAt);
+   if(provided!==null&&!Number.isFinite(provided))throw new Error('復旧データの日時が不正です。');
+   const createdAt=provided===null?Math.max(Date.now(),...rows.map(row=>Number(row.createdAt)||0))+1:Math.max(provided,Number(duplicate?.createdAt)||0);
+   const bundle={id:duplicate?.id||crypto.randomUUID(),kind:'bounded',namespace:name,createdAt,raw:record.raw};
+   if(!duplicate)await writeBundle(db,bundle);
+   const saved=await readBundle(db,bundle.id);
+   if(!saved||saved.raw!==bundle.raw||saved.namespace!==name)throw new Error('バックアップの保存内容を確認できません。');
+   const obsolete=[...rows.filter(row=>row.id!==bundle.id),bundle].sort((a,b)=>b.createdAt-a.createdAt).slice(3);
+   await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(bundle);for(const row of obsolete)tx.objectStore(STORE).delete(row.id);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||new Error('復旧データを整理できません。'));});
+   return 'indexeddb:'+bundle.id;
+  }finally{db.close()}
+ });
+}
+
+// Migrate only records that can be restored, retaining malformed material intact.
+export async function migrateRecoveryCopies({namespace,storage=globalThis.localStorage,indexedDB=globalThis.indexedDB,locks=globalThis.navigator?.locks}={}){
+ const prefix=(namespace?'TASKKANRI_USER:'+namespace+':':'')+APP_CONFIG.recoveryPrefix;
+ const keys=Array.from({length:storage.length},(_,i)=>storage.key(i)).filter(k=>k?.startsWith(prefix)).sort();
+ for(const key of keys){
+  const previous=storage.getItem(key);let record;
+  try{record=JSON.parse(previous)}catch{continue}
+  if(typeof record?.raw!=='string'||!normalizeImportedPayload(record.raw).ok||!Number.isFinite(Date.parse(record.createdAt)))continue;
+  if(record.state&&JSON.stringify(normalizeImportedPayload(record.raw).value)!==JSON.stringify(record.state))continue;
+  await saveBoundedRecovery({raw:record.raw,createdAt:record.createdAt},{namespace,indexedDB,locks});
+  if(storage.getItem(key)===previous)storage.removeItem(key);
+ }
+}
+export async function recoveryArchiveUsage({indexedDB=globalThis.indexedDB}={}){
+ const db=await openDatabase(indexedDB);
+ try{return await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly'),request=tx.objectStore(STORE).getAll();tx.oncomplete=()=>resolve({count:request.result.length,bytes:request.result.reduce((sum,row)=>sum+JSON.stringify(row).length*2,0)});tx.onabort=()=>reject(tx.error||new Error('復旧データの容量を確認できません。'));});}finally{db.close()}
 }

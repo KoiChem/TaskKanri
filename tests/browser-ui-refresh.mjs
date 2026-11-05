@@ -26,7 +26,7 @@ async page => {
   await p.getByRole('button',{name:'変更内容を確認',exact:true}).click();await p.locator('#timetable-execute').waitFor();
   const storedWords=()=>p.evaluate(()=>Object.keys(localStorage).filter(k=>k.endsWith('TASK_KUN_MASTER_STORAGE')).map(k=>JSON.parse(localStorage.getItem(k))).map(x=>x.data?.timetableWords||[]).flat());
   check((await storedWords()).length===0,'preview persisted candidates');
-  await p.locator('#timetable-execute').click();check((await storedWords()).includes('化学'),'execute failed to persist candidates');
+  await p.locator('#timetable-execute').click();await p.locator('#timetable-result').getByText(/保存しました/).waitFor();check((await storedWords()).includes('化学'),'execute failed to persist candidates');
   await p.locator('#timetable-view .settings-header button').click();await p.locator('#settings-view .settings-header button').first().click();await p.reload();
   await p.locator('.task-management-actions').getByRole('button',{name:'授業時数',exact:true}).click();const words=await p.locator('#count-tags-container button').allTextContents();check(JSON.stringify(words.sort())===JSON.stringify(['＋ 化学','＋ ２−３＠602'].sort()),'candidate source incorrect '+words);await p.screenshot({path:'/tmp/taskkanri-ui-count.png'});
   await p.locator('#count-tags-container button').filter({hasText:'化学'}).click();check(await p.locator('.cond-word-input').first().inputValue()==='化学','candidate selection failed');await p.locator('#count-modal').getByRole('button',{name:'閉じる',exact:true}).click();
