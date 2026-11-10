@@ -543,6 +543,26 @@ function fallbackSanitizeHtml(value) {
   return output.join('');
 }
 
+// Normal-colour spans containing only spacing are editing artefacts.  Run
+// after sanitizing so this narrowly scoped compaction never parses unsafe HTML.
+function compactWhitespaceStyles(html) {
+  let previous;
+  do {
+    previous = html;
+    html = html.replace(/<span style="([^"<>]*)">((?:\s|&nbsp;|&#(?:9|10|13|32|160);|&#x(?:9|a|d|20|a0);)*)<\/span>/gi, (whole, style, spacing) => {
+      const entries = style.split(';').filter(Boolean).map(part => {
+        const colon = part.indexOf(':');
+        return [part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim().toLowerCase()];
+      });
+      const normalWeight = entries.some(([key, value]) => key === 'font-weight' && value === 'normal');
+      const normalColour = entries.some(([key, value]) => key === 'color' && (value === '#2d3748' || value.replace(/\s/g, '') === 'rgb(45,55,72)'));
+      const onlyDefaults = entries.every(([key, value]) => key === 'font-weight' ? value === 'normal' : key === 'color' && (value === '#2d3748' || value.replace(/\s/g, '') === 'rgb(45,55,72)'));
+      return normalWeight && normalColour && onlyDefaults ? spacing : whole;
+    });
+  } while (html !== previous);
+  return html;
+}
+
 export function sanitizeHtml(value) {
   if (value === null || value === undefined || value === '') return '';
   const input = String(value);
@@ -550,9 +570,9 @@ export function sanitizeHtml(value) {
     const doc = new globalThis.DOMParser().parseFromString(`<body>${input}</body>`, 'text/html');
     const root = doc.body;
     sanitizeDomTree(root);
-    return root.innerHTML;
+    return compactWhitespaceStyles(root.innerHTML);
   }
-  return fallbackSanitizeHtml(input);
+  return compactWhitespaceStyles(fallbackSanitizeHtml(input));
 }
 
 function decodeBasicEntities(value) {
