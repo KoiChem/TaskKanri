@@ -55,23 +55,6 @@ test('sync success time is actual completion time, never cloud modification time
  const completed=e.lastSuccessfulSyncAt;f.transport.get=async()=>{throw new Error('offline')};await assert.rejects(e.refresh());assert.equal(e.lastSuccessfulSyncAt,completed);
 });
 
-test('old cloud data is backed up before CAS migration and an old pending mutation keeps its identity',async()=>{
- const f=fixture(),store=memory();const state=defaultState();delete state.dateSchedules;state.weeklyTemplate={};state.weeklyRules={};state.dateOverrides={'2026-10-14':{slots:{'１限':{action:'replace',source:'user',content:'旧本文'}}}};
- const oldKeys=['currentYear','weeklyTemplate','weeklyRules','dateOverrides','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig'];
- const old={contractVersion:1,appSchemaVersion:7,state:Object.fromEntries(oldKeys.map(k=>[k,state[k]]))};f.document={...f.document,payload:old};
- const e=new SyncEngine({transport:f.transport,store});await e.load();assert.equal(e.pending.request.payload.contractVersion,2);assert.equal(e.pending.request.expectedRevision,1);assert.deepEqual(store.read('legacy-backup').payload,old);await e.flush();assert.equal(f.document.payload.state.dateSchedules['2026-10-14']['１限'],'旧本文');
- const pending={request:{payload:old,expectedRevision:2,mutationId:'keep-this-id',attempted:true}};store.write('pending',pending);const reloaded=new SyncEngine({transport:f.transport,store});assert.equal(reloaded.pending.request.mutationId,'keep-this-id');
-});
-
-test('a legacy in-flight next draft including unapplied master is archived before its conversion',async()=>{
- const f=fixture(),store=memory();const state=defaultState();delete state.dateSchedules;Object.assign(state,{weeklyTemplate:{},weeklyRules:{},dateOverrides:{}});
- const keys=['currentYear','weeklyTemplate','weeklyRules','dateOverrides','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig'];const old={contractVersion:1,appSchemaVersion:7,state:Object.fromEntries(keys.map(k=>[k,state[k]]))};
- const later=structuredClone(old);later.state.weeklyTemplate={1:{'１限':'未適用の新しい下書き'}};later.state.globalTaskData='最新メモ';const pending={request:{payload:old,expectedRevision:1,mutationId:'original-flight',attempted:true},nextPayload:later};
- f.document={...f.document,payload:old};store.write('cache',f.document);store.write('pending',pending);const e=new SyncEngine({transport:f.transport,store});await e.load();await e.flush();await e.flush();
- assert.deepEqual(store.read('legacy-pending-backup:original-flight'),pending);assert.equal(f.document.payload.state.globalTaskData,'最新メモ');
- const failing={...memory(),read:k=>k==='pending'?structuredClone(pending):null,write:()=>{throw new Error('quota')}};assert.throws(()=>new SyncEngine({transport:f.transport,store:failing}),/quota/);assert.deepEqual(failing.read('pending'),pending);
-});
-
 test('network waits for durable pending and attempted marker commits',async()=>{
  const f=fixture(),store=memory();let release,wait=false,sends=0;store.flush=()=>wait?new Promise(resolve=>release=resolve):Promise.resolve();const save=f.transport.save;f.transport.save=req=>{sends++;return save(req)};const engine=new SyncEngine({store,transport:f.transport});await engine.load();const next=defaultState();next.globalTaskData='durable';engine.queue(next);wait=true;const saving=engine.flush();await Promise.resolve();assert.equal(sends,0);release();await Promise.resolve();await Promise.resolve();assert.equal(sends,0);wait=false;release();await saving;assert.equal(sends,1);assert.equal(engine.status,'synced');
 });
@@ -80,4 +63,12 @@ test('failed durable queue prevents network submission and preserves pending bod
 });
 test('edit during durable save acknowledgement remains queued at the new revision',async()=>{
  const f=fixture(),store=memory(),engine=new SyncEngine({store,transport:f.transport});await engine.load();let count=0,release;store.flush=()=>++count===3?new Promise(resolve=>release=resolve):Promise.resolve();const first=defaultState();first.globalTaskData='first';engine.queue(first);const saving=engine.flush();while(!release)await Promise.resolve();const second=defaultState();second.globalTaskData='second';engine.queue(second);release();await saving;assert.ok(engine.pending);assert.equal(engine.pending.request.expectedRevision,2);assert.equal((engine.pending.nextPayload||engine.pending.request.payload).state.globalTaskData,'second');assert.equal(engine.status,'pending');
+});
+
+test('refresh waits for incoming data to be durably committed before completing',async()=>{
+ const f=fixture(),store=memory(),engine=new SyncEngine({transport:f.transport,store});await engine.load();
+ f.document={...f.document,revision:2};let release,finished=false;store.flush=()=>new Promise(resolve=>release=resolve);
+ const loading=engine.refresh().then(()=>finished=true);await new Promise(resolve=>setImmediate(resolve));
+ try{assert.equal(finished,false);assert.equal(engine.status,'storing');}finally{release?.()}
+ await loading;assert.equal(engine.status,'synced');
 });

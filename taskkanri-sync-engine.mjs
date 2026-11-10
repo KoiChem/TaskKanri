@@ -5,7 +5,8 @@ export class SyncEngine {
   constructor({transport,store,onChange=()=>{},onData=()=>{},canApply=()=>true}) {
     Object.assign(this,{transport,store,onChange,onData,canApply});
     this.revision=0;this.payload=null;this.pending=store.read('pending');this.busy=false;this.active=true;this.generation=0;this.status='loading';this.deferred=null;
-    if(this.pending&&(this.pending.request?.payload?.contractVersion===1||this.pending.nextPayload?.contractVersion===1))store.write('legacy-pending-backup:'+this.pending.request.mutationId,this.pending);
+    if(this.pending){try{mergePayload(this.pending.request?.payload);if(this.pending.nextPayload)mergePayload(this.pending.nextPayload)}catch(error){this.unsupportedPending=true;this.status='blocked';this.error='未対応形式の未送信データを保持しています。書き出してから同期設定を確認してください。';}}
+
   }
   emit(status,error='') {if(status==='synced')this.lastSuccessfulSyncAt=new Date().toISOString();this.status=status;this.error=error;this.onChange(this);}
   request(payload,revision=this.revision) {return {payload,expectedRevision:revision,mutationId:globalThis.crypto.randomUUID(),attempted:false};}
@@ -15,6 +16,7 @@ export class SyncEngine {
     catch(error){error.blocked=true;this.quarantined=document;try{this.store.write('quarantine',{document,reason:error.message,receivedAt:new Date().toISOString()})}catch{/* retain in memory if quota is exhausted */}this.emit('blocked',error.message);throw error;}
   }
   loadCached() {
+    if(this.unsupportedPending){const error=new Error(this.error);error.blocked=true;throw error;}
     const cache=this.store.read('cache');if(!cache)return false;this.validate(cache);
     try {this.onData(this.pending?{...cache,payload:this.pending.nextPayload||this.pending.request.payload}:cache);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=cache.payload;this.revision=cache.revision;this.updatedAt=cache.updated_at;return true;
@@ -34,13 +36,13 @@ export class SyncEngine {
   }
   accept(document) {
     this.validate(document);
-    try {if(document.payload.contractVersion===1 && !this.store.read('legacy-backup'))this.store.write('legacy-backup',document);this.onData(document);this.store.write('cache',document);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
+    try {this.onData(document);this.store.write('cache',document);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=document.payload;this.revision=document.revision;this.updatedAt=document.updated_at;
-    const finish=()=>{if(!this.active)return;if(document.payload.contractVersion===1)this.queue(mergePayload(document.payload));else if(!this.pending)this.emit('synced');};
+    const finish=()=>{if(this.active&&!this.pending)this.emit('synced');};
     if(this.store.flush){this.emit('storing');return Promise.resolve(this.store.flush()).then(finish,error=>{error.blocked=true;this.emit('blocked',error.message);throw error})}finish();
   }
   queue(state,{initial=false,offline=false}={}) {
-    if(!this.active||!offline&&(this.status==='conflict'||this.status==='blocked'))throw new Error('同期を確認してから操作してください。');
+    if(this.unsupportedPending||!this.active||!offline&&(this.status==='conflict'||this.status==='blocked'))throw new Error('同期を確認してから操作してください。');
     if(!this.payload&&!initial)throw new Error('PC版で同期を開始してください。');
     const payload=toPayload(state);
     if(this.pending) {
@@ -52,7 +54,7 @@ export class SyncEngine {
     this.emit('pending');
   }
   async flush() {
-    if(!this.active||this.busy||!this.pending||['conflict','blocked'].includes(this.status))return {status:this.status};
+    if(this.unsupportedPending||!this.active||this.busy||!this.pending||['conflict','blocked'].includes(this.status))return {status:this.status};
     this.busy=true;const generation=this.generation;let req,committing=false;
     try {
       if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
@@ -69,7 +71,6 @@ export class SyncEngine {
       }
       const nextPayload=this.pending?.nextPayload;
       this.validate(doc);committing=true;
-      if(doc.payload.contractVersion===1&&!this.store.read('legacy-backup'))this.store.write('legacy-backup',doc);
       if(nextPayload) {
         // Rebase only across our own accepted save, never across remote edits.
         if(doc.revision!==result.appliedRevision){this.emit('conflict');return {status:'conflict'};}
@@ -81,7 +82,7 @@ export class SyncEngine {
         this.onData(doc);this.store.write('cache',doc);this.store.remove('pending');this.pending=null;
         this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;
         if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
-        if(this.pending)this.emit('pending');else if(doc.payload.contractVersion===1){this.queue(mergePayload(doc.payload));}else this.emit('synced');
+        if(this.pending)this.emit('pending');else this.emit('synced');
       }
       return result;
     } catch(error) {
@@ -102,11 +103,13 @@ export class SyncEngine {
     if(!document)throw new Error('データを取得できません');
     this.validate(document);
     if(!this.canApply()){this.deferred=document;this.emit('deferred');return;}
-    this.deferred=null;this.accept(document);
+    this.deferred=null;return this.accept(document);
   }
   async discardPending() {
     if(this.busy)throw new Error('保存結果を確認してから操作してください');
-    this.store.remove('pending');if(this.store.flush)await this.store.flush();this.pending=null;this.emit('loading');await this.load();
+    this.discarding=!!this.pending;
+    try{this.store.remove('pending');if(this.store.flush)await this.store.flush();this.pending=null;this.unsupportedPending=false;this.emit('loading');await this.load();}
+    finally{this.discarding=false;}
   }
   stop() {this.active=false;this.generation++;this.payload=null;this.pending=null;this.deferred=null;this.onChange=()=>{};this.onData=()=>{};}
 }

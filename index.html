@@ -575,8 +575,8 @@
     </div>
   </section>
   <section id="settings-data"><h3>データとバックアップ</h3>
-    <details><summary>この端末の保存容量</summary><p>ローカル保存量: <span id="storage-usage-disp">0</span> KB</p><p id="storage-breakdown"></p><p>容量は概算です。</p></details>
-    <details><summary>復旧用データ</summary><div id="recovery-history" style="display:flex; flex-wrap:wrap; gap:10px;"></div></details>
+    <details><summary>この端末の保存容量</summary><p>このブラウザの保存データ: <span id="storage-usage-disp">0</span> KB</p><p id="storage-breakdown"></p><p>容量は概算です。</p></details>
+    <details><summary>復旧用データ（直前1回分）</summary><div id="recovery-history" style="display:flex; flex-wrap:wrap; gap:10px;"></div></details>
     <details id="settings-recovery"><summary>読み込めなかったデータの保全・復旧</summary><p id="storage-guard-status"></p><div id="quarantine-list" class="quarantine-list"></div><div class="button-group"><button onclick="downloadQuarantinedData()">保全データを書き出す</button><button onclick="deleteAllQuarantinedData()">保全データを削除</button></div></details>
     <details class="settings-danger"><summary>端末のデータを削除</summary><p>このブラウザ内のすべてのアカウントの保存データを削除します。クラウドとほかの端末の予定は削除しません。</p><button id="settings-reset-button" onclick="openResetModal()">この端末の予定と設定をすべて削除</button></details>
   </section>
@@ -589,5 +589,5 @@
 </dialog>
 <dialog id="settings-leave-dialog"><h3>未保存の変更があります</h3><div class="button-group"><button onclick="resolveSettingsLeave('save')">保存して進む</button><button onclick="resolveSettingsLeave('discard')">変更を破棄して進む</button><button onclick="resolveSettingsLeave('cancel')">キャンセル</button></div></dialog>
 <div id="timetable-view"><header class="settings-header"><button onclick="closeTimetableView()">← 戻る</button><h2>時間割をまとめて入力</h2></header><p>この表の内容を、指定期間の各日に一度だけ書き込みます。</p><p id="timetable-year"></p><label>開始日 <input type="date" id="tmpl-start"></label><label>終了日 <input type="date" id="tmpl-end"></label><div class="timetable-scroll"><table class="tmpl-table"><thead id="weekly-thead"><tr><th>時限</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead><tbody id="weekly-tbody"></tbody></table></div><fieldset><legend>入力方法</legend><label><input type="radio" name="timetable-mode" value="append" checked>追加（末尾に追記）</label><label><input type="radio" name="timetable-mode" value="replace">上書き（予定を置き換え）</label></fieldset><fieldset id="empty-options" hidden><legend>空欄の扱い（毎回選択）</legend><label><input type="radio" name="empty-mode" value="keep">空欄のコマは、既存の予定を残す</label><label><input type="radio" name="empty-mode" value="clear">空欄のコマは、既存の予定を削除する</label></fieldset><button onclick="previewTimetable()">変更内容を確認</button><div id="timetable-result" role="status"></div><button id="timetable-execute" class="btn-save" onclick="executeTimetable()" hidden>予定に追加する</button></div>
-<script type="module" src="taskkanri-app.js?v=20261110-primary-storage-v31"></script>
+<script type="module" src="taskkanri-app.js?v=20261110-current-cleanup-v32"></script>
 </body></html>

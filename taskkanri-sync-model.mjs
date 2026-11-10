@@ -1,4 +1,4 @@
-import { APP_CONFIG, clone, defaultState, normalizeState, normalizeImportedPayload, sanitizeHtml, stripHtml, getResolvedSlot, getDateSchedulePolicy, isSlotVisibleForDate, isValidIsoDate } from './taskkanri-core.mjs';
+import { APP_CONFIG, clone, defaultState, normalizeState, sanitizeHtml, stripHtml, getResolvedSlot, getDateSchedulePolicy, isSlotVisibleForDate, isValidIsoDate } from './taskkanri-core.mjs';
 
 export const SHARED_KEYS = Object.freeze(['currentYear','dateSchedules','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig']);
 export const BADGE_LABELS = ['未','途','済','急'];
@@ -12,12 +12,9 @@ export function toPayload(state) {
 }
 export function requiresCloudRecovery(local,baseline,stored) {return !baseline||!samePayload(toPayload(local),baseline)||!stored||JSON.stringify(stored)!==JSON.stringify(local);}
 export function mergePayload(payload, local=defaultState()) {
-  const legacy=payload?.contractVersion===1 && payload?.appSchemaVersion===7;
-  const current=payload?.contractVersion===2 && payload?.appSchemaVersion===8;
-  if((!legacy&&!current)||!payload.state||typeof payload.state!=='object'||Array.isArray(payload.state))throw new Error('データ形式を確認できません。アプリを更新してください。');
-  const keys=legacy?['currentYear','weeklyTemplate','weeklyRules','dateOverrides','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig']:SHARED_KEYS;
-  if(Object.keys(payload.state).length!==keys.length||keys.some(k=>!Object.hasOwn(payload.state,k)))throw new Error('共有データの必須項目が不足しています。');
-  const converted=legacy?normalizeImportedPayload({meta:{schemaVersion:7},data:payload.state}):normalizeState(payload.state);
+  if(payload?.contractVersion!==2||payload?.appSchemaVersion!==8||!payload.state||typeof payload.state!=='object'||Array.isArray(payload.state))throw new Error('データ形式を確認できません。現行版のデータを使用してください。');
+  if(Object.keys(payload.state).length!==SHARED_KEYS.length||SHARED_KEYS.some(k=>!Object.hasOwn(payload.state,k)))throw new Error('共有データの必須項目が不足しています。');
+  const converted=normalizeState(payload.state);
   if(!converted.ok)throw new Error(converted.error);
   const shared=Object.fromEntries(SHARED_KEYS.map(k=>[k,converted.value[k]]));
   const checked=normalizeState({...clone(local),...shared});if(!checked.ok)throw new Error(checked.error);

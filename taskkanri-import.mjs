@@ -1,8 +1,8 @@
-import {clone,normalizeState,normalizeImportedPayload,migrateToCurrent,sanitizeHtml,stripHtml} from './taskkanri-core.mjs';
+import {clone,normalizeState,normalizeImportedPayload,sanitizeHtml,stripHtml} from './taskkanri-core.mjs';
 import {samePayload} from './taskkanri-sync-model.mjs';
 const names={timetableWords:'時間割からの候補',currentYear:'表示する年度',dateSchedules:'予定',configEvents:'行事',globalTaskData:'共通タスク',calendarHolidays:'暦の祝日',customHolidays:'学校独自休日',dayProfiles:'日別の時程',timeConfig:'チャイム設定',daySlotConfig:'曜日ごとの表示枠',instructionDayConfig:'授業曜日',countSettings:'カウント設定',countDateRange:'カウント対象期間',isLandscapeMode:'画面の向き',isClockVisible:'時計表示',isWakeLockRequested:'画面の点灯維持',bulkCalendarSelectionMode:'カレンダーの選択方法',bulkCalendarMonthLayout:'カレンダーの並び方'};
 const maps=new Set(['dateSchedules','configEvents','customHolidays','calendarHolidays','dayProfiles']);
-const aliases={currentYear:['academicYear'],dateSchedules:['scheduleData','teacherSchedule','configWeekly','weeklyTemplate','weeklyRules','dateOverrides'],dayProfiles:['noClassData','shortData','examData']};
+
 const own=(o,k)=>Object.hasOwn(o,k);
 const emptyFor=key=>key==='dayProfiles'?'normal':'';
 const get=(state,path)=>path.reduce((value,key)=>value?.[key],state);
@@ -27,8 +27,7 @@ export function importValueText(value,field=''){
 export function planImport(current,raw){
  let parsed;try{parsed=typeof raw==='string'?JSON.parse(raw):raw}catch{throw new Error('JSONを解析できません。TaskKanriのJSONファイルを選んでください。')}
  const result=normalizeImportedPayload(parsed);if(!result.ok)throw new Error(result.error);
- const source=parsed.data||parsed;
- const migrated=migrateToCurrent(source,result.sourceSchemaVersion);if(!migrated.ok)throw new Error(migrated.error);
+ const source=parsed.data;
  const rows=[];
  const add=(path,after)=>{
   const before=get(current,path)??emptyFor(path[0]);if(samePayload(before,after))return;
@@ -36,13 +35,10 @@ export function planImport(current,raw){
   rows.push({id:JSON.stringify(path),path,before:clone(before),after:clone(after),deletion,group:names[path[0]],label:[names[path[0]],...path.slice(1)].join('・')});
  };
  for(const key of Object.keys(names)){
-  if(!own(source,key)&&!aliases[key]?.some(k=>own(source,k)))continue;
+  if(!own(source,key))continue;
   if(maps.has(key)){
    // Walk the source shape, since normalization intentionally removes explicit blanks.
-   const entries=clone(migrated.value[key]||{});
-   if(key==='dateSchedules')for(const legacy of ['scheduleData','teacherSchedule'])for(const [dateId,day] of Object.entries(source[legacy]||{}))for(const [slot,content] of Object.entries(day.slots||day))if(!stripHtml(sanitizeHtml(content)).trim()){entries[dateId]||={};entries[dateId][slot]=''}
-   if(key==='dayProfiles')for(const legacy of ['noClassData','shortData','examData'])for(const [dateId,value] of Object.entries(source[legacy]||{}))if(!value&&!own(entries,dateId))entries[dateId]='normal';
-   if(key==='dateSchedules')for(const [dateId,day] of Object.entries(source.dateOverrides||{}))for(const [slot,override] of Object.entries(day.slots||{}))if(override.action==='cancel'){entries[dateId]||={};entries[dateId][slot]=''}
+   const entries=clone(source[key]||{});
    for(const [dateId,value] of Object.entries(entries)){
     if(key==='dateSchedules')for(const slot of Object.keys(value))add([key,dateId,slot],result.value[key]?.[dateId]?.[slot]||'');
     else add([key,dateId],result.value[key]?.[dateId]??emptyFor(key));

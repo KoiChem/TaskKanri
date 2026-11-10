@@ -9,9 +9,9 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '78',
   compatibilityVersion: '73',
-  buildVersion: '20261110-primary-storage-v31',
+  buildVersion: '20261110-current-cleanup-v32',
   schemaVersion: 8,
-  supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
+  supportedSchemaVersions: Object.freeze([8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -666,93 +666,6 @@ function normalizeCalendarHolidays(value) {
   return { ok: true, value: result };
 }
 
-function normalizeLegacySchedule(value) {
-  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'scheduleData');
-  const result = {};
-  for (const [dateId, rawDay] of Object.entries(value)) {
-    if (!isValidIsoDate(dateId)) return fail('実在するISO日付が必要です', `scheduleData.${dateId}`);
-    if (!isPlainObject(rawDay)) return fail('日単位のオブジェクトが必要です', `scheduleData.${dateId}`);
-    const rawSlots = own(rawDay, 'slots') ? rawDay.slots : rawDay;
-    if (!isPlainObject(rawSlots)) return fail('slotsオブジェクトが必要です', `scheduleData.${dateId}.slots`);
-    const slots = {};
-    for (const [slot, value] of Object.entries(rawSlots)) {
-      if (!SLOT_SET.has(slot)) return fail('未知の時限です', `scheduleData.${dateId}.${slot}`);
-      if (typeof value !== 'string') return fail('文字列が必要です', `scheduleData.${dateId}.${slot}`);
-      slots[slot] = sanitizeHtml(value);
-    }
-    result[dateId] = { slots };
-  }
-  return { ok: true, value: result };
-}
-
-function normalizeWeeklyTemplate(value, field = 'weeklyTemplate') {
-  if (!isPlainObject(value)) return fail('オブジェクトが必要です', field);
-  const result = {};
-  for (const [day, rawSlots] of Object.entries(value)) {
-    if (!/^[0-6]$/.test(day) || !isPlainObject(rawSlots)) return fail('曜日または曜日データが不正です', `${field}.${day}`);
-    const slots = {};
-    for (const [slot, raw] of Object.entries(rawSlots)) {
-      if (!SLOT_SET.has(slot)) return fail('未知の時限です', `${field}.${day}.${slot}`);
-      if (typeof raw !== 'string') return fail('文字列が必要です', `${field}.${day}.${slot}`);
-      const content = sanitizeHtml(raw);
-      if (stripHtml(content).trim()) slots[slot] = content;
-    }
-    if (Object.keys(slots).length) result[day] = slots;
-  }
-  return { ok: true, value: result };
-}
-
-function normalizeWeeklyRules(value) {
-  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'weeklyRules');
-  const result = {};
-  for (const [day, rawSlots] of Object.entries(value)) {
-    if (!/^[0-6]$/.test(day) || !isPlainObject(rawSlots)) return fail('曜日または曜日データが不正です', `weeklyRules.${day}`);
-    const slots = {};
-    for (const [slot, segments] of Object.entries(rawSlots)) {
-      if (!SLOT_SET.has(slot) || !Array.isArray(segments)) return fail('時限またはsegment配列が不正です', `weeklyRules.${day}.${slot}`);
-      const normalized = [];
-      let previousTo = '';
-      for (let index = 0; index < segments.length; index += 1) {
-        const segment = segments[index];
-        if (!isPlainObject(segment) || Object.keys(segment).some(key => !['from', 'to', 'content'].includes(key))) return fail('segmentの項目が不正です', `weeklyRules.${day}.${slot}[${index}]`);
-        if (!isValidIsoDate(segment.from) || !isValidIsoDate(segment.to) || segment.from > segment.to || typeof segment.content !== 'string') return fail('segmentの期間または内容が不正です', `weeklyRules.${day}.${slot}[${index}]`);
-        const content = sanitizeHtml(segment.content);
-        if (!stripHtml(content).trim()) return fail('segmentの内容は空にできません', `weeklyRules.${day}.${slot}[${index}]`);
-        if (previousTo && segment.from <= previousTo) return fail('segmentの期間が重複または順不同です', `weeklyRules.${day}.${slot}`);
-        normalized.push({ from: segment.from, to: segment.to, content });
-        previousTo = segment.to;
-      }
-      if (normalized.length) slots[slot] = normalized;
-    }
-    if (Object.keys(slots).length) result[day] = slots;
-  }
-  return { ok: true, value: result };
-}
-
-function normalizeDateOverrides(value) {
-  if (!isPlainObject(value)) return fail('オブジェクトが必要です', 'dateOverrides');
-  const result = {};
-  for (const [dateId, rawDay] of Object.entries(value)) {
-    if (!isValidIsoDate(dateId) || !isPlainObject(rawDay) || !isPlainObject(rawDay.slots) || Object.keys(rawDay).some(key => key !== 'slots')) return fail('日別例外が不正です', `dateOverrides.${dateId}`);
-    const slots = {};
-    for (const [slot, override] of Object.entries(rawDay.slots)) {
-      if (!SLOT_SET.has(slot) || !isPlainObject(override) || Object.keys(override).some(key => !['action', 'content', 'source'].includes(key))) return fail('時限例外が不正です', `dateOverrides.${dateId}.${slot}`);
-      if (!['replace', 'cancel'].includes(override.action) || !['legacy', 'user'].includes(override.source)) return fail('action/sourceが不正です', `dateOverrides.${dateId}.${slot}`);
-      if (override.action === 'cancel') {
-        if (own(override, 'content')) return fail('cancelにcontentは指定できません', `dateOverrides.${dateId}.${slot}`);
-        slots[slot] = { action: 'cancel', source: override.source };
-      } else {
-        if (typeof override.content !== 'string') return fail('replaceのcontentが不正です', `dateOverrides.${dateId}.${slot}`);
-        const content = sanitizeHtml(override.content);
-        if (!stripHtml(content).trim()) return fail('replaceのcontentは空にできません', `dateOverrides.${dateId}.${slot}`);
-        slots[slot] = { action: 'replace', content, source: override.source };
-      }
-    }
-    if (Object.keys(slots).length) result[dateId] = { slots };
-  }
-  return { ok: true, value: result };
-}
-
 export function getResolvedSlot(dateId, slot, state) {
   if (!isValidIsoDate(dateId) || !SLOT_SET.has(slot)) return '';
   return state?.dateSchedules?.[dateId]?.[slot] || '';
@@ -937,192 +850,12 @@ export function normalizeState(input) {
 
 function validateMeta(meta) {
   if (!isPlainObject(meta)) return fail('metaオブジェクトが必要です', 'meta');
-  const maximumLegacyVersion = Number(APP_CONFIG.compatibilityVersion);
-  const hasLegacyVersion = own(meta, 'version');
-  const legacyVersionIsSupported = hasLegacyVersion
-    && Number.isInteger(meta.version)
-    && meta.version >= 1
-    && meta.version <= maximumLegacyVersion;
-  if (hasLegacyVersion && !legacyVersionIsSupported) return fail(`互換用versionは1〜${maximumLegacyVersion}の整数が必要です`, 'meta.version');
-  let schemaVersion = meta.schemaVersion;
-  if (schemaVersion === undefined) {
-    if (hasLegacyVersion) schemaVersion = 1;
-    else return fail('schemaVersionが必要です', 'meta.schemaVersion');
-  }
-  if (!Number.isInteger(schemaVersion) || !APP_CONFIG.supportedSchemaVersions.includes(schemaVersion)) return fail('未対応のschemaVersionです', 'meta.schemaVersion');
+  if (meta.schemaVersion !== APP_CONFIG.schemaVersion) return { ...fail('現行形式（schemaVersion 8）のJSONファイルを使用してください', 'meta.schemaVersion'), unsupported: true };
   for (const field of ['appVersion', 'compatibilityVersion', 'buildVersion', 'format']) {
     if (own(meta, field) && typeof meta[field] !== 'string') return fail('文字列が必要です', `meta.${field}`);
   }
   if (own(meta, 'lastUpdated') && (typeof meta.lastUpdated !== 'string' || Number.isNaN(Date.parse(meta.lastUpdated)))) return fail('ISO日時が必要です', 'meta.lastUpdated');
-  return { ok: true, schemaVersion };
-}
-
-function migrateSchema1State(data) {
-  const migrated = clone(data);
-  for (const field of ['noClassData', 'shortData', 'examData']) {
-    if (!own(data, field) || !isPlainObject(data[field])) continue;
-    migrated[field] = Object.fromEntries(Object.entries(data[field]).map(([dateId, value]) => [
-      dateId,
-      typeof value === 'boolean' ? Number(value) : value
-    ]));
-  }
-  return migrated;
-}
-
-function legacyProfile(field, value) {
-  if (!Number.isInteger(value)) return null;
-  if (value === 0) return 'normal';
-  const profiles = {
-    shortData: { 1: 'short', 2: 'short-am', 3: 'morning' },
-    examData: { 1: 'exam', 2: 'mock-exam' },
-    noClassData: { 1: 'noclass-hide', 2: 'noclass-show' }
-  };
-  return profiles[field]?.[value] || null;
-}
-
-function migrateSchema2State(data) {
-  const migrated = clone(data);
-  const profiles = {};
-  for (const field of ['noClassData', 'shortData', 'examData']) {
-    if (!own(migrated, field)) continue;
-    if (!isPlainObject(migrated[field])) return fail('オブジェクトが必要です', field);
-    for (const [dateId, value] of Object.entries(migrated[field])) {
-      if (!isValidIsoDate(dateId)) return fail('実在するISO日付が必要です', `${field}.${dateId}`);
-      const profile = legacyProfile(field, value);
-      if (profile === null) return fail('不正な状態値です', `${field}.${dateId}`);
-      if (profile === 'normal') continue;
-      if (own(profiles, dateId)) return { ...fail('同一日の状態が競合しています', dateId), migrationConflict: true };
-      profiles[dateId] = profile;
-    }
-    delete migrated[field];
-  }
-  if (own(migrated, 'dayProfiles')) return fail('旧日別状態とdayProfilesを同時には指定できません', 'dayProfiles');
-  migrated.dayProfiles = profiles;
-  return { ok: true, value: migrated };
-}
-
-function migrateSchema3State(data) {
-  const migrated = clone(data);
-  if (own(migrated, 'academicYear')) {
-    if (own(migrated, 'currentYear') && migrated.currentYear !== migrated.academicYear) return fail('currentYearとacademicYearが競合しています');
-    if (!own(migrated, 'currentYear')) migrated.currentYear = migrated.academicYear;
-    delete migrated.academicYear;
-  }
-  const sourceSchedule = own(migrated, 'scheduleData') ? migrated.scheduleData : migrated.teacherSchedule;
-  if (own(migrated, 'scheduleData') && own(migrated, 'teacherSchedule') && JSON.stringify(migrated.scheduleData) !== JSON.stringify(migrated.teacherSchedule)) return fail('scheduleDataとteacherScheduleが競合しています');
-  const overrides = {};
-  if (sourceSchedule !== undefined) {
-    const normalized = normalizeLegacySchedule(sourceSchedule);
-    if (!normalized.ok) return normalized;
-    for (const [dateId, day] of Object.entries(normalized.value)) {
-      const slots = {};
-      for (const [slot, content] of Object.entries(day.slots)) {
-        slots[slot] = stripHtml(content).trim()
-          ? { action: 'replace', content, source: 'legacy' }
-          : { action: 'cancel', source: 'legacy' };
-      }
-      if (Object.keys(slots).length) overrides[dateId] = { slots };
-    }
-  }
-  const sourceTemplate = own(migrated, 'configWeekly') ? migrated.configWeekly : {};
-  const template = normalizeWeeklyTemplate(sourceTemplate, 'configWeekly');
-  if (!template.ok) return template;
-  delete migrated.scheduleData;
-  delete migrated.teacherSchedule;
-  delete migrated.configWeekly;
-  migrated.weeklyTemplate = template.value;
-  migrated.weeklyRules = {};
-  migrated.dateOverrides = overrides;
-  return { ok: true, value: migrated };
-}
-
-function migrateSchema4State(data) {
-  const migrated = clone(data);
-  if (own(migrated, 'instructionDayConfig')) return fail('schemaVersion 4ではinstructionDayConfigは使用できません', 'instructionDayConfig');
-  migrated.instructionDayConfig = defaultInstructionDayConfig();
-  return { ok: true, value: migrated };
-}
-
-function migrateSchema5State(data) {
-  const migrated = clone(data);
-  const currentYear = Number.isInteger(migrated.currentYear) ? migrated.currentYear : 2026;
-  const calendarHolidays = buildCalendarHolidaysForAcademicYear(currentYear);
-  const customHolidays = {};
-  const legacyHolidays = own(migrated, 'customHolidays') ? migrated.customHolidays : {};
-  if (!isPlainObject(legacyHolidays)) return fail('オブジェクトが必要です', 'customHolidays');
-  for (const [dateId, rawName] of Object.entries(legacyHolidays)) {
-    if (!isValidIsoDate(dateId) || typeof rawName !== 'string') return fail('既存の祝日設定が不正です', `customHolidays.${dateId}`);
-    const name = sanitizeHtml(rawName);
-    const generated = buildCalendarHolidaysForYear(Number(dateId.slice(0, 4)))[dateId];
-    if (generated && holidayNamesMatch(stripHtml(generated.name), stripHtml(name))) {
-      calendarHolidays[dateId] = generated;
-    } else {
-      customHolidays[dateId] = name;
-    }
-  }
-  migrated.calendarHolidays = calendarHolidays;
-  migrated.customHolidays = customHolidays;
-  return migrated;
-}
-
-function migrateSchema6State(data) {
-  const migrated = clone(data);
-  // Older exports did not have a month-layout preference.  Keep a valid value
-  // if an intermediate build happened to write one, otherwise use the former
-  // horizontal layout so importing never changes the visible default.
-  if (!['horizontal', 'vertical'].includes(migrated.bulkCalendarMonthLayout)) migrated.bulkCalendarMonthLayout = 'horizontal';
-  return { ok: true, value: migrated };
-}
-
-function migrateSchema7State(data) {
-  if (own(data, 'dateSchedules')) return fail('schema 7ではdateSchedulesは使用できません', 'dateSchedules');
-  const template = normalizeWeeklyTemplate(data.weeklyTemplate || {});
-  const rules = normalizeWeeklyRules(data.weeklyRules || {});
-  const overrides = normalizeDateOverrides(data.dateOverrides || {});
-  for (const checked of [template,rules,overrides]) if (!checked.ok) return checked;
-  const migrated = clone(data), schedules = {};
-  let size = 0;
-  for (const [day, slots] of Object.entries(rules.value)) for (const [slot, segments] of Object.entries(slots)) for (const segment of segments) {
-    let dateId = segment.from;
-    const delta = (Number(day) - weekdayForDateId(dateId) + 7) % 7;
-    dateId = addIsoDays(dateId, delta);
-    for (; dateId <= segment.to; dateId = addIsoDays(dateId, 7)) {
-      schedules[dateId] ||= {};
-      schedules[dateId][slot] = segment.content;
-      size += (dateId.length + slot.length + segment.content.length + 16) * 2;
-      if (size > 8 * 1024 * 1024) return fail('日付別への展開量が大きいため移行を停止しました。原本を保全してください');
-    }
-  }
-  for (const [dateId, day] of Object.entries(overrides.value)) for (const [slot, override] of Object.entries(day.slots)) {
-    if (override.action === 'replace') { schedules[dateId] ||= {}; schedules[dateId][slot] = override.content; }
-    else { delete schedules[dateId]?.[slot]; if (schedules[dateId] && !Object.keys(schedules[dateId]).length) delete schedules[dateId]; }
-  }
-  for (const field of ['weeklyTemplate','weeklyRules','dateOverrides']) delete migrated[field];
-  migrated.dateSchedules = schedules;
-  return {ok:true,value:migrated};
-}
-
-const MIGRATION_REGISTRY = Object.freeze({
-  1: migrateSchema1State,
-  2: migrateSchema2State,
-  3: migrateSchema3State,
-  4: migrateSchema4State,
-  5: migrateSchema5State,
-  6: migrateSchema6State,
-  7: migrateSchema7State
-});
-
-export function migrateToCurrent(data, sourceSchemaVersion) {
-  if (!Number.isInteger(sourceSchemaVersion) || !APP_CONFIG.supportedSchemaVersions.includes(sourceSchemaVersion)) return fail('未対応のschemaVersionです', 'meta.schemaVersion');
-  let result = clone(data);
-  for (let version = sourceSchemaVersion; version < APP_CONFIG.schemaVersion; version += 1) {
-    const step = MIGRATION_REGISTRY[version];
-    if (!step) return fail(`schema ${version} の移行処理がありません`);
-    const migrated = step(result);
-    if (migrated?.ok === false) return migrated;
-    result = migrated?.value ?? migrated;
-  }
-  return { ok: true, value: result, schemaVersion: APP_CONFIG.schemaVersion };
+  return { ok: true, schemaVersion: APP_CONFIG.schemaVersion };
 }
 
 export function normalizeImportedPayload(rawOrObject) {
@@ -1136,28 +869,15 @@ export function normalizeImportedPayload(rawOrObject) {
     }
   }
   if (!isPlainObject(parsed)) return fail('JSONオブジェクトが必要です');
-  let data = parsed;
-  let schemaVersion = 1;
-  if (own(parsed, 'meta')) {
-    if (!own(parsed, 'data') || !isPlainObject(parsed.data)) return fail('wrapped形式のdataが不正です');
-    const metaResult = validateMeta(parsed.meta);
-    if (!metaResult.ok) return metaResult;
-    data = parsed.data;
-    schemaVersion = metaResult.schemaVersion;
-  } else if (own(parsed, 'data')) {
-    return fail('metaを含むwrapped形式が不正です');
-  }
-  const recognized = STATE_KEYS.some(key => own(data, key)) || ['scheduleData', 'configWeekly', 'teacherSchedule', 'academicYear', 'noClassData', 'shortData', 'examData'].some(key => own(data, key));
-  if (!recognized) return fail('TaskKanriの既知形式ではありません');
-  if (schemaVersion >= 3 && ['noClassData', 'shortData', 'examData'].some(field => own(data, field))) {
-    return fail(`schemaVersion ${schemaVersion}では旧日別状態は使用できません`, 'dayProfiles');
-  }
-  const migrated = migrateToCurrent(data, schemaVersion);
-  if (!migrated.ok) return migrated;
-  for (const key of Object.keys(migrated.value)) if (!STATE_KEYS.includes(key)) return fail('未知のデータ項目があります', key);
-  const normalized = normalizeState(migrated.value);
+  if (!own(parsed, 'meta') || !own(parsed, 'data') || !isPlainObject(parsed.data)) return { ...fail('TaskKanriの現行形式のJSONファイルを使用してください'), unsupported: true };
+  const metaResult = validateMeta(parsed.meta);
+  if (!metaResult.ok) return metaResult;
+  const data = parsed.data;
+  if (!STATE_KEYS.some(key => own(data, key))) return fail('TaskKanriの既知形式ではありません');
+  for (const key of Object.keys(data)) if (!STATE_KEYS.includes(key)) return fail('未知のデータ項目があります', key);
+  const normalized = normalizeState(data);
   if (!normalized.ok) return normalized;
-  return { ok: true, value: normalized.value, schemaVersion, sourceSchemaVersion: schemaVersion, source: own(parsed, 'meta') ? 'wrapped' : 'flat' };
+  return { ok: true, value: normalized.value, schemaVersion: APP_CONFIG.schemaVersion, sourceSchemaVersion: APP_CONFIG.schemaVersion, source: 'wrapped' };
 }
 
 export function summarizeState(state) {
@@ -1235,43 +955,6 @@ function createUniqueKey(storage, prefix, iso) {
   return key;
 }
 
-function legacyValue(storage, base) {
-  for (const suffix of LEGACY_SUFFIXES) {
-    const key = `${base}${suffix}`;
-    const raw = storage.getItem(key);
-    if (raw !== null) return { key, raw };
-  }
-  return null;
-}
-
-function readLegacyState(storage, options, quarantine) {
-  const flat = {};
-  let found = false;
-  const jsonFields = new Set(LEGACY_BASE_KEYS.filter(key => key !== 'globalTaskData'));
-  for (const base of LEGACY_BASE_KEYS) {
-    const item = legacyValue(storage, base);
-    if (!item) continue;
-    found = true;
-    if (base === 'globalTaskData') {
-      const parsed = safeJsonParse(item.raw);
-      flat[base] = parsed.ok && typeof parsed.value === 'string' ? parsed.value : item.raw;
-      continue;
-    }
-    if (!jsonFields.has(base)) continue;
-    const parsed = safeJsonParse(item.raw);
-    if (!parsed.ok) {
-      const result = quarantine(item.key, item.raw, '旧形式JSONを解析できません');
-      if (!result.ok) return { ok: false, readOnly: true, error: result.error };
-      continue;
-    }
-    flat[base] = parsed.value;
-  }
-  if (!found) return { ok: true, found: false, value: defaultState() };
-  const normalized = normalizeImportedPayload(flat);
-  if (!normalized.ok) return { ok: false, readOnly: Boolean(normalized.migrationConflict), error: normalized.error };
-  return { ok: true, found: true, value: normalized.value };
-}
-
 export function createStorageService(storage, options = {}) {
   if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function' || typeof storage.removeItem !== 'function') throw new TypeError('StorageLikeが必要です');
   let state = null;
@@ -1335,31 +1018,13 @@ export function createStorageService(storage, options = {}) {
       const parsed = normalizeImportedPayload(raw);
       if (parsed.ok) {
         state = clone(parsed.value);
-        if (parsed.sourceSchemaVersion < APP_CONFIG.schemaVersion) {
-          const snapshot = createRecoverySnapshot();
-          if (!snapshot.ok) {
-            const isolated = quarantine(APP_CONFIG.storeKey, raw, `schema移行前snapshotに失敗: ${snapshot.error}`);
-            setReadOnly(`schema移行を安全に開始できません: ${snapshot.error}`);
-            state = defaultState();
-            return { ok: true, state: clone(state), source: 'master-migration-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
-          }
-          const saved = saveAll(state);
-          if (!saved.ok) {
-            const isolated = quarantine(APP_CONFIG.storeKey, raw, `schema移行の保存に失敗: ${saved.error}`);
-            setReadOnly(`schema移行を保存できません: ${saved.error}`);
-            state = defaultState();
-            return { ok: true, state: clone(state), source: 'master-migration-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
-          }
-          return { ok: true, state: clone(state), source: 'master-migrated', snapshotKey: snapshot.key, readOnly, readOnlyReason };
-        }
         return { ok: true, state: clone(state), source: 'master', readOnly, readOnlyReason };
       }
-      const isolated = quarantine(APP_CONFIG.storeKey, raw, parsed.error);
-      if (parsed.migrationConflict || /schema|scheduleData|configWeekly|週|日別/.test(parsed.error || '')) {
-        setReadOnly(`データ移行を安全に完了できないため読み取り専用です: ${parsed.error}`);
-        state = defaultState();
-        return { ok: true, state: clone(state), source: 'master-conflict-read-only', quarantined: isolated.ok, readOnly: true, readOnlyReason };
+      if (parsed.unsupported) {
+        setReadOnly(parsed.error);state = defaultState();
+        return { ok: true, state: clone(state), source: 'unsupported-master', readOnly: true, readOnlyReason };
       }
+      const isolated = quarantine(APP_CONFIG.storeKey, raw, parsed.error);
       if (!isolated.ok) {
         state = defaultState();
         return { ok: true, state: clone(state), source: 'defaults-read-only', quarantined: false, readOnly: true, readOnlyReason };
@@ -1370,62 +1035,12 @@ export function createStorageService(storage, options = {}) {
         return { ok: true, state: clone(state), source: 'defaults-read-only', quarantined: true, readOnly: true, readOnlyReason };
       }
     }
-    const legacy = readLegacyState(storage, options, quarantine);
-    if (!legacy.ok) {
-      if (legacy.readOnly) {
-        state = defaultState();
-        return { ok: true, state: clone(state), source: 'defaults-read-only', readOnly: true, readOnlyReason };
-      }
-      state = defaultState();
-    } else {
-      state = clone(legacy.value);
-    }
+    state = defaultState();
     if (!readOnly) {
       const saved = saveAll(state);
-      if (!saved.ok) return { ok: true, state: clone(state), source: legacy.found ? 'legacy-unsaved' : 'defaults-unsaved', readOnly: true, readOnlyReason };
+      if (!saved.ok) return { ok: true, state: clone(state), source: 'defaults-unsaved', readOnly: true, readOnlyReason };
     }
-    return { ok: true, state: clone(state), source: legacy.found ? 'legacy' : 'defaults', readOnly, readOnlyReason };
-  }
-
-  function createRecoverySnapshot() {
-    if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
-    const key = createUniqueKey(storage, APP_CONFIG.recoveryPrefix, timestamp(options));
-    const raw = storage.getItem(APP_CONFIG.storeKey);
-    const parsed = raw === null ? null : normalizeImportedPayload(raw);
-    const retainState = !parsed?.ok || JSON.stringify(parsed.value) !== JSON.stringify(state);
-    const record = { createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw, ...(retainState ? { state: clone(state) } : {}) };
-    try {
-      storage.setItem(key, JSON.stringify(record));
-      return { ok: true, key };
-    } catch (error) {
-      const storageError = error?.name || 'Error';
-      return { ok: false, snapshotFailed: true, storageError, error: `取り込み前のバックアップを端末に保存できませんでした（${storageError}）。元のデータは変更していません。` };
-    }
-  }
-
-  function saveCloudWithRecovery(candidate) {
-    if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
-    const raw = storage.getItem(APP_CONFIG.storeKey);
-    const key = APP_CONFIG.recoveryPrefix + 'CLOUD_PENDING';
-    try {
-      const existing = storage.getItem(key);
-      if (existing !== null && JSON.parse(existing).raw !== raw) return { ok: false, error: '以前の復旧データを保全してから同期してください。' };
-      if (existing === null) storage.setItem(key, JSON.stringify({ createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw }));
-    } catch { return { ok: false, error: '同期前のデータを保全できません。元のデータは変更していません。' }; }
-    const result = saveAll(candidate);
-    if (result.ok) { try { storage.removeItem(key); } catch { /* retain backup */ } }
-    return result;
-  }
-
-  function importRaw(raw, { confirm = null } = {}) {
-    if (readOnly) return { ok: false, error: `読み取り専用相当です: ${readOnlyReason}` };
-    const prepared = normalizeImportedPayload(raw);
-    if (!prepared.ok) return prepared;
-    const summary = summarizeState(prepared.value);
-    if (typeof confirm === 'function' && !confirm(summary, prepared.value)) return { ok: false, cancelled: true, summary };
-    const snapshot = createRecoverySnapshot();
-    if (!snapshot.ok) return snapshot;
-    return commitImport(prepared.value, summary, snapshot.key);
+    return { ok: true, state: clone(state), source: 'defaults', readOnly, readOnlyReason };
   }
 
   function commitImport(candidate, summary, snapshotKey) {
@@ -1454,27 +1069,6 @@ export function createStorageService(storage, options = {}) {
       if (typeof snapshotKey !== 'string' || !snapshotKey) throw new Error('保存完了を確認できません。');
     } catch (error) { return { ok: false, error: `取り込み前のバックアップを保存できませんでした。${error?.message || ''}` }; }
     if (readOnly || !stillValid() || previousRaw !== storage.getItem(APP_CONFIG.storeKey) || previousState !== JSON.stringify(state)) return { ok: false, error: 'バックアップ中に保存データまたは利用状態が変更されました。ファイルを選び直してください。', snapshotKey };
-    return commitImport(prepared.value, summarizeState(prepared.value), snapshotKey);
-  }
-
-  async function importRawWithRecovery(raw, archiveRecovery) {
-    const result = importRaw(raw);
-    if (!result.snapshotFailed || result.storageError !== 'QuotaExceededError' || typeof archiveRecovery !== 'function') return result;
-    const previousRaw = storage.getItem(APP_CONFIG.storeKey);
-    const previousState = JSON.stringify(state);
-    const prepared = normalizeImportedPayload(raw);
-    if (!prepared.ok) return prepared;
-    let snapshotKey;
-    try {
-      snapshotKey = await archiveRecovery({ createdAt: timestamp(options), sourceKey: APP_CONFIG.storeKey, raw: previousRaw, state: clone(state) });
-      if (typeof snapshotKey !== 'string' || !snapshotKey) throw new Error('バックアップの保存完了を確認できません。');
-    } catch (error) {
-      return { ok: false, error: `取り込み前のバックアップを保存できませんでした（${error?.name || 'Error'}）。元のデータは変更していません。${error?.message || ''}` };
-    }
-    // Other tabs or an arriving sync update may have changed the master while awaiting IndexedDB.
-    if (readOnly || previousRaw !== storage.getItem(APP_CONFIG.storeKey) || previousState !== JSON.stringify(state)) {
-      return { ok: false, error: 'バックアップ中に保存データが変更されました。ファイルを選び直して差分を確認してください。', snapshotKey };
-    }
     return commitImport(prepared.value, summarizeState(prepared.value), snapshotKey);
   }
 
@@ -1515,11 +1109,7 @@ export function createStorageService(storage, options = {}) {
   return {
     load,
     saveAll,
-    importRaw,
-    importRawWithRecovery,
     importRawArchived,
-    createRecoverySnapshot,
-    saveCloudWithRecovery,
     reset,
     getState: () => clone(state),
     isReadOnly: () => readOnly,

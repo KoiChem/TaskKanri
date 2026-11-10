@@ -32,7 +32,7 @@ import {planTimetableInput} from './taskkanri-timetable.mjs';
 import {parseBulkDateRows,formatBulkDateText,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
 import {saveOfflineImport} from './taskkanri-offline-import.mjs';
 import {importStillReady} from './taskkanri-transfer-errors.mjs';
-import {saveBoundedRecovery,migrateRecoveryCopies,recoveryArchiveUsage,listBoundedRecovery,compactLegacyRecoveryBundles} from './taskkanri-recovery-archive.mjs';
+import {saveBoundedRecovery,recoveryArchiveUsage,listBoundedRecovery} from './taskkanri-recovery-archive.mjs';
 import {mobileSyncLabel} from './mobile-ui.mjs';
 import {acquireStorageGate,installResetListener,notifyReset} from './taskkanri-storage-gate.mjs';
 import {resetTaskKanriStorage,storageBreakdown} from './taskkanri-reset.mjs';
@@ -1569,9 +1569,12 @@ function openSettingsView() {
   document.getElementById('holiday-text-ui').value=formatBulkDateText(appState.customHolidays,appState.currentYear);
   for(const kind of ['events','holidays']){document.getElementById(`${kind}-error`).textContent='';document.getElementById(kind==='events'?'annual-text-ui':'holiday-text-ui').removeAttribute('aria-invalid');}
   const usage=document.getElementById('storage-usage-disp'),details=document.getElementById('storage-breakdown'),parts=storageBreakdown();
-  const total=Object.values(parts).reduce((a,b)=>a+b,0),kb=n=>(n/1024).toFixed(1)+' KB';
-  if(usage)usage.textContent=(total/1024).toFixed(1);
-  if(details){void primaryStorage.usage().then(result=>{details.textContent+=` データ保存領域 ${kb(result.bytes)}（共有データ ${result.payloadCount}版）`;}).catch(()=>{});details.textContent=`現在のデータ ${kb(parts.master)} / 未送信 ${kb(parts.pending)} / 同期キャッシュ ${kb(parts.cache)} / 復旧コピー ${kb(parts.recovery)} / 隔離データ ${kb(parts.quarantine)} / その他 ${kb(parts.other)}。復旧領域を確認中…`;void recoveryArchiveUsage().then(result=>{details.textContent=details.textContent.replace('復旧領域を確認中…','')+` 復旧領域 ${kb(result.bytes)}（${result.count}件）`;}).catch(()=>{details.textContent=details.textContent.replace('復旧領域を確認中…','')+' 復旧領域は確認できませんでした。';});}
+  const settings=Object.values(parts).reduce((a,b)=>a+b,0),kb=n=>(n/1024).toFixed(1)+' KB';
+  usage.textContent='確認中…';details.textContent='';
+  void Promise.all([primaryStorage.usage(),recoveryArchiveUsage()]).then(([data,recovery])=>{
+   usage.textContent=((settings+data.bytes+recovery.bytes)/1024).toFixed(1);
+   details.textContent=`予定・設定・同期用データ ${kb(data.bytes)} / 復旧用データ ${kb(recovery.bytes)} / ログイン情報・表示設定 ${kb(settings)}`;
+  }).catch(()=>{usage.textContent='確認できません';});
 
   renderRecoveryHistory();renderQuarantineUI();document.getElementById('settings-recovery').open=storageService.isReadOnly()||storageService.getQuarantineRecords().length>0;document.getElementById('settings-reset-button').textContent=cloudUser?'この端末の保存データを削除':'この端末の予定と設定をすべて削除'; settingsDirtySections.clear(); document.getElementById('settings-view').style.display = 'block';document.getElementById('settings-view').scrollTop=0; isHydratingSettings = false;updateSettingsStatus();document.getElementById('next-year-button').textContent=`${appState.currentYear+1}年度を開く`;document.getElementById('settings-year-label').textContent=`${appState.currentYear}年度（${appState.currentYear}年4月〜${appState.currentYear+1}年3月）`;
 }
@@ -1682,21 +1685,13 @@ async function executeReset() {
 }
 
 function renderRecoveryHistory(){
- const container=document.getElementById('recovery-history'),namespace=cloudUser?.id,storage=storageLike;
+ const container=document.getElementById('recovery-history'),namespace=cloudUser?.id;
  if(!container)return;container.textContent='読み込み中…';
  void listBoundedRecovery({namespace}).catch(()=>null).then(rows=>{
-  if(namespace!==cloudUser?.id||storage!==storageLike)return;
+  if(namespace!==cloudUser?.id)return;
   container.replaceChildren();const archiveUnavailable=rows===null;rows??=[];rows.sort((a,b)=>b.createdAt-a.createdAt);
   const add=(label,value)=>{const button=el('button',label);button.type='button';button.addEventListener('click',()=>downloadJson(value,exportFilename('recovery')));container.append(button)};
   for(const row of rows){try{add(new Date(row.createdAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})+' のデータを書き出す',JSON.parse(row.raw));}catch{/* retain unreadable archive */}}
-  for(let i=0;i<storage.length;i++){
-   const key=storage.key(i);if(!key?.startsWith(APP_CONFIG.recoveryPrefix))continue;let record;
-   try{record=JSON.parse(storage.getItem(key));}catch{add('読み取れない保全記録を書き出す',{key,raw:storage.getItem(key)});continue;}
-   const date=record.createdAt||'日時不明';let validRaw=false;
-   try{if(record.raw){add(date+' 端末の保全データ',JSON.parse(record.raw));validRaw=true;}}catch{}
-   if(record.state){const serialized=serializePayload(record.state);if(serialized.ok)add(date+' 画面の保全データ',serialized.value);else add(date+' 保全記録',record);}
-   else if(!validRaw)add(date+' 保全記録',record);
-  }
   if(archiveUnavailable)container.append(el('span','復旧領域を読み取れませんでした。'));
   else if(!container.childElementCount)container.textContent='復旧用データはありません。';
  });
@@ -1732,7 +1727,6 @@ function toggleClock() { if (commitState(state => { state.isClockVisible = !stat
 
 function initializeStorage() {
   storageLike=primaryStorage;storageService=makeStorageService(storageLike);
-  decorateStorageService();
   const loaded = storageService.load();
   if (loaded.ok) appState = loaded.state;
   if (loaded.readOnly) showStorageWarning();
@@ -1748,7 +1742,6 @@ function queueCloudSave(state) {
   try { syncController?.dirty(state); } catch(error) { syncController?.engine?.emit('blocked',error.message); syncUI?.tell('端末には保存しましたが、同期を確認できません。'+error.message); }
 }
 function makeStorageService(storage){return createStorageService(storage,{onSave:state=>{if(!applyingCloud)syncController?.dirty(state)}})}
-function decorateStorageService(){}
 function enableEditors(){if(editorReady)return;editorReady=true;qa('.slot-input').forEach(input=>input.contentEditable='true');}
 function persistenceChanged(){
  if(!primaryStorage)return;
@@ -1789,15 +1782,15 @@ function installCloudSync() {
         storageLike=scoped;storageService=makeStorageService(scoped);let loaded=storageService.load();
         if(!loaded.ok||loaded.readOnly) throw new Error('この端末の保存データを保全してください。');
         if(!hasMaster) { const result=storageService.saveAll(candidate);if(!result.ok)throw new Error(result.error);loaded=result; }
-        appState=loaded.state;decorateStorageService();localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
-      } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(primaryStorage,'logged-out');storageService=makeStorageService(storageLike);storageService.load();decorateStorageService();document.body.classList.add('cloud-signed-out'); }
+        appState=loaded.state;localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
+      } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(primaryStorage,'logged-out');storageService=makeStorageService(storageLike);storageService.load();document.body.classList.add('cloud-signed-out'); }
       landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
     },
     onData:next=>{
       if(samePayload(toPayload(next),toPayload(appState)))return;
       const stored=normalizeImportedPayload(storageLike.getItem(APP_CONFIG.storeKey));
-      if(requiresCloudRecovery(appState,syncController?.engine?.payload,stored.ok?stored.value:null)){const backup=storageService.createRecoverySnapshot();if(!backup.ok)throw new Error(backup.error);}
-      applyingCloud=true;let result;try { result=storageService.saveCloudWithRecovery(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
+      if(!syncController?.engine?.discarding&&requiresCloudRecovery(appState,syncController?.engine?.payload,stored.ok?stored.value:null)&&!samePayload(toPayload(appState),toPayload(defaultState(appState.currentYear))))throw new Error('端末に未確認の変更があります。現在の内容を書き出してから同期設定を確認してください。');
+      applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },
     onStatus:(label,engine)=>{if(engine?.active&&['synced','pending','cached','offline','empty'].includes(engine.status))enableEditors();if(primaryStorage?.pending)label='端末に保存中…';status.textContent='同期設定：'+mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
@@ -1805,10 +1798,6 @@ function installCloudSync() {
   syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.hasAttribute('data-common-editor')?updateGlobalTask(html):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
   (async()=>{
-    const keys=Array.from({length:primaryStorage.length},(_,i)=>primaryStorage.key(i));
-    const namespaces=new Set(keys.map(key=>key?.match(/^TASKKANRI_USER:([^:]+):TASK_KUN_MASTER_STORAGE_RECOVERY_/)?.[1]).filter(Boolean));
-    try { await compactLegacyRecoveryBundles();await migrateRecoveryCopies({storage:primaryStorage}); for(const namespace of namespaces)await migrateRecoveryCopies({namespace,storage:primaryStorage});await primaryStorage.flush(); }
-    catch(error){syncUI.tell('復旧データの整理を完了できませんでした。元のデータは保持しています。'+error.message);}
     await primaryStorage.flush();await syncController.start();enableEditors();
   })().catch(error=>{if(syncController.offlineMode)return;status.textContent=error.message;syncUI.tell(error.message)});
 }
