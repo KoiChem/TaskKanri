@@ -36,7 +36,8 @@ export class SyncEngine {
     this.validate(document);
     try {if(document.payload.contractVersion===1 && !this.store.read('legacy-backup'))this.store.write('legacy-backup',document);this.onData(document);this.store.write('cache',document);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=document.payload;this.revision=document.revision;this.updatedAt=document.updated_at;
-    if(document.payload.contractVersion===1)this.queue(mergePayload(document.payload));else this.emit('synced');
+    const finish=()=>{if(!this.active)return;if(document.payload.contractVersion===1)this.queue(mergePayload(document.payload));else if(!this.pending)this.emit('synced');};
+    if(this.store.flush){this.emit('storing');return Promise.resolve(this.store.flush()).then(finish,error=>{error.blocked=true;this.emit('blocked',error.message);throw error})}finish();
   }
   queue(state,{initial=false,offline=false}={}) {
     if(!this.active||!offline&&(this.status==='conflict'||this.status==='blocked'))throw new Error('同期を確認してから操作してください。');
@@ -54,7 +55,8 @@ export class SyncEngine {
     if(!this.active||this.busy||!this.pending||['conflict','blocked'].includes(this.status))return {status:this.status};
     this.busy=true;const generation=this.generation;let req,committing=false;
     try {
-      const next=structuredClone(this.pending);next.request.attempted=true;this.persist(next);req=structuredClone(next.request);this.emit('saving');
+      if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
+      const next=structuredClone(this.pending);next.request.attempted=true;this.persist(next);if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};req=structuredClone(next.request);this.emit('saving');
       const result=await this.transport.save(req);
       if(!this.active||generation!==this.generation)return {status:'stopped'};
       if(result.status==='conflict'){this.emit('conflict');return result;}
@@ -72,11 +74,14 @@ export class SyncEngine {
         // Rebase only across our own accepted save, never across remote edits.
         if(doc.revision!==result.appliedRevision){this.emit('conflict');return {status:'conflict'};}
         this.store.write('cache',doc);this.persist({request:this.request(toPayload(mergePayload(nextPayload)),doc.revision)});
-        this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;this.emit('pending');
+        this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;
+        if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
+        this.emit('pending');
       } else {
         this.onData(doc);this.store.write('cache',doc);this.store.remove('pending');this.pending=null;
         this.payload=doc.payload;this.revision=doc.revision;this.updatedAt=doc.updated_at;
-        if(doc.payload.contractVersion===1){this.queue(mergePayload(doc.payload));}else this.emit('synced');
+        if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
+        if(this.pending)this.emit('pending');else if(doc.payload.contractVersion===1){this.queue(mergePayload(doc.payload));}else this.emit('synced');
       }
       return result;
     } catch(error) {
@@ -101,7 +106,7 @@ export class SyncEngine {
   }
   async discardPending() {
     if(this.busy)throw new Error('保存結果を確認してから操作してください');
-    this.store.remove('pending');this.pending=null;this.emit('loading');await this.load();
+    this.store.remove('pending');if(this.store.flush)await this.store.flush();this.pending=null;this.emit('loading');await this.load();
   }
   stop() {this.active=false;this.generation++;this.payload=null;this.pending=null;this.deferred=null;this.onChange=()=>{};this.onData=()=>{};}
 }

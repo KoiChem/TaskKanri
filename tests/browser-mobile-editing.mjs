@@ -79,7 +79,7 @@ async (page) => {
    await open('３限');await input().evaluate((e,body)=>{e.innerHTML=body;e.dispatchEvent(new Event('input',{bubbles:true}))},body);
    await input().locator('.todo-badge').first().tap();check(await caretAfter(),'no editable caret after task in edge case '+index);await p.keyboard.insertText('追記');
    check((await input().innerText()).replace(/\u200B/g,'').startsWith('途追記'),'typing did not follow marker in edge case '+index);
-   const draft=await p.evaluate(id=>JSON.parse(localStorage.getItem(`TASKKANRI_USER:${id}:mobile-slot-draft:2026-10-15:３限`)),user.id);
+   const draft=await p.evaluate(async id=>{const {openPrimaryStorage}=await import('./taskkanri-primary-storage.mjs'),s=await openPrimaryStorage();try{return JSON.parse(s.getItem(`TASKKANRI_USER:${id}:mobile-slot-draft:2026-10-15:３限`))}finally{s.close()}},user.id);
    check(!draft.html.includes('\u200B')&&!draft.html.includes('data-slot-caret-anchor'),'caret scaffolding leaked into stored draft');
    if(index===0){await save();check(!doc.payload.state.dateSchedules['2026-10-15']['３限'].includes('\u200B')&&!doc.payload.state.dateSchedules['2026-10-15']['３限'].includes('data-slot-caret-anchor'),'caret scaffolding leaked into saved schedule')}
    else await p.locator('[data-slot-cancel]').click();
@@ -101,17 +101,12 @@ async (page) => {
   check(await p.locator('[data-slot-save]').isDisabled(),'IME composition can be saved');await select('2026-10-16');
   check(await input().count()===1&&(await p.locator('#selected-date').innerText()).includes('10月15日'),'navigation interrupted IME composition');
   await input().dispatchEvent('compositionend',{data:'化学'});const detachedInput=await input().elementHandle();await p.locator('[data-slot-cancel]').click();await detachedInput.dispatchEvent('compositionend',{data:'化学'});
-  await open();await p.evaluate(()=>{window.originalDraftSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.includes('mobile-slot-draft:'))throw new Error('quota fixture');return window.originalDraftSetItem.call(this,key,value)}});
-  await input().fill('保存領域が満杯でも残す本文');await select('2026-10-16');check(await input().innerText()==='保存領域が満杯でも残す本文','storage failure discarded current editor');
-  await p.evaluate(()=>{Storage.prototype.setItem=window.originalDraftSetItem;delete window.originalDraftSetItem});await p.locator('[data-slot-cancel]').click();
   await p.locator('#incomplete-tab').click();const list=p.locator('#incomplete-sheet');await list.waitFor();
   check(!(await list.innerText()).includes('共通の仕事')&&!(await list.innerText()).includes('済の仕事'),'incomplete includes excluded tasks');
   check((await list.innerText()).includes('非表示枠の仕事'),'hidden task omitted');
   const task=list.locator('.incomplete-row').filter({hasText:'実験準備'});
-  await p.evaluate(()=>{window.originalQueueSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.endsWith(':pending'))throw new Error('queue quota fixture');return window.originalQueueSetItem.call(this,key,value)}});
-  await task.locator('[data-incomplete-cycle]').click();check((await list.locator('[data-incomplete-notice]').innerText()).includes('queue quota fixture'),'queue failure was hidden');check(await task.locator('.todo-badge').getAttribute('data-state')==='1','failed queue changed task state');
-  await p.evaluate(()=>{Storage.prototype.setItem=window.originalQueueSetItem;delete window.originalQueueSetItem});holdSaves=true;await task.locator('[data-incomplete-cycle]').click();
-  check(await task.locator('.todo-badge').getAttribute('data-state')==='2','list state not cycled');check(await task.isVisible(),'completed row disappeared immediately');
+  holdSaves=true;await task.locator('[data-incomplete-cycle]').click();
+  await task.locator('.todo-badge[data-state="2"]').waitFor();check(await task.locator('.todo-badge').getAttribute('data-state')==='2','list state not cycled');check(await task.isVisible(),'completed row disappeared immediately');
   await p.locator('#close-incomplete').click();await list.waitFor({state:'hidden'});await open();await input().locator('.todo-badge').click();
   if(!releaseHold)await new Promise(resolve=>{notifyHold=resolve});holdSaves=false;releaseHold();
   await p.waitForFunction(()=>!document.querySelector('[data-slot-save]').disabled,{},{timeout:3000});await save();

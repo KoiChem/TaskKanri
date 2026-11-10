@@ -9,7 +9,7 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '78',
   compatibilityVersion: '73',
-  buildVersion: '20261105-storage-reset-v30',
+  buildVersion: '20261110-primary-storage-v31',
   schemaVersion: 8,
   supportedSchemaVersions: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
@@ -1310,7 +1310,8 @@ export function createStorageService(storage, options = {}) {
     const serialized = serializePayload(normalized.value, typeof options.now === 'function' ? options.now() : new Date());
     if (!serialized.ok) return serialized;
     try {
-      storage.setItem(APP_CONFIG.storeKey, JSON.stringify(serialized.value));
+      const write = () => { storage.setItem(APP_CONFIG.storeKey, JSON.stringify(serialized.value)); options.onSave?.(normalized.value); };
+      if (storage.atomic) storage.atomic(write); else write();
     } catch {
       setReadOnly('データの保存に失敗したため読み取り専用です');
       return { ok: false, error: 'データの保存に失敗しました。現在のデータは変更されていません。' };
@@ -1431,7 +1432,8 @@ export function createStorageService(storage, options = {}) {
     const serialized = serializePayload(candidate, typeof options.now === 'function' ? options.now() : new Date());
     if (!serialized.ok) return serialized;
     try {
-      storage.setItem(APP_CONFIG.storeKey, JSON.stringify(serialized.value));
+      const write = () => { storage.setItem(APP_CONFIG.storeKey, JSON.stringify(serialized.value)); options.onSave?.(candidate); };
+      if (storage.atomic) storage.atomic(write); else write();
     } catch {
       return { ok: false, error: 'インポートデータの保存に失敗しました。現行データは変更されていません。', snapshotKey };
     }

@@ -121,7 +121,7 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
    // Suspending another slot re-renders the schedule; locate its current element.
    root=[...document.querySelectorAll('.slot-content')].find(e=>e.dataset.dateId===ref.dateId&&e.dataset.slot===ref.slot);if(!root)return;
    try{
-    const store=slotDraftStore(localStorage,controller.user.id,ref.dateId,ref.slot),draft=store.read(),originalHtml=sanitizeHtml(getResolvedSlot(ref.dateId,ref.slot,getState()));
+    const store=slotDraftStore(controller.storage,controller.user.id,ref.dateId,ref.slot),draft=store.read(),originalHtml=sanitizeHtml(getResolvedSlot(ref.dateId,ref.slot,getState()));
     const height=root.getBoundingClientRect().height,row=root.closest('.slot-card'),rowHeight=row.getBoundingClientRect().height;
     const input=document.createElement('div');input.className='rich-text';input.innerHTML=draft?.html??originalHtml;input.contentEditable='true';input.setAttribute('role','textbox');input.setAttribute('aria-multiline','true');input.setAttribute('aria-label',`${ref.slot}の予定を編集`);
     active={...ref,root,input,store,id:crypto.randomUUID(),userId:controller.user.id,originalHtml:draft?.originalHtml??originalHtml,lastDraft:draft,saving:false,composing:false};

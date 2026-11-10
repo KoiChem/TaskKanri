@@ -24,7 +24,7 @@ async page => {
   check((await color(6,'朝')).cell==='rgb(237, 247, 255)','Saturday color');check((await color(0,'１限')).cell==='rgb(255, 240, 240)','Sunday color');check((await color(1,'昼休み')).cell==='rgb(243, 244, 246)','break color');check((await color(1,'昼休み')).input==='rgba(0, 0, 0, 0)','input masks cell color');
   await p.locator('#tmpl-start').fill('2026-11-02');await p.locator('#tmpl-end').fill('2026-11-06');await p.locator('#weekly-tbody input[data-day="1"][data-slot="１限"]').fill('化学 2A');await p.locator('#weekly-tbody input[data-day="1"][data-slot="２限"]').fill('２−３＠602');await p.locator('#weekly-tbody input[data-day="1"][data-slot="朝"]').fill('朝会');
   await p.getByRole('button',{name:'変更内容を確認',exact:true}).click();await p.locator('#timetable-execute').waitFor();
-  const storedWords=()=>p.evaluate(()=>Object.keys(localStorage).filter(k=>k.endsWith('TASK_KUN_MASTER_STORAGE')).map(k=>JSON.parse(localStorage.getItem(k))).map(x=>x.data?.timetableWords||[]).flat());
+  const storedWords=()=>p.evaluate(async()=>{const {openPrimaryStorage}=await import('/taskkanri-primary-storage.mjs');const s=await openPrimaryStorage();try{return Array.from({length:s.length},(_,i)=>s.key(i)).filter(k=>k.endsWith('TASK_KUN_MASTER_STORAGE')).map(k=>JSON.parse(s.getItem(k))).map(x=>x.data?.timetableWords||[]).flat()}finally{s.close()}});
   check((await storedWords()).length===0,'preview persisted candidates');
   await p.locator('#timetable-execute').click();await p.locator('#timetable-result').getByText(/保存しました/).waitFor();check((await storedWords()).includes('化学'),'execute failed to persist candidates');
   await p.locator('#timetable-view .settings-header button').click();await p.locator('#settings-view .settings-header button').first().click();await p.reload();

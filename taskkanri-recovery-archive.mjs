@@ -1,4 +1,5 @@
-import {APP_CONFIG,normalizeImportedPayload} from './taskkanri-core.mjs';
+import {samePayload} from './taskkanri-sync-model.mjs';
+import {APP_CONFIG,normalizeImportedPayload,normalizeState} from './taskkanri-core.mjs';
 
 const DATABASE='TaskKanriRecovery',STORE='backups';
 function openDatabase(indexedDB){
@@ -83,7 +84,7 @@ export async function migrateRecoveryCopies({namespace,storage=globalThis.localS
   const previous=storage.getItem(key);let record;
   try{record=JSON.parse(previous)}catch{continue}
   if(typeof record?.raw!=='string'||!normalizeImportedPayload(record.raw).ok||!Number.isFinite(Date.parse(record.createdAt)))continue;
-  if(record.state&&JSON.stringify(normalizeImportedPayload(record.raw).value)!==JSON.stringify(record.state))continue;
+  if(record.state){const state=normalizeState(record.state);if(!state.ok||!samePayload(normalizeImportedPayload(record.raw).value,state.value))continue;}
   await saveBoundedRecovery({raw:record.raw,createdAt:record.createdAt},{namespace,indexedDB,locks});
   if(storage.getItem(key)===previous)storage.removeItem(key);
  }
@@ -91,4 +92,34 @@ export async function migrateRecoveryCopies({namespace,storage=globalThis.localS
 export async function recoveryArchiveUsage({indexedDB=globalThis.indexedDB}={}){
  const db=await openDatabase(indexedDB);
  try{return await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly'),request=tx.objectStore(STORE).getAll();tx.oncomplete=()=>resolve({count:request.result.length,bytes:request.result.reduce((sum,row)=>sum+JSON.stringify(row).length*2,0)});tx.onabort=()=>reject(tx.error||new Error('復旧データの容量を確認できません。'));});}finally{db.close()}
+}
+
+export function legacyRecoveryCandidates(bundle){
+ if(!bundle||bundle.kind==='bounded'||!bundle.record||!Array.isArray(bundle.records))return null;
+ const rows=[];
+ const add=(record,namespace)=>{
+  if(typeof record?.raw!=='string'||!Number.isFinite(Date.parse(record.createdAt)))return false;
+  const parsed=normalizeImportedPayload(record.raw);if(!parsed.ok)return false;
+  if(record.state){const state=normalizeState(record.state);if(!state.ok||!samePayload(parsed.value,state.value))return false;}
+  rows.push({raw:record.raw,createdAt:record.createdAt,namespace:namespace||'legacy'});return true;
+ };
+ if(!add(bundle.record,bundle.namespace))return null;
+ for(const item of bundle.records){
+  if(typeof item?.key!=='string'||!isRecoveryKey(item.key))return null;
+  let record;try{record=JSON.parse(item.raw)}catch{return null}
+  if(!add(record,item.key.match(/^TASKKANRI_USER:([^:]+):/)?.[1]))return null;
+ }
+ return rows;
+}
+export async function compactLegacyRecoveryBundles({indexedDB=globalThis.indexedDB,locks=globalThis.navigator?.locks}={}){
+ let db=await openDatabase(indexedDB),bundles;
+ try{bundles=await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly'),request=tx.objectStore(STORE).getAll();tx.oncomplete=()=>resolve(request.result);tx.onabort=()=>reject(tx.error)})}finally{db.close()}
+ let removed=0;
+ for(const bundle of bundles){
+  const rows=legacyRecoveryCandidates(bundle);if(!rows)continue;
+  for(const row of rows.sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt)))await saveBoundedRecovery(row,{namespace:row.namespace,indexedDB,locks});
+  db=await openDatabase(indexedDB);
+  try{await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE),request=store.get(bundle.id);request.onsuccess=()=>{if(JSON.stringify(request.result)===JSON.stringify(bundle)){store.delete(bundle.id);removed++}};tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error('旧復旧データを整理できません。'))})}finally{db.close()}
+ }
+ return removed;
 }

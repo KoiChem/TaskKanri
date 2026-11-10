@@ -3,9 +3,11 @@ const localKeys=new Set(['TASKKANRI_OFFLINE_MODE','TASKKANRI_CLOUD_ENABLED','TAS
 const sessionKeys=new Set(['TASKKANRI_CLIENT_ID','TASKKANRI_DESKTOP_OPENED']);
 function keys(storage){return Array.from({length:storage.length},(_,i)=>storage.key(i)).filter(Boolean)}
 function isLocal(key){return localKeys.has(key)||key.startsWith('TASKKANRI_USER:')||key.startsWith('TASKKANRI_PRE_SYNC_BACKUP:')||key.startsWith(APP_CONFIG.recoveryPrefix)||key.startsWith(APP_CONFIG.quarantinePrefix)}
-export function deleteRecoveryDatabase(indexedDB=globalThis.indexedDB,onBlocked=()=>{}){return new Promise((resolve,reject)=>{if(!indexedDB){reject(new Error('復旧データ保存領域を確認できません。'));return;}const req=indexedDB.deleteDatabase('TaskKanriRecovery');let settled=false;req.onsuccess=()=>{if(!settled){settled=true;resolve()}};req.onerror=()=>{if(!settled){settled=true;reject(req.error)}};req.onblocked=()=>onBlocked()})}
-export async function resetTaskKanriStorage({local=globalThis.localStorage,session=globalThis.sessionStorage,onBlocked=()=>{},deleteRecovery=()=>deleteRecoveryDatabase(globalThis.indexedDB,onBlocked)}={}){
- await deleteRecovery();
+function deleteDatabase(name,indexedDB=globalThis.indexedDB,onBlocked=()=>{}){return new Promise((resolve,reject)=>{if(!indexedDB){reject(new Error('復旧データ保存領域を確認できません。'));return;}const req=indexedDB.deleteDatabase(name);let settled=false;req.onsuccess=()=>{if(!settled){settled=true;resolve()}};req.onerror=()=>{if(!settled){settled=true;reject(req.error)}};req.onblocked=()=>onBlocked()})}
+export const deleteRecoveryDatabase=(indexedDB,onBlocked)=>deleteDatabase('TaskKanriRecovery',indexedDB,onBlocked);
+export const deletePrimaryDatabase=(indexedDB,onBlocked)=>deleteDatabase('TaskKanriData',indexedDB,onBlocked);
+export async function resetTaskKanriStorage({local=globalThis.localStorage,session=globalThis.sessionStorage,onBlocked=()=>{},deleteRecovery=()=>deleteRecoveryDatabase(globalThis.indexedDB,onBlocked),deletePrimary=()=>globalThis.indexedDB?deletePrimaryDatabase(globalThis.indexedDB,onBlocked):Promise.resolve()}={}){
+ await deleteRecovery();await deletePrimary();
  const targets=keys(local).filter(isLocal),sessions=keys(session).filter(key=>sessionKeys.has(key));
  for(const key of targets)local.removeItem(key);
  for(const key of sessions)session.removeItem(key);

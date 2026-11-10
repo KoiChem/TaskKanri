@@ -87,7 +87,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
   openEditor(button){
    if(!controller.user||!controller.engine?.payload)return;
    try{
-    const dateId=isEvent?eventDate():null,store=isEvent?eventDraftStore(localStorage,controller.user.id,dateId):globalDraftStore(localStorage,controller.user.id),draft=store.read();
+    const dateId=isEvent?eventDate():null,store=isEvent?eventDraftStore(controller.storage,controller.user.id,dateId):globalDraftStore(controller.storage,controller.user.id),draft=store.read();
     const originalHtml=sanitizeHtml(isEvent?getState().configEvents[dateId]||'':getState().globalTaskData);
     active={dateId,id:crypto.randomUUID(),userId:controller.user.id,store,originalHtml:draft?.originalHtml??originalHtml,html:draft?.html??originalHtml,saving:false};
     if(isEvent)q('#event-editor-title').textContent=`${dateId} 行事予定を編集`;

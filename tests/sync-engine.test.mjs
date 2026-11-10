@@ -71,3 +71,13 @@ test('a legacy in-flight next draft including unapplied master is archived befor
  assert.deepEqual(store.read('legacy-pending-backup:original-flight'),pending);assert.equal(f.document.payload.state.globalTaskData,'最新メモ');
  const failing={...memory(),read:k=>k==='pending'?structuredClone(pending):null,write:()=>{throw new Error('quota')}};assert.throws(()=>new SyncEngine({transport:f.transport,store:failing}),/quota/);assert.deepEqual(failing.read('pending'),pending);
 });
+
+test('network waits for durable pending and attempted marker commits',async()=>{
+ const f=fixture(),store=memory();let release,wait=false,sends=0;store.flush=()=>wait?new Promise(resolve=>release=resolve):Promise.resolve();const save=f.transport.save;f.transport.save=req=>{sends++;return save(req)};const engine=new SyncEngine({store,transport:f.transport});await engine.load();const next=defaultState();next.globalTaskData='durable';engine.queue(next);wait=true;const saving=engine.flush();await Promise.resolve();assert.equal(sends,0);release();await Promise.resolve();await Promise.resolve();assert.equal(sends,0);wait=false;release();await saving;assert.equal(sends,1);assert.equal(engine.status,'synced');
+});
+test('failed durable queue prevents network submission and preserves pending body',async()=>{
+ const f=fixture(),store=memory();let sends=0;const engine=new SyncEngine({store,transport:{...f.transport,save:async()=>{sends++;throw Error('must not send')}}});await engine.load();const next=defaultState();next.globalTaskData='keep';engine.queue(next);store.flush=async()=>{const error=Error('IDB failed');error.blocked=true;throw error};const result=await engine.flush();assert.equal(sends,0);assert.equal(result.status,'error');assert.equal(engine.pending.request.payload.state.globalTaskData,'keep');assert.equal(engine.status,'blocked');
+});
+test('edit during durable save acknowledgement remains queued at the new revision',async()=>{
+ const f=fixture(),store=memory(),engine=new SyncEngine({store,transport:f.transport});await engine.load();let count=0,release;store.flush=()=>++count===3?new Promise(resolve=>release=resolve):Promise.resolve();const first=defaultState();first.globalTaskData='first';engine.queue(first);const saving=engine.flush();while(!release)await Promise.resolve();const second=defaultState();second.globalTaskData='second';engine.queue(second);release();await saving;assert.ok(engine.pending);assert.equal(engine.pending.request.expectedRevision,2);assert.equal((engine.pending.nextPayload||engine.pending.request.payload).state.globalTaskData,'second');assert.equal(engine.status,'pending');
+});

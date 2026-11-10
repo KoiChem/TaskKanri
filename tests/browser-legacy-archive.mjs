@@ -1,0 +1,5 @@
+async page=>{const c=await page.context().browser().newContext(),p=await c.newPage();try{await p.goto('http://127.0.0.1:4173/reset-closed.html');return await p.evaluate(async()=>{
+ const core=await import('/taskkanri-core.mjs'),arc=await import('/taskkanri-recovery-archive.mjs'),state=core.defaultState();
+ for(let i=0;i<5;i++){state.globalTaskData='backup '+i;const record={createdAt:new Date(1700000000000+i*1000).toISOString(),raw:JSON.stringify(core.serializePayload(state).value),state:structuredClone(state)};await arc.archiveRecovery(record,{namespace:'a'});}
+ const before=await arc.recoveryArchiveUsage();const removed=await arc.compactLegacyRecoveryBundles();const after=await arc.recoveryArchiveUsage(),rows=await arc.listBoundedRecovery({namespace:'a'});if(removed!==5||rows.length!==3||after.count!==3||rows.map(r=>JSON.parse(r.raw).data.globalTaskData).sort().join(',')!=='backup 2,backup 3,backup 4')throw Error(JSON.stringify({removed,before,after}));return {legacyBundlesRemoved:removed,retained:rows.length,beforeKB:before.bytes/1024,afterKB:after.bytes/1024};
+ });}finally{await c.close()}}

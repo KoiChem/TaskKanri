@@ -14,11 +14,11 @@ function checked(result) {if(result.error){const e=new Error(result.error.messag
 export function statusLabel(engine) {
  if(engine?.manualOffline)return 'オフラインモード';
  const stamp=engine?.lastSuccessfulSyncAt?new Date(engine.lastSuccessfulSyncAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';
- return ({loading:'読み込み中',cached:'端末の保存内容',unloaded:'同期して最新データを取得',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
+ return ({loading:'読み込み中',storing:'端末に保存中…',cached:'端末の保存内容',unloaded:'同期して最新データを取得',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
 }
 export class SyncController {
- constructor({mode,getState,onAccount=()=>{},onData=()=>{},onStatus=()=>{},canApply=()=>true}) {
-  Object.assign(this,{mode,getState,onAccount,onData,onStatus,canApply});this.engine=null;this.user=null;this.client=null;this.generation=0;this.composing=false;this.retry=0;this.networkRequests=new Set();
+ constructor({mode,getState,storage=globalThis.localStorage,onAccount=()=>{},onData=()=>{},onStatus=()=>{},canApply=()=>true}) {
+  Object.assign(this,{mode,getState,storage,onAccount,onData,onStatus,canApply});this.engine=null;this.user=null;this.client=null;this.generation=0;this.composing=false;this.retry=0;this.networkRequests=new Set();
   this.visibility=()=>{if(document.visibilityState==='visible')void this.refresh()};
   document.addEventListener('visibilitychange',this.visibility);window.addEventListener('online',this.visibility);
   document.addEventListener('compositionstart',()=>this.composing=true);document.addEventListener('compositionend',()=>{this.composing=false;if(this.engine?.pending)this.schedule()});
@@ -55,7 +55,7 @@ export class SyncController {
   const generation=++this.generation;this.engine?.stop();this.engine=null;clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);this.user=null;this.retry=0;
   if(hadUser)this.onAccount(null);
   if(!session || !Number.isFinite(session.expires_at) || session.expires_at*1000<=Date.now()){this.onAccount(null);this.onStatus('未接続');return;}
-  const store=syncStore(localStorage,session.user.id,this.id);let offline=false;
+  const store=syncStore(this.storage,session.user.id,this.id);let offline=false;
   try {
     if(!checked(await this.client.rpc('taskkanri_is_allowed'))){const error=new Error('このアカウントは同期を許可されていません。SUPABASE_SETUP.mdの設定を確認してください。');error.blocked=true;throw error;}
     if(generation!==this.generation)return;
@@ -67,7 +67,7 @@ export class SyncController {
     offline=true;
   }
   if(generation!==this.generation)return;
-  this.user=session.user;localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:this.user.id,email:this.user.email}));this.onAccount(this.user);
+  this.user=session.user;localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:this.user.id,email:this.user.email}));this.onAccount(this.user);if(this.storage.flush)await this.storage.flush();if(generation!==this.generation)return;
   const transport={get:async meta=>checked(await this.client.from('taskkanri_documents').select(meta?'revision,updated_at':'revision,updated_at,payload').eq('user_id',session.user.id).maybeSingle()),save:async req=>checked(await this.client.rpc('save_taskkanri_document',{expected_revision:req.expectedRevision,mutation_id:req.mutationId,payload:req.payload}))};
   this.engine=new SyncEngine({transport,store,canApply:this.canApply,
    onChange:engine=>{this.onStatus(statusLabel(engine),engine);},onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
@@ -76,11 +76,11 @@ export class SyncController {
   if(this.mode==='desktop' && cache && !this.engine.pending && !samePayload(toPayload(this.getState()),toPayload(mergePayload(cache.payload,this.getState())))) {
     this.engine.payload=cache.payload;this.engine.revision=cache.revision;this.engine.queue(this.getState());
   }
-  if(offline){this.engine.loadCached();this.engine.emit('offline');return;}
+  if(offline){this.engine.loadCached();if(this.storage.flush)await this.storage.flush();this.engine.emit('offline');return;}
   const engine=this.engine;
   if(this.mode==='desktop') {
     const read=this.allowStartupRead&&!engine.pending;this.allowStartupRead=false;
-    if(!read){engine.loadCached();engine.emit(engine.pending?'pending':engine.payload?'cached':'unloaded');return;}
+    if(!read){engine.loadCached();if(this.storage.flush)await this.storage.flush();engine.emit(engine.pending?'pending':engine.payload?'cached':'unloaded');return;}
   }
   try{await engine.load();if(engine===this.engine&&engine.pending&&engine.status!=='conflict')this.schedule();}
   catch(e){if(engine!==this.engine||this.offlineMode)return;engine.emit(e.blocked?'blocked':'offline',e.message);throw e;}
@@ -137,11 +137,11 @@ export class SyncController {
   if(this.offlineMode)return;
   let account=this.user;
   if(!account){try{account=JSON.parse(localStorage.getItem('TASKKANRI_LAST_ACCOUNT'))||JSON.parse(localStorage.getItem('TASKKANRI_SUPABASE_AUTH'))?.user;}catch{}}
-  const accountStore=account&&this.id?syncStore(localStorage,account.id,this.id):null;
+  const accountStore=account&&this.id?syncStore(this.storage,account.id,this.id):null;
   const cache=accountStore?.read('cache');
   const current=this.getState();
   if(account&&!cache&&!this.engine?.payload&&!this.engine?.pending)account=null;
-  const store=account?accountStore:syncStore(localStorage,'offline-local','shared');
+  const store=account?accountStore:syncStore(this.storage,'offline-local','shared');
   const existing=this.engine;
   // Persist the preference before changing the visible account or stopping requests.
   localStorage.setItem('TASKKANRI_OFFLINE_MODE','true');
@@ -152,20 +152,21 @@ export class SyncController {
   this.user=account||{id:'offline-local',email:'この端末専用'};this.onAccount(this.user);
   const transport={get:async()=>store.read('cache'),save:async req=>{
    const document={revision:req.expectedRevision+1,payload:req.payload,updated_at:new Date().toISOString()};
-   store.write('cache',document);return {status:'saved',appliedRevision:document.revision,updatedAt:document.updated_at};
+   store.write('cache',document);if(store.flush)await store.flush();return {status:'saved',appliedRevision:document.revision,updatedAt:document.updated_at};
   }};
   this.engine=new SyncEngine({store,transport,canApply:this.canApply,onChange:e=>this.onStatus('オフラインモード',e),onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
   this.engine.manualOffline=true;
   if(!this.engine.loadCached()){
    const pending=this.engine.pending;
-   this.engine.accept({revision:Math.max(1,pending?.request.expectedRevision||0),payload:pending?.nextPayload||pending?.request.payload||toPayload(this.mode==='desktop'?current:defaultState())});
+   await this.engine.accept({revision:Math.max(1,pending?.request.expectedRevision||0),payload:pending?.nextPayload||pending?.request.payload||toPayload(this.mode==='desktop'?current:defaultState())});
   }
-  this.engine.emit('synced');
+  if(this.storage.flush)await this.storage.flush();this.engine.emit('synced');
  }
  resumeOnline(){localStorage.removeItem('TASKKANRI_OFFLINE_MODE');location.reload();}
  stageOfflineImport(state){
   const e=this.engine;
   if(!this.offlineMode||!e?.active)throw new Error('端末内の保存処理を準備できません。保存データを消さずにページを開き直してください。');
+  if(e.payload&&samePayload(e.pending?.nextPayload||e.pending?.request?.payload||e.payload,toPayload(state)))return;
   const previous={pending:e.pending,cache:e.store.read('cache'),payload:e.payload,revision:e.revision,status:e.status,error:e.error};
   let cacheChanged=false;
   try{
@@ -189,11 +190,11 @@ export class SyncController {
    e.queue(state,{offline:true});
    if(this.localOnly)return e.flush();
    this.onData(mergePayload(toPayload(state),this.getState()),{revision:e.revision,payload:toPayload(state)});
-   return {status:'saved'};
+   if(this.storage.flush)await this.storage.flush();return {status:'saved'};
   }
 
   const e=this.engine;
   if(!e||!navigator.onLine||!e.payload||['blocked','conflict','empty','loading','offline'].includes(e.status)||!defer&&(e.pending||e.busy||e.status!=='synced'))throw new Error('同期を確認してから操作してください。');
-  e.queue(state);if(defer){this.schedule();return {status:'pending'};}return this.flush();
+  e.queue(state);if(defer){if(this.storage.flush)await this.storage.flush();this.schedule();return {status:'pending'};}return this.flush();
  }
 }
