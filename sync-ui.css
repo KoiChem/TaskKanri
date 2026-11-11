@@ -35,3 +35,4 @@
 #sync-landing button:disabled{opacity:.6;cursor:wait}
 #sync-landing button:focus-visible,#sync-landing input:focus-visible{outline:3px solid #2458be;outline-offset:3px}
 .cloud-signed-out #left-panel,.cloud-signed-out #right-panel{display:none}
+.sync-received-list{max-height:38dvh;overflow:auto;overscroll-behavior:contain}.sync-received-list>details{padding:10px 0;border-top:1px solid #e2e8f0}.sync-received-list summary{cursor:pointer;overflow-wrap:anywhere}.sync-received-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px}.sync-received-compare>div{min-width:0}.sync-received-compare strong{font-size:12px;color:#526176}.sync-received-value{white-space:pre-wrap;overflow-wrap:anywhere;max-height:160px;overflow:auto;padding:8px;background:#f5f7fa;border-radius:8px;font-size:14px}@media(max-width:500px){.sync-received-compare{grid-template-columns:minmax(0,1fr)}}

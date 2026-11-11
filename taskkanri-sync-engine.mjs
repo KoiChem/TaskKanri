@@ -18,7 +18,7 @@ export class SyncEngine {
   loadCached() {
     if(this.unsupportedPending){const error=new Error(this.error);error.blocked=true;throw error;}
     const cache=this.store.read('cache');if(!cache)return false;this.validate(cache);
-    try {this.onData(this.pending?{...cache,payload:this.pending.nextPayload||this.pending.request.payload}:cache);}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
+    try {this.onData(this.pending?{...cache,payload:this.pending.nextPayload||this.pending.request.payload}:cache,{source:'cache'});}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=cache.payload;this.revision=cache.revision;this.updatedAt=cache.updated_at;return true;
   }
   async load() {

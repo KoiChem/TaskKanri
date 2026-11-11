@@ -1,5 +1,6 @@
 import {supabaseConfig} from './supabase-config.js';
 import {SyncEngine} from './taskkanri-sync-engine.mjs';
+import {receivedChanges,combineReceivedChanges} from './taskkanri-received-changes.mjs';
 import {acquireClientId,syncStore} from './taskkanri-device-storage.mjs';
 import {defaultState} from './taskkanri-core.mjs';
 import {mergePayload,toPayload,samePayload} from './taskkanri-sync-model.mjs';
@@ -70,7 +71,7 @@ export class SyncController {
   this.user=session.user;localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:this.user.id,email:this.user.email}));this.onAccount(this.user);if(this.storage.flush)await this.storage.flush();if(generation!==this.generation)return;
   const transport={get:async meta=>checked(await this.client.from('taskkanri_documents').select(meta?'revision,updated_at':'revision,updated_at,payload').eq('user_id',session.user.id).maybeSingle()),save:async req=>checked(await this.client.rpc('save_taskkanri_document',{expected_revision:req.expectedRevision,mutation_id:req.mutationId,payload:req.payload}))};
   this.engine=new SyncEngine({transport,store,canApply:this.canApply,
-   onChange:engine=>{this.onStatus(statusLabel(engine),engine);},onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
+   onChange:engine=>{this.onStatus(statusLabel(engine),engine);},onData:(doc,context)=>this.mode==='desktop'?this.applyDocument(doc,context):this.onData(mergePayload(doc.payload,this.getState()),doc)});
   // Preserve a local master that was saved when writing the pending queue failed.
   const cache=this.engine.store.read('cache');if(cache)this.engine.validate(cache);
   if(this.mode==='desktop' && cache && !this.engine.pending && !samePayload(toPayload(this.getState()),toPayload(mergePayload(cache.payload,this.getState())))) {
@@ -108,11 +109,20 @@ export class SyncController {
   else if(result.status==='saved'||result.status==='duplicate'){this.retry=0;if(engine.pending)this.schedule();}
   return result;
  }
+ applyDocument(doc,context){
+  const before=this.mode==='desktop'&&this.receivedSync?structuredClone(this.getState()):null;
+  this.onData(mergePayload(doc.payload,this.getState()),doc);
+  const report=this.receivedSync;
+  if(before&&context?.source!=='cache'&&report?.engine===this.engine&&report.userId===this.user?.id)report.groups.push(receivedChanges(before,this.getState()));
+ }
  async refresh({manual=false}={}){
   if(this.mode==='desktop'&&!manual)return {status:this.engine?.status||'stopped'};
   if(this.offlineMode)return {status:'synced'};
   if(!this.engine)return {status:'stopped',error:new Error('ログインしてから更新してください。')};
   const engine=this.engine;const before=engine.revision;
+  const report=this.mode==='desktop'?{engine,userId:this.user?.id,groups:[],initial:!engine.payload&&!engine.store.read('cache')}:null;
+  this.receivedSync=report;
+  const resultReport=()=>report?{receivedChanges:combineReceivedChanges(report.groups),initialReceived:report.initial}:{};
   try{
    const {data,error}=await this.client.auth.getSession();if(this.offlineMode||engine!==this.engine)return {status:'stopped'};if(error)throw error;
    if(!data.session||data.session.expires_at*1000<=Date.now()){await this.activate(null);return {status:'stopped',error:new Error('ログインし直してください。')};}
@@ -120,12 +130,12 @@ export class SyncController {
    if(!checked(await this.client.rpc('taskkanri_is_allowed'))){const e=new Error('このアカウントは同期を許可されていません。');e.permissionDenied=true;throw e;}
    if(engine!==this.engine)return {status:'stopped'};
    if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else if(!engine.payload)await engine.load();else await engine.refresh();
-   return {status:engine.status,changed:engine.revision!==before,error:engine.error?new Error(engine.error):undefined};
+   return {status:engine.status,changed:engine.revision!==before,error:engine.error?new Error(engine.error):undefined,...resultReport()};
   }catch(e){
    if(engine!==this.engine)return {status:'stopped',error:e};
    if(e.permissionDenied){await this.activate(null);this.onStatus(e.message);}else engine.emit(e.blocked?'blocked':'offline',e.message);
-   return {status:'error',error:e};
-  }
+   return {status:'error',error:e,...resultReport()};
+  }finally{if(this.receivedSync===report)this.receivedSync=null;}
  }
  async login(email,password){if(!this.client)throw new Error('オンラインに戻ってからログインしてください。');const generation=this.generation;const result=await this.client.auth.signInWithPassword({email,password});if(this.offlineMode||generation!==this.generation)return {cancelled:true};checked(result);this.allowStartupRead=true;await this.activate(result.data.session);}
  stopForReset(){
@@ -154,7 +164,7 @@ export class SyncController {
    const document={revision:req.expectedRevision+1,payload:req.payload,updated_at:new Date().toISOString()};
    store.write('cache',document);if(store.flush)await store.flush();return {status:'saved',appliedRevision:document.revision,updatedAt:document.updated_at};
   }};
-  this.engine=new SyncEngine({store,transport,canApply:this.canApply,onChange:e=>this.onStatus('オフラインモード',e),onData:doc=>this.onData(mergePayload(doc.payload,this.getState()),doc)});
+  this.engine=new SyncEngine({store,transport,canApply:this.canApply,onChange:e=>this.onStatus('オフラインモード',e),onData:(doc,context)=>this.mode==='desktop'?this.applyDocument(doc,context):this.onData(mergePayload(doc.payload,this.getState()),doc)});
   this.engine.manualOffline=true;
   if(!this.engine.loadCached()){
    const pending=this.engine.pending;
