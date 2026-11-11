@@ -75,3 +75,28 @@ export function calendarDays(month,week=false) {
   return Array.from({length:week?7:42},(_,i)=>addDays(start,i));
 }
 export function hasAgenda(id,state) { return Boolean(stripHtml(state.configEvents[id]||'').trim()) || APP_CONFIG.slotsAll.some(s=>isSlotVisibleForDate(id,s,state)&&stripHtml(getResolvedSlot(id,s,state)).trim()); }
+
+export function mergeSyncPayloads(base,local,remote){
+  // HTML strings and arrays are indivisible. Only independent object fields merge.
+  for(const value of [base,local,remote])mergePayload(value);
+  const missing=Symbol('missing'),conflicts=[];
+  const equal=(a,b)=>a===missing||b===missing?a===b:samePayload(a,b);
+  const object=v=>v!==missing&&v!==null&&typeof v==='object'&&!Array.isArray(v);
+  const copy=v=>v===missing?v:clone(v);
+  const merge=(b,l,r,path)=>{
+    if(equal(l,r))return copy(l);
+    if(equal(l,b))return copy(r);
+    if(equal(r,b))return copy(l);
+    if(object(l)&&object(r)&&(object(b)||b===missing)){
+      const result={};
+      for(const key of new Set([...Object.keys(b===missing?{}:b),...Object.keys(l),...Object.keys(r)])){
+        const read=o=>o!==missing&&Object.hasOwn(o,key)?o[key]:missing;
+        const value=merge(read(b),read(l),read(r),[...path,key]);if(value!==missing)result[key]=value;
+      }
+      return result;
+    }
+    conflicts.push(path);return copy(l);
+  };
+  const state=merge(base.state,local.state,remote.state,[]);
+  return conflicts.length?{conflicts}:{conflicts,payload:toPayload(mergePayload({...remote,state}))};
+}

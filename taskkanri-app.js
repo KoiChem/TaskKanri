@@ -1789,7 +1789,7 @@ function installCloudSync() {
     onData:next=>{
       if(samePayload(toPayload(next),toPayload(appState)))return;
       const stored=normalizeImportedPayload(storageLike.getItem(APP_CONFIG.storeKey));
-      if(!syncController?.engine?.discarding&&requiresCloudRecovery(appState,syncController?.engine?.payload,stored.ok?stored.value:null)&&!samePayload(toPayload(appState),toPayload(defaultState(appState.currentYear))))throw new Error('端末に未確認の変更があります。現在の内容を書き出してから同期設定を確認してください。');
+      if(!syncController?.engine?.discarding&&!syncController?.engine?.rebasing&&requiresCloudRecovery(appState,syncController?.engine?.payload,stored.ok?stored.value:null)&&!samePayload(toPayload(appState),toPayload(defaultState(appState.currentYear))))throw new Error('端末に未確認の変更があります。現在の内容を書き出してから同期設定を確認してください。');
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
       appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
     },

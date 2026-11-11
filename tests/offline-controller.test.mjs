@@ -34,11 +34,11 @@ test('switching during a stalled save preserves the attempted request for safe r
   state.globalTaskData='さらに編集';await c.save(state);assert.equal(store.read('pending').request.mutationId,mutation);assert.equal(store.read('pending').nextPayload.state.globalTaskData,'さらに編集');
  }finally{clearInterval(c.interval);globalThis.fetch=original}
 });
-test('resuming against a newer cloud revision preserves offline edits as a conflict',async()=>{
+test('resuming against a newer cloud revision preserves offline edits until a safe explicit merge',async()=>{
  data.clear();const {syncStore}=await import('../taskkanri-device-storage.mjs');const {toPayload}=await import('../taskkanri-sync-model.mjs');const {SyncEngine}=await import('../taskkanri-sync-engine.mjs');
  const store=syncStore(localStorage,'account-b','tab-b');store.write('cache',{revision:3,payload:toPayload(defaultState())});localStorage.setItem('TASKKANRI_LAST_ACCOUNT',JSON.stringify({id:'account-b'}));
  let state=defaultState();const c=new SyncController({mode:'mobile',getState:()=>state,onData:s=>state=s});clearInterval(c.interval);c.id='tab-b';await c.enterOffline();state.globalTaskData='オフラインの変更';await c.save(state);
- let writes=0;const resumed=new SyncEngine({store,transport:{get:async()=>({revision:4,payload:toPayload(defaultState())}),save:async()=>{writes++;}}});await resumed.load();assert.equal(resumed.status,'conflict');assert.equal(resumed.pending.request.payload.state.globalTaskData,'オフラインの変更');await resumed.flush();assert.equal(writes,0);
+ let writes=0,remote={revision:4,payload:toPayload(defaultState())};const resumed=new SyncEngine({store,transport:{get:async()=>structuredClone(remote),save:async request=>{writes++;if(request.expectedRevision!==remote.revision)return {status:'conflict'};remote={revision:remote.revision+1,payload:request.payload};return {status:'saved',appliedRevision:remote.revision};}}});await resumed.load();assert.equal(resumed.status,'pending');assert.equal(resumed.pending.request.payload.state.globalTaskData,'オフラインの変更');assert.equal(writes,0);await resumed.flush();assert.equal(writes,2);assert.equal(resumed.status,'synced');assert.equal(remote.payload.state.globalTaskData,'オフラインの変更');
 });
 test('manual offline aborts in-flight network requests and prevents new requests and timers',async()=>{
  data.clear();const original=globalThis.fetch;let sent=0;

@@ -1,0 +1,20 @@
+async page=>{
+ const base=new URL('.',page.url()).href,browser=page.context().browser(),pcContext=await browser.newContext(),phoneContext=await browser.newContext({viewport:{width:428,height:926},isMobile:true,hasTouch:true}),pc=await pcContext.newPage(),phone=await phoneContext.newPage(),errors=[];
+ for(const p of [pc,phone])p.on('pageerror',e=>errors.push(e.message));
+ const user={id:'00000000-0000-4000-8000-000000001111',email:'merge@example.test',aud:'authenticated',role:'authenticated',app_metadata:{},user_metadata:{}},session={access_token:'eyJhbGciOiJIUzI1NiJ9.'+Buffer.from(JSON.stringify({sub:user.id,exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.fixture',refresh_token:'fixture',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user};
+ let doc,saves=0;
+ const route=async r=>{const url=r.request().url();let result=user;if(url.includes('taskkanri_is_allowed'))result=true;else if(url.includes('taskkanri_documents'))result=url.includes('payload')?doc:{revision:doc.revision,updated_at:doc.updated_at};else if(url.includes('save_taskkanri_document')){saves++;const req=r.request().postDataJSON();if(req.expected_revision!==doc.revision)result={status:'conflict',currentRevision:doc.revision};else{doc={revision:doc.revision+1,payload:req.payload,updated_at:new Date().toISOString()};result={status:'saved',appliedRevision:doc.revision,updatedAt:doc.updated_at}}}else if(url.includes('/auth/v1/token'))result=session;await r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(result)})};
+ for(const c of [pcContext,phoneContext]){await c.route('https://*.supabase.co/**',route);await c.addInitScript(s=>localStorage.setItem('TASKKANRI_SUPABASE_AUTH',JSON.stringify(s)),session)}
+ const check=(v,m)=>{if(!v)throw Error(m)};
+ try{
+  // Prepare a synthetic cloud document before opening authenticated pages.
+  await pc.goto(base+'reset-closed.html');doc=await pc.evaluate(async()=>{const c=await import('./taskkanri-core.mjs'),m=await import('./taskkanri-sync-model.mjs'),s=c.defaultState();s.globalTaskData='base';s.configEvents['2026-11-11']='base event';return {revision:1,payload:m.toPayload(s),updated_at:new Date().toISOString()}});
+  await pc.goto(base);await pc.locator('[data-common-editor][contenteditable="true"]').getByText('base',{exact:true}).waitFor();
+  await phone.goto(base+'mobile.html');await phone.locator('.slot-content').first().waitFor();await phone.locator('[data-date="2026-11-11"]').click();
+  await pc.locator('[data-common-editor]').fill('PC unsent');await pc.locator('[data-common-editor]').blur();
+  await phone.locator('#selected-event').click();await phone.locator('#event-editor-content').fill('phone change');await phone.locator('#event-editor-sheet [data-editor-save]').click();await phone.locator('#event-editor-sheet').waitFor({state:'hidden'});check(doc.payload.state.configEvents['2026-11-11']==='phone change','phone edit not synced');check(doc.payload.state.globalTaskData==='base','PC sent automatically');
+  await pc.keyboard.press('Control+Alt+s');await pc.locator('.sync-dialog').waitFor({state:'hidden'});check(doc.payload.state.globalTaskData==='PC unsent','PC change lost');check(doc.payload.state.configEvents['2026-11-11']==='phone change','phone change lost');check(await pc.locator('[data-common-editor]').innerText()==='PC unsent','PC UI lost edit');
+  // A genuinely overlapping edit is preserved for explicit recovery.
+  await pc.locator('[data-common-editor]').fill('PC overlap');await pc.locator('[data-common-editor]').blur();doc=structuredClone(doc);doc.revision++;doc.payload.state.globalTaskData='phone overlap';await pc.keyboard.press('Control+Alt+s');await pc.locator('[data-message]').getByText(/競合/).waitFor();check(doc.payload.state.globalTaskData==='phone overlap','overlap overwrote remote');check(await pc.locator('[data-common-editor]').innerText()==='PC overlap','overlap lost PC draft');check(!errors.length,errors.join(','));return {realPhoneEdit:true,disjointAutoMerge:true,sameFieldProtected:true,saves,errors};
+ }finally{await pcContext.close();await phoneContext.close()}
+}

@@ -1,4 +1,4 @@
-import { toPayload, mergePayload } from './taskkanri-sync-model.mjs';
+import { toPayload, mergePayload, mergeSyncPayloads } from './taskkanri-sync-model.mjs';
 
 /** Network-independent serialized CAS queue. Pending requests are durable before sending. */
 export class SyncEngine {
@@ -27,7 +27,7 @@ export class SyncEngine {
     const remote=await this.transport.get(false);
     if(!this.active||generation!==this.generation)return;
     if(this.pending) {
-      if(remote && remote.revision!==this.pending.request.expectedRevision && !this.pending.request.attempted) this.emit('conflict');
+      if(remote && remote.revision!==this.pending.request.expectedRevision && !this.pending.request.attempted && this.revision!==this.pending.request.expectedRevision) this.emit('conflict');
       else this.emit('pending');
       return;
     }
@@ -53,15 +53,45 @@ export class SyncEngine {
     } else this.persist({request:this.request(payload,initial?0:this.revision)});
     this.emit('pending');
   }
+  async rebaseConflict(req,generation) {
+    // Only an explicit CAS rejection permits replacing an attempted request.
+    if(!this.payload||this.revision!==req.expectedRevision)return 'conflict';
+    const base=this.payload;
+    const remote=await this.transport.get(false);
+    if(!this.active||generation!==this.generation)return 'stopped';
+    if(!remote)return 'conflict';
+    this.validate(remote);
+    if(remote.revision<=req.expectedRevision||this.pending?.request.mutationId!==req.mutationId)return 'conflict';
+    if(!this.canApply()){this.emit('pending','入力を終えてからもう一度同期してください。');return 'pending';}
+    const local=this.pending.nextPayload||this.pending.request.payload;
+    const merged=mergeSyncPayloads(base,local,remote.payload);
+    if(merged.conflicts.length)return 'conflict';
+    const next={request:this.request(merged.payload,remote.revision)};
+    const commit=()=>{
+      this.rebasing=true;
+      try{this.onData({...remote,payload:merged.payload});this.store.write('cache',remote);this.persist(next);}
+      finally{this.rebasing=false;}
+    };
+    try{if(this.store.atomic)this.store.atomic(commit);else commit();}
+    catch(error){error.blocked=true;throw error;}
+    this.payload=remote.payload;this.revision=remote.revision;this.updatedAt=remote.updated_at;
+    try{if(this.store.flush)await this.store.flush();}catch(error){error.blocked=true;throw error;}
+    return !this.active||generation!==this.generation?'stopped':'rebased';
+  }
   async flush() {
     if(this.unsupportedPending||!this.active||this.busy||!this.pending||['conflict','blocked'].includes(this.status))return {status:this.status};
     this.busy=true;const generation=this.generation;let req,committing=false;
     try {
       if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};
-      const next=structuredClone(this.pending);next.request.attempted=true;this.persist(next);if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};req=structuredClone(next.request);this.emit('saving');
-      const result=await this.transport.save(req);
-      if(!this.active||generation!==this.generation)return {status:'stopped'};
-      if(result.status==='conflict'){this.emit('conflict');return result;}
+      let result;
+      for(let attempt=0;attempt<2;attempt++){
+        const next=structuredClone(this.pending);next.request.attempted=true;this.persist(next);if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};req=structuredClone(next.request);this.emit('saving');
+        result=await this.transport.save(req);
+        if(!this.active||generation!==this.generation)return {status:'stopped'};
+        if(result.status!=='conflict')break;
+        if(attempt===0){const rebase=await this.rebaseConflict(req,generation);if(rebase==='rebased')continue;if(rebase==='pending'||rebase==='stopped')return {status:rebase};}
+        this.emit('conflict');return result;
+      }
       if(!['saved','duplicate'].includes(result.status)||!Number.isSafeInteger(result.appliedRevision)||result.appliedRevision<1)throw new Error('保存結果を確認できません');
       let doc={revision:result.appliedRevision,payload:req.payload,updated_at:result.updatedAt};
       if(result.status==='duplicate') {
