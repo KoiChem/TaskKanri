@@ -1,11 +1,11 @@
 import {importErrorMessage,importReadinessError} from './taskkanri-transfer-errors.mjs';
-import {serializePayload,normalizeImportedPayload} from './taskkanri-core.mjs';
-import {planImport,applyImport,importValueText} from './taskkanri-import.mjs';
+import {serializePayload} from './taskkanri-core.mjs';
+import {prepareImportPayload,planImport,applyImport,importValueText} from './taskkanri-import.mjs';
 import {exportFilename,downloadJson} from './taskkanri-export.mjs';
 
 export function installDataTransfer({controller,getState,prepareImport=async()=>{},saveImportedState,beforeOpen=()=>{},onReturn=()=>{}}){
  const dialog=document.createElement('dialog');dialog.className='transfer-dialog';dialog.setAttribute('aria-label','データの移動');document.body.append(dialog);
- const input=document.createElement('input');input.type='file';input.accept='.json,application/json';input.hidden=true;document.body.append(input);
+ const input=document.createElement('input');input.type='file';input.accept='.json,.crdownload,application/json';input.hidden=true;document.body.append(input);
  let plan=null,raw=null,filename='',identity=null,saving=false,previousExport=null,opener=null;
  const el=(tag,text,className)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node};
  const q=s=>dialog.querySelector(s);
@@ -58,14 +58,15 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
   const {body,footer,message}=shell('取り込む変更を確認',true);
   plan=planImport(getState(),raw);identity=controller.user?.id;
   body.append(el('p',filename,'transfer-filename'),el('p','チェックした項目をファイルの内容に置き換えます。チェックを外した項目と、ファイルにない既存データは残します。','transfer-hint'));
+  if(plan.recovery)body.append(el('p','未送信ファイルには書き出し時点の全体が含まれます。復元したい項目だけを選んでください。選択した項目は現在の内容を置き換えます。','transfer-hint'));
   if(!plan.rows.length){body.append(el('p','変更のある項目はありません。'));show();return}
-  const allLabel=el('label',undefined,'transfer-select-all'),all=el('input');all.type='checkbox';all.checked=true;allLabel.append(all,el('span','すべて選択'));body.append(allLabel);
+  const allLabel=el('label',undefined,'transfer-select-all'),all=el('input');all.type='checkbox';all.checked=!plan.recovery;allLabel.append(all,el('span','すべて選択'));body.append(allLabel);
   let yearConfirm;
   if(plan.yearChanged){const box=el('div',undefined,'transfer-year');box.append(el('p',`${getState().currentYear}年度 → ${plan.year}年度への変更を含みます。既存の予定は元の日付のまま残ります。`));const label=el('label');yearConfirm=el('input');yearConfirm.type='checkbox';label.append(yearConfirm,el('span','年度の変更を確認しました'));box.append(label);body.append(box)}
   const groups=new Map();
   for(const row of plan.rows){
    let section=groups.get(row.group);if(!section){section=el('section',undefined,'transfer-group');section.append(el('h3',row.group));body.append(section);groups.set(row.group,section)}
-   const item=el('article',undefined,'transfer-row'),label=el('label',undefined,'transfer-row-label'),checkbox=el('input');checkbox.type='checkbox';checkbox.checked=true;checkbox.dataset.importId=row.id;
+   const item=el('article',undefined,'transfer-row'),label=el('label',undefined,'transfer-row-label'),checkbox=el('input');checkbox.type='checkbox';checkbox.checked=!plan.recovery;checkbox.dataset.importId=row.id;
    label.append(checkbox,el('span',row.label));if(row.deletion)label.append(el('span','内容を削除','transfer-delete'));item.append(label);
    const compare=el('div',undefined,'transfer-compare');for(const [title,value] of [['現在',row.before],['取り込み後',row.after]]){const column=el('div');column.append(el('strong',title),el('div',importValueText(value,row.path[0]),'transfer-value'));compare.append(column)}item.append(compare);section.append(item);
   }
@@ -95,7 +96,7 @@ export function installDataTransfer({controller,getState,prepareImport=async()=>
   try{
    if(file.size>16*1024*1024)throw new Error('ファイルが大きすぎます。16MB以下のTaskKanriファイルを選んでください。');
    raw=await file.text();filename=file.name;
-   stage='validate';const validated=normalizeImportedPayload(raw);if(!validated.ok)throw new Error(validated.error);
+   stage='validate';prepareImportPayload(raw);
    stage='prepare';await prepareImport();
    stage='ready';checkReady();
    stage='preview';filename=file.name;preview();

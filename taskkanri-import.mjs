@@ -1,5 +1,5 @@
 import {clone,normalizeState,normalizeImportedPayload,sanitizeHtml,stripHtml} from './taskkanri-core.mjs';
-import {samePayload} from './taskkanri-sync-model.mjs';
+import {samePayload,mergePayload} from './taskkanri-sync-model.mjs';
 const names={timetableWords:'時間割からの候補',currentYear:'表示する年度',dateSchedules:'予定',configEvents:'行事',globalTaskData:'共通タスク',calendarHolidays:'暦の祝日',customHolidays:'学校独自休日',dayProfiles:'日別の時程',timeConfig:'チャイム設定',daySlotConfig:'曜日ごとの表示枠',instructionDayConfig:'授業曜日',countSettings:'カウント設定',countDateRange:'カウント対象期間',isLandscapeMode:'画面の向き',isClockVisible:'時計表示',isWakeLockRequested:'画面の点灯維持',bulkCalendarSelectionMode:'カレンダーの選択方法',bulkCalendarMonthLayout:'カレンダーの並び方'};
 const maps=new Set(['dateSchedules','configEvents','customHolidays','calendarHolidays','dayProfiles']);
 
@@ -24,9 +24,23 @@ export function importValueText(value,field=''){
  const labels={normal:'通常',short:'短縮',exam:'定期考査',name:'名称',status:'確定状態',confirmed:'確定',tentative:'暫定',word:'対象',mode:'方向',start:'開始',end:'終了',up:'増加',down:'減少',horizontal:'横並び',vertical:'縦並び',standard:'通常',additive:'追加'};
  return Object.entries(value).map(([k,v])=>`${(Array.isArray(value)?'条件'+(Number(k)+1):labels[k])||(/^[0-6]$/.test(k)?'日月火水木金土'[Number(k)]+'曜':k)}：${typeof v==='string'&&labels[v]?labels[v]:importValueText(v)}`).join('\n');
 }
-export function planImport(current,raw){
+export function prepareImportPayload(raw){
  let parsed;try{parsed=typeof raw==='string'?JSON.parse(raw):raw}catch{throw new Error('JSONを解析できません。TaskKanriのJSONファイルを選んでください。')}
+ const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
+ let recovery=false;
+ if(record(parsed)&&Object.hasOwn(parsed,'pending')){
+  const pending=parsed.pending,request=pending?.request;
+  if(parsed.app!=='TaskKanri'||Object.keys(parsed).some(k=>!['app','pending','exportedAt'].includes(k))||!record(pending)||Object.keys(pending).some(k=>!['request','nextPayload'].includes(k))||!record(request)||Object.keys(request).some(k=>!['payload','expectedRevision','mutationId','attempted'].includes(k))||!Number.isSafeInteger(request.expectedRevision)||request.expectedRevision<0||typeof request.mutationId!=='string'||!request.mutationId.trim()||typeof request.attempted!=='boolean')throw new Error('TaskKanriの現行形式の未送信データを使用してください。');
+  mergePayload(request.payload);
+  if(Object.hasOwn(pending,'nextPayload'))mergePayload(pending.nextPayload);
+  const payload=Object.hasOwn(pending,'nextPayload')?pending.nextPayload:request.payload;
+  parsed={meta:{schemaVersion:8},data:clone(payload.state)};recovery=true;
+ }
  const result=normalizeImportedPayload(parsed);if(!result.ok)throw new Error(result.error);
+ return {parsed,result,recovery};
+}
+export function planImport(current,raw){
+ const {parsed,result,recovery}=prepareImportPayload(raw);
  const source=parsed.data;
  const rows=[];
  const add=(path,after)=>{
@@ -45,7 +59,7 @@ export function planImport(current,raw){
    }
   }else add([key],mergeExplicit(current[key],result.value[key],source[key]));
  }
- return {before:clone(current),rows,yearChanged:rows.some(r=>r.path[0]==='currentYear'),year:result.value.currentYear};
+ return {before:clone(current),rows,recovery,yearChanged:rows.some(r=>r.path[0]==='currentYear'),year:result.value.currentYear};
 }
 export function applyImport(current,plan,selected){
  if(!samePayload(current,plan.before))throw new Error('確認中にデータが変更されました。変更一覧を確認し直してください。');
