@@ -98,12 +98,12 @@ export class SyncController {
   clearTimeout(this.sendTimer);this.sendTimer=setTimeout(()=>{if(this.composing){this.schedule();return;}void this.flush()},800);
   if(!this.maxTimer)this.maxTimer=setTimeout(()=>{this.maxTimer=null;if(!this.composing)void this.flush()},5000);
  }
- async flush() {
+ async flush(options) {
   if(this.offlineMode)return {status:'pending'};
   if(this.composing)return {status:'pending'};
   clearTimeout(this.sendTimer);clearTimeout(this.maxTimer);this.maxTimer=null;
   const engine=this.engine;if(!engine)return {status:'stopped'};
-  const result=await engine.flush();if(engine!==this.engine)return {status:'stopped'};
+  const result=await engine.flush(options);if(engine!==this.engine)return {status:'stopped'};
   if(result.error?.permissionDenied){await this.activate(null);this.onStatus(result.error.message);return result;}
   if(this.mode!=='desktop'&&result.status==='error'&&!result.error.blocked){const delay=[2000,5000,15000][this.retry++]||60000;clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>{if(document.visibilityState==='visible')void this.flush()},delay);}
   else if(result.status==='saved'||result.status==='duplicate'){this.retry=0;if(engine.pending)this.schedule();}
@@ -194,7 +194,7 @@ export class SyncController {
    throw error;
   }
  }
- async save(state,{defer=false}={}){
+ async save(state,{defer=false,canApply}={}){
   if(this.offlineMode){
    const e=this.engine;if(!e?.payload)throw new Error('端末のデータを読み込んでください。');
    e.queue(state,{offline:true});
@@ -205,6 +205,6 @@ export class SyncController {
 
   const e=this.engine;
   if(!e||!navigator.onLine||!e.payload||['blocked','conflict','empty','loading','offline'].includes(e.status)||!defer&&(e.pending||e.busy||e.status!=='synced'))throw new Error('同期を確認してから操作してください。');
-  e.queue(state);if(defer){if(this.storage.flush)await this.storage.flush();this.schedule();return {status:'pending'};}return this.flush();
+  e.queue(state);if(defer){if(this.storage.flush)await this.storage.flush();this.schedule();return {status:'pending'};}return this.flush(canApply?{canApply:()=>this.engine===e&&samePayload(e.pending?.nextPayload||e.pending?.request?.payload,toPayload(state))&&canApply()}:undefined);
  }
 }

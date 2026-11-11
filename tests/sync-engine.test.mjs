@@ -97,3 +97,12 @@ test('failure to commit an automatic merge blocks sending and retains merged dra
 test('edit during durable rebase keeps the merged phone state and remains queued',async()=>{
  const f=fixture(),store=memory();let shown;const e=new SyncEngine({store,transport:f.transport,onData:doc=>shown=structuredClone(doc.payload)});await e.load();const pc=defaultState();pc.configEvents={'2026-11-11':'PC'};e.queue(pc);const phone=defaultState();phone.configEvents={'2026-11-12':'phone'};f.document={...f.document,revision:2,payload:toPayload(phone)};let count=0,release;store.flush=()=>++count===3?new Promise(resolve=>release=resolve):Promise.resolve();const saving=e.flush();for(let i=0;i<20&&!release;i++)await new Promise(resolve=>setImmediate(resolve));assert.ok(release);const newer=structuredClone(shown.state);newer.configEvents['2026-11-13']='later';e.queue(newer);release();await saving;assert.equal(e.status,'pending');assert.equal(e.pending.request.payload.state.configEvents['2026-11-13'],'later');assert.equal(e.pending.request.payload.state.configEvents['2026-11-12'],'phone');await e.flush();assert.equal(e.status,'synced');assert.equal(f.document.payload.state.configEvents['2026-11-13'],'later');
 });
+
+test('same-field conflict is reported even while editor application is deferred',async()=>{
+ const f=fixture(),e=new SyncEngine({store:memory(),transport:f.transport,canApply:()=>false});await e.load();const local=defaultState();local.globalTaskData='phone draft';e.queue(local);const remote=defaultState();remote.globalTaskData='PC';f.document={...f.document,revision:2,payload:toPayload(remote)};
+ assert.equal((await e.flush()).status,'conflict');assert.equal(e.pending.request.payload.state.globalTaskData,'phone draft');assert.equal(f.document.payload.state.globalTaskData,'PC');
+});
+test('explicit frozen editor save can merge independent fields without changing default editing guard',async()=>{
+ const f=fixture(),e=new SyncEngine({store:memory(),transport:f.transport,canApply:()=>false});await e.load();const local=defaultState();local.globalTaskData='phone draft';e.queue(local);const remote=defaultState();remote.configEvents={'2026-11-11':'PC event'};f.document={...f.document,revision:2,payload:toPayload(remote)};
+ assert.equal((await e.flush({canApply:()=>true})).status,'saved');assert.equal(f.document.payload.state.globalTaskData,'phone draft');assert.equal(f.document.payload.state.configEvents['2026-11-11'],'PC event');
+});

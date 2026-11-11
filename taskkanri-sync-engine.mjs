@@ -53,7 +53,7 @@ export class SyncEngine {
     } else this.persist({request:this.request(payload,initial?0:this.revision)});
     this.emit('pending');
   }
-  async rebaseConflict(req,generation) {
+  async rebaseConflict(req,generation,canApply=this.canApply) {
     // Only an explicit CAS rejection permits replacing an attempted request.
     if(!this.payload||this.revision!==req.expectedRevision)return 'conflict';
     const base=this.payload;
@@ -62,10 +62,10 @@ export class SyncEngine {
     if(!remote)return 'conflict';
     this.validate(remote);
     if(remote.revision<=req.expectedRevision||this.pending?.request.mutationId!==req.mutationId)return 'conflict';
-    if(!this.canApply()){this.emit('pending','入力を終えてからもう一度同期してください。');return 'pending';}
     const local=this.pending.nextPayload||this.pending.request.payload;
     const merged=mergeSyncPayloads(base,local,remote.payload);
     if(merged.conflicts.length)return 'conflict';
+    if(!canApply()){this.emit('pending','入力を終えてからもう一度同期してください。');return 'pending';}
     const next={request:this.request(merged.payload,remote.revision)};
     const commit=()=>{
       this.rebasing=true;
@@ -78,7 +78,7 @@ export class SyncEngine {
     try{if(this.store.flush)await this.store.flush();}catch(error){error.blocked=true;throw error;}
     return !this.active||generation!==this.generation?'stopped':'rebased';
   }
-  async flush() {
+  async flush({canApply=this.canApply}={}) {
     if(this.unsupportedPending||!this.active||this.busy||!this.pending||['conflict','blocked'].includes(this.status))return {status:this.status};
     this.busy=true;const generation=this.generation;let req,committing=false;
     try {
@@ -89,7 +89,7 @@ export class SyncEngine {
         result=await this.transport.save(req);
         if(!this.active||generation!==this.generation)return {status:'stopped'};
         if(result.status!=='conflict')break;
-        if(attempt===0){const rebase=await this.rebaseConflict(req,generation);if(rebase==='rebased')continue;if(rebase==='pending'||rebase==='stopped')return {status:rebase};}
+        if(attempt===0){const rebase=await this.rebaseConflict(req,generation,canApply);if(rebase==='rebased')continue;if(rebase==='pending'||rebase==='stopped')return {status:rebase};}
         this.emit('conflict');return result;
       }
       if(!['saved','duplicate'].includes(result.status)||!Number.isSafeInteger(result.appliedRevision)||result.appliedRevision<1)throw new Error('保存結果を確認できません');

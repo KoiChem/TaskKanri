@@ -66,9 +66,9 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
   try{
    const checked=await controller.refresh();if(active!==ctx||controller.user?.id!==ctx.userId)return;
    if(checked.error)throw checked.error;
-   const engine=controller.engine;if(engine.deferred){const doc=engine.deferred;engine.deferred=null;engine.accept(doc)}
+   const engine=controller.engine;if(engine.deferred){const doc=engine.deferred;engine.deferred=null;await engine.accept(doc);if(active!==ctx||controller.user?.id!==ctx.userId||controller.engine!==engine)return;}
    let next;try{next=(isEvent?prepareEventSave(getState(),ctx.dateId,original,submitted):prepareGlobalSave(getState(),original,submitted))}catch(error){showConflict(ctx);return}
-   tell('保存しています…');const result=await controller.save(next);
+   tell('保存しています…');const result=await controller.save(next,{canApply:()=>active===ctx&&ctx.saving&&controller.user?.id===ctx.userId&&!composing&&html()===submitted});
    if(result.status==='conflict'&&active===ctx&&controller.engine===engine){
     if(engine.pending?.nextPayload||!samePayload(engine.pending?.request.payload,toPayload(next)))throw new Error('別の未送信データがあります。同期設定で確認してください。');
     persist(ctx);await engine.discardPending();

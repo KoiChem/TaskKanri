@@ -63,10 +63,10 @@ export function installSlotEditor({controller,getState,onClosed=()=>{},onError=(
   const original=confirmed?ctx.conflictBase:ctx.originalHtml,submitted=html(ctx);ctx.saving=true;update();tell('同期を確認しています…');
   try{
    const checked=await controller.refresh();if(active!==ctx||controller.user?.id!==ctx.userId)return;if(checked.error)throw checked.error;
-   const engine=controller.engine;if(engine.deferred){const doc=engine.deferred;engine.deferred=null;engine.accept(doc)}
+   const engine=controller.engine;if(engine.deferred){const doc=engine.deferred;engine.deferred=null;await engine.accept(doc);if(active!==ctx||controller.user?.id!==ctx.userId||controller.engine!==engine)return;}
    if(sanitizeHtml(getResolvedSlot(ctx.dateId,ctx.slot,getState()))!==submitted){
     let next;try{next=prepareSlotSave(getState(),ctx.dateId,ctx.slot,original,submitted)}catch(error){showConflict(ctx);return}
-    tell('保存しています…');const result=await controller.save(next);
+    tell('保存しています…');const result=await controller.save(next,{canApply:()=>active===ctx&&ctx.saving&&controller.user?.id===ctx.userId&&!ctx.composing&&html(ctx)===submitted});
     if(result.status==='conflict'&&active===ctx&&controller.engine===engine){
      if(engine.pending?.nextPayload||!samePayload(engine.pending?.request.payload,toPayload(next)))throw new Error('別の未送信データがあります。同期設定で確認してください。');
      persist(ctx);await engine.discardPending();if(active===ctx&&controller.user?.id===ctx.userId)showConflict(ctx);return;
