@@ -138,3 +138,15 @@ button:disabled{cursor:default;opacity:.55}
 #timetable-view .timetable-scroll input{background:transparent}
 #timetable-view .timetable-scroll input:focus{background:transparent}
 .count-settings-panel #count-tags-container:empty{display:none}
+
+/* Independent task editors and a top-to-bottom two-column task list. */
+.task-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;overflow:hidden}
+.task-editor-columns>.slot-input{box-sizing:border-box;min-width:0;height:100%;min-height:0;max-height:none;overflow:auto;margin:0}
+.todo-inline-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start;overflow-y:auto;overflow-x:hidden}
+.todo-inline-column{display:flex;flex-direction:column;gap:6px;min-width:0}
+.todo-inline-item{box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;padding:6px;width:100%;cursor:default}
+.todo-inline-item .todo-state-button{flex:0 0 auto;border:0;background:transparent;padding:4px 0;min-width:30px;min-height:30px;cursor:pointer}
+.todo-inline-item .todo-badge{margin:0}
+.todo-jump-button{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;border:0;background:transparent;color:inherit;padding:4px;font:inherit;overflow-wrap:anywhere;cursor:pointer}
+.todo-inline-location{flex:none;font-size:12px}
+@media(max-width:700px){.todo-inline-item{flex-direction:row;gap:6px}}

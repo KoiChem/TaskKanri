@@ -1,9 +1,11 @@
 import {clone,sanitizeHtml,stripHtml,getResolvedSlot,APP_CONFIG,academicYearBounds,isValidIsoDate} from './taskkanri-core.mjs';
 import {scopedStorage,jsonStore} from './taskkanri-device-storage.mjs';
 
-export function prepareGlobalSave(state,originalHtml,html){
- if(sanitizeHtml(state.globalTaskData)!==sanitizeHtml(originalHtml))throw new Error('別の端末で共通タスクが更新されています。下書きは保持しています。');
- const next=clone(state);next.globalTaskData=sanitizeHtml(html);return next;
+export function prepareGlobalSave(state,originalHtml,html,source='global'){
+ if(!['global','lesson'].includes(source))throw new Error('タスクの参照が不正です。');
+ const field=source==='lesson'?'lessonTaskData':'globalTaskData',label=source==='lesson'?'授業タスク':'共通タスク';
+ if(sanitizeHtml(state[field])!==sanitizeHtml(originalHtml))throw new Error(`別の端末で${label}が更新されています。下書きは保持しています。`);
+ const next=clone(state);next[field]=sanitizeHtml(html);return next;
 }
 export function prepareSlotSave(state,dateId,slot,originalHtml,html){
  const bounds=academicYearBounds(state.currentYear);
@@ -12,7 +14,10 @@ export function prepareSlotSave(state,dateId,slot,originalHtml,html){
  if(sanitizeHtml(getResolvedSlot(dateId,slot,state))!==sanitizeHtml(originalHtml))throw new Error('別の端末で予定が更新されています。下書きは保持しています。');
  const next=clone(state);next.dateSchedules[dateId]||={};next.dateSchedules[dateId][slot]=sanitizeHtml(html);return next;
 }
-export function globalDraftStore(storage,user){return draftStore(storage,user,'mobile-global-draft')}
+export function globalDraftStore(storage,user,source='global'){
+ if(!['global','lesson'].includes(source))throw new Error('タスクの参照が不正です。');
+ return draftStore(storage,user,source==='lesson'?'mobile-lesson-draft':'mobile-global-draft');
+}
 export function slotDraftStore(storage,user,dateId,slot){return draftStore(storage,user,`mobile-slot-draft:${dateId}:${slot}`)}
 function draftStore(storage,user,key){
  const store=jsonStore(scopedStorage(storage,user));

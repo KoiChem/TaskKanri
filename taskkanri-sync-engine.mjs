@@ -86,7 +86,13 @@ export class SyncEngine {
       let result;
       for(let attempt=0;attempt<2;attempt++){
         const next=structuredClone(this.pending);next.request.attempted=true;this.persist(next);if(this.store.flush)await this.store.flush();if(!this.active||generation!==this.generation)return {status:'stopped'};req=structuredClone(next.request);this.emit('saving');
-        result=await this.transport.save(req);
+        try{result=await this.transport.save(req);}
+        catch(error){
+          // The server explicitly rejected this old-format mutation without applying it.
+          // Reuse the normal baseline-checked merge rather than replacing uncertain requests.
+          if(error.upgradeRequired&&req.payload.contractVersion===2&&req.payload.appSchemaVersion===8)result={status:'conflict'};
+          else throw error;
+        }
         if(!this.active||generation!==this.generation)return {status:'stopped'};
         if(result.status!=='conflict')break;
         if(attempt===0){const rebase=await this.rebaseConflict(req,generation,canApply);if(rebase==='rebased')continue;if(rebase==='pending'||rebase==='stopped')return {status:rebase};}

@@ -4,7 +4,7 @@ import {normalizeImportedPayload,defaultState,serializePayload,getResolvedSlot} 
 
 test('current exports contain only daily schedules and roundtrip without recurrence',()=>{
  const state=defaultState();state.dateSchedules={'2026-10-14':{'１限':'<strong>本文</strong>'}};
- const exported=serializePayload(state);assert.equal(exported.ok,true);assert.equal(exported.value.meta.schemaVersion,8);
+ const exported=serializePayload(state);assert.equal(exported.ok,true);assert.equal(exported.value.meta.schemaVersion,9);
  assert.deepEqual(normalizeImportedPayload(exported.value).value,state);
  for(const key of ['weeklyTemplate','weeklyRules','dateOverrides'])assert.equal(key in exported.value.data,false);
 });

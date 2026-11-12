@@ -20,7 +20,7 @@ async (page) => {
    const body=r.request().postDataJSON();
    if(forceConflict){forceConflict=false;doc={...doc,revision:doc.revision+1,payload:structuredClone(doc.payload)};if(forceField==='slot')doc.payload.state.dateSchedules['2026-10-15']['１限']='通信中の別端末';else if(forceField==='event')doc.payload.state.configEvents['2026-10-15']='別端末の行事';else if(forceField==='global')doc.payload.state.globalTaskData='別端末の共通';else doc.payload.state.configEvents['2026-10-14']='別項目の更新';}
    if(body.expected_revision!==doc.revision)result={status:'conflict',currentRevision:doc.revision};
-   else{check(body.payload.contractVersion===2&&body.payload.appSchemaVersion===8,'changed storage contract');writes++;doc={revision:doc.revision+1,updated_at:new Date().toISOString(),payload:structuredClone(body.payload)};result={status:'saved',appliedRevision:doc.revision,updatedAt:doc.updated_at};}
+   else{check(body.payload.contractVersion===3&&body.payload.appSchemaVersion===9,'changed storage contract');writes++;doc={revision:doc.revision+1,updated_at:new Date().toISOString(),payload:structuredClone(body.payload)};result={status:'saved',appliedRevision:doc.revision,updatedAt:doc.updated_at};}
   }else if(url.includes('taskkanri_documents'))result=url.includes('payload')?doc:{revision:doc.revision,updated_at:doc.updated_at};
   if(url.includes('save_taskkanri_document')&&holdSaves)await new Promise(resolve=>{releaseHold=resolve;notifyHold?.()});
   await r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(result)});

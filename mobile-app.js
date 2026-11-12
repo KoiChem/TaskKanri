@@ -16,10 +16,10 @@ const headerObserver=new ResizeObserver(entries=>document.documentElement.style.
 const q=s=>document.querySelector(s);const el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e};
 let state=defaultState(),loaded=false,selected=tokyoToday(),period=selected,tab='agenda',week=localStorage.getItem('TASKKANRI_MOBILE_WEEK')==='true',sheet=null,undo=null,undoTimer=null,opener=null;
 let calendarKey='',calendarScrollFrame=0;
-let eventEditor=null,globalEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
-const scroll={agenda:0,global:0};const dialog=q('#task-sheet');
-const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!eventEditor?.open&&!globalEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
- onAccount:user=>{eventEditor?.reset();slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();
+let eventEditor=null,globalEditor=null,lessonEditor=null,slotEditor=null,incomplete=null,revealedSlot=null,dateListOpener=null,dateListPicked=false;
+const scroll={agenda:0,global:0,lesson:0};const dialog=q('#task-sheet');
+const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:()=>!dialog.open&&!eventEditor?.open&&!globalEditor?.open&&!lessonEditor?.open&&!slotEditor?.open&&!incomplete?.open&&!q('#event-sheet').open,
+ onAccount:user=>{eventEditor?.reset();slotEditor?.reset();incomplete?.reset();revealedSlot=null;globalEditor?.reset();lessonEditor?.reset();q('#event-sheet').close();q('#date-list').replaceChildren();if(history.state?.taskkanriDateList)history.replaceState(null,'');q('#selected-date').disabled=true;q('#incomplete-tab').disabled=true;q('#event-date').textContent='';q('#selected-event').disabled=true;loaded=false;state=defaultState();
  if(user){try{const saved=JSON.parse(controller.storage.getItem('TASKKANRI_USER:'+user.id+':mobile-preferences'));if(saved){const checked=normalizeState(saved);if(checked.ok)for(const key of Object.keys(state))if(!SHARED_KEYS.includes(key))state[key]=checked.value[key]}}catch{}}
  sheet=null;undo=null;if(dialog.open)dialog.close();q('#toast').hidden=true;q('#agenda').replaceChildren(el('p',user?'読み込み中…':'同期設定からログインしてください。'));q('#calendar-days').replaceChildren();calendarKey='';q('#selected-event').replaceChildren();updateCalendarButtons();if(!user){const login=el('button','ログイン');login.type='button';login.onclick=e=>ui.open(e);q('#agenda').append(login);addOfflineButton()}},
  onData:(next,doc)=>{
@@ -27,15 +27,16 @@ const controller=new SyncController({mode:'mobile',getState:()=>state,canApply:(
   state=next;loaded=true;
   const bounds=academicYearBounds(state.currentYear);if(selected<bounds.start||selected>bounds.end)selected=tokyoToday()>=bounds.start&&tokyoToday()<=bounds.end?tokyoToday():bounds.start;
   if(first)period=selected;
-  if(sheet){sheet.revision=doc.revision;sheet.originalHtml=sanitizeHtml(sheet.source==='global'?state.globalTaskData:getResolvedSlot(sheet.dateId,sheet.slot,state));}
+  if(sheet){sheet.revision=doc.revision;sheet.originalHtml=sanitizeHtml(sourceHtml(sheet));}
   if(same){if(undo)undo.revision=doc.revision;updateSheetControls();incomplete?.update();return;}
   undo=null;q('#toast').hidden=true;render();if(dialog.open&&sheet)renderSheet();incomplete?.update();
  },
- onStatus:(text,engine)=>{setSyncStatus(text,engine);eventEditor?.update();globalEditor?.update();slotEditor?.update();incomplete?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
+ onStatus:(text,engine)=>{setSyncStatus(text,engine);eventEditor?.update();globalEditor?.update();lessonEditor?.update();slotEditor?.update();incomplete?.update();ui?.update();if(engine?.status==='empty')q('#agenda').replaceChildren(el('p','PC版で同期を開始してください。'));if(dialog.open&&sheet){if(['synced','pending','saving'].includes(engine?.status)){sheet.revision=engine.revision;if(undo)undo.revision=engine.revision;}updateSheetControls();}}
 
 });
 eventEditor=installGlobalEditor({controller,getState:()=>state,eventDate:()=>selected,onSaved:()=>render()});
 globalEditor=installGlobalEditor({controller,getState:()=>state,onSaved:()=>renderContent()});
+lessonEditor=installGlobalEditor({controller,getState:()=>state,source:'lesson',onSaved:()=>renderContent()});
 slotEditor=installSlotEditor({controller,getState:()=>state,onClosed:()=>{renderContent();renderCalendar()},onError:error=>{ui.tell(error.message);ui.open()}});
 incomplete=installIncompleteList({controller,getState:()=>state,change:changeTaskRef,onJump:ref=>{
  selected=ref.dateId;revealedSlot=ref;tab='agenda';scroll.agenda=0;render();revealSelectedDate();
@@ -91,11 +92,14 @@ window.addEventListener('popstate',()=>{if(q('#event-sheet').open&&!history.stat
 q('#event-sheet').addEventListener('close',()=>{q('#date-list').replaceChildren();q('#event-date').textContent='';const focus=dateListPicked?q('#agenda'):dateListOpener;dateListOpener=null;focus?.isConnected&&focus.focus({preventScroll:true});void controller.refresh()});
 installOutsideDismiss(dialog,closeSheet);
 function setSyncStatus(text,engine){const status=q('#sync-status');status.textContent=mobileSyncLabel(text,engine);status.title=text;status.setAttribute('aria-label',text);q('#menu').setAttribute('aria-label',`同期設定を開く：${text}`);}
+function isSharedTask(source){return source==='global'||source==='lesson'}
+function sourceHtml(ref){return ref.source==='global'?state.globalTaskData:ref.source==='lesson'?state.lessonTaskData:getResolvedSlot(ref.dateId,ref.slot,state)}
 function rich(html){const e=el('div');e.className='rich-text';e.innerHTML=sanitizeHtml(html);return e}
 function render(){q('#selected-date').disabled=!loaded;q('#selected-date').textContent=`${Number(selected.slice(5,7))}月${Number(selected.slice(8))}日（${APP_CONFIG.daysStr[new Date(selected+'T00:00:00Z').getUTCDay()]}）`;const event=q('#selected-event');const eventText=stripHtml(state.configEvents[selected]||'');event.replaceChildren();event.append(el('span',eventText||'行事予定'));event.classList.toggle('no-event',!eventText);event.disabled=!loaded;renderContent();renderCalendar();}
-function renderContent(){if(revealedSlot&&revealedSlot.dateId!==selected)revealedSlot=null;q('#incomplete-tab').disabled=!loaded;if(!loaded||slotEditor?.open)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));
- if(tab==='global'){
-  {const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource='global';button.setAttribute('aria-label','共通タスクの詳細を開く');button.append(stripHtml(state.globalTaskData).trim()?rich(state.globalTaskData):el('span','共通タスクはありません。タップして編集'));button.onclick=e=>openSheet({source:'global'},e.currentTarget);area.append(button)}
+function renderContent(){if(revealedSlot&&revealedSlot.dateId!==selected)revealedSlot=null;q('#incomplete-tab').disabled=!loaded;if(!loaded||slotEditor?.open)return;const area=q('#agenda');const previous=area.scrollTop;area.replaceChildren();q('#agenda-tab').setAttribute('aria-pressed',String(tab==='agenda'));q('#global-tab').setAttribute('aria-pressed',String(tab==='global'));q('#lesson-tab').setAttribute('aria-pressed',String(tab==='lesson'));
+ if(isSharedTask(tab)){
+  const label=tab==='lesson'?'授業タスク':'共通タスク',html=sourceHtml({source:tab});
+  const button=el('button');button.type='button';button.className='common-card';button.dataset.taskSource=tab;button.setAttribute('aria-label',label+'の詳細を開く');button.append(stripHtml(html).trim()?rich(html):el('span',label+'はありません。タップして編集'));button.onclick=e=>openSheet({source:tab},e.currentTarget);area.append(button)
  }else{
   const policy=getDateSchedulePolicy(selected,state);const meta=[stripHtml(getHolidayName(selected,state)||''),policy.isFixedOffActive?'固定休業日':({short:'短縮時程','short-am':'短縮AM',morning:'午前時程',exam:'定期考査','mock-exam':'模擬試験','noclass-hide':'授業なし','noclass-show':'授業なし'})[policy.profile]].filter(Boolean);
   if(meta.length){const header=el('div',meta.join('・'));header.className='day-meta';area.append(header)}
@@ -181,8 +185,8 @@ function shift(n){const pages=[...q('#calendar-days').children],index=pages.find
 q('#previous').onclick=()=>shift(-1);q('#next').onclick=()=>shift(1);
 q('#calendar-mode').onclick=()=>{week=!week;localStorage.setItem('TASKKANRI_MOBILE_WEEK',String(week));renderCalendar()};
 q('#today').onclick=()=>{if(!loaded)return;const today=tokyoToday(),bounds=academicYearBounds(state.currentYear);if(today<bounds.start||today>bounds.end){ui.tell('今日は表示中の年度外です。PC版で年度を切り替えてください。');ui.open();return}selected=today;tab='agenda';scroll.agenda=0;render();scrollCalendarTo(today);q('#agenda').scrollTop=0};
-for(const [id,next] of [['#agenda-tab','agenda'],['#global-tab','global']])q(id).onclick=()=>{scroll[tab]=q('#agenda').scrollTop;tab=next;renderContent();q('#agenda').scrollTop=scroll[tab]};
-function openSheet(ref,button){opener=button;const html=ref.source==='global'?state.globalTaskData:getResolvedSlot(ref.dateId,ref.slot,state);sheet={...ref,revision:controller.engine.revision,originalHtml:sanitizeHtml(html)};renderSheet();dialog.querySelector('.mobile-dialog-panel').append(q('#toast'));history.pushState({taskkanriSheet:true},'');dialog.showModal();}
+for(const [id,next] of [['#agenda-tab','agenda'],['#global-tab','global'],['#lesson-tab','lesson']])q(id).onclick=()=>{scroll[tab]=q('#agenda').scrollTop;tab=next;renderContent();q('#agenda').scrollTop=scroll[tab]};
+function openSheet(ref,button){opener=button;const html=sourceHtml(ref);sheet={...ref,revision:controller.engine.revision,originalHtml:sanitizeHtml(html)};renderSheet();dialog.querySelector('.mobile-dialog-panel').append(q('#toast'));history.pushState({taskkanriSheet:true},'');dialog.showModal();}
 function taskEditingEnabled(){const e=controller.engine;return !!e?.payload&&(controller.offlineMode||navigator.onLine)&&['synced','pending','saving'].includes(e.status);}
 function updateSheetControls(){
  if(!sheet)return;
@@ -196,21 +200,21 @@ function updateSheetControls(){
 }
 window.addEventListener('offline',updateSheetControls);window.addEventListener('online',updateSheetControls);
 function renderSheet(){
- dialog.classList.toggle('common-detail',sheet.source==='global');
- const body=q('#sheet-body');body.replaceChildren();q('#sheet-title').textContent=sheet.source==='global'?'共通タスク':`${sheet.dateId} ${sheet.slot}`;
+ dialog.classList.toggle('common-detail',isSharedTask(sheet.source));
+ const body=q('#sheet-body');body.replaceChildren();q('#sheet-title').textContent=sheet.source==='global'?'共通タスク':sheet.source==='lesson'?'授業タスク':`${sheet.dateId} ${sheet.slot}`;
  q('#edit-common')?.remove();
- if(sheet.source==='global'){const edit=el('button','編集');edit.id='edit-common';edit.type='button';edit.onclick=()=>globalEditor.openEditor(edit);q('#close-sheet').before(edit);}
+ if(isSharedTask(sheet.source)){const edit=el('button','編集');edit.id='edit-common';edit.type='button';edit.onclick=()=>(sheet.source==='lesson'?lessonEditor:globalEditor).openEditor(edit);q('#close-sheet').before(edit);}
  const content=rich(sheet.originalHtml);content.dataset.sheetRich='';body.append(content);
- sheet.invalidBadgeFormat=sheet.source==='global'&&content.querySelectorAll('.todo-badge[data-state]').length!==taskItems(sheet.originalHtml).length;
- if(sheet.source==='global'&&!sheet.invalidBadgeFormat)content.querySelectorAll('.todo-badge[data-state]').forEach((badge,index)=>{const button=el('button');button.type='button';button.className='task-cycle';button.dataset.taskCycle=String(index);badge.before(button);button.append(badge);button.onclick=()=>{const task=taskItems(sheet.originalHtml)[index];if(task)void setTask(index,(task.state+1)%4)};});
+ sheet.invalidBadgeFormat=isSharedTask(sheet.source)&&content.querySelectorAll('.todo-badge[data-state]').length!==taskItems(sheet.originalHtml).length;
+ if(isSharedTask(sheet.source)&&!sheet.invalidBadgeFormat)content.querySelectorAll('.todo-badge[data-state]').forEach((badge,index)=>{const button=el('button');button.type='button';button.className='task-cycle';button.dataset.taskCycle=String(index);badge.before(button);button.append(badge);button.onclick=()=>{const task=taskItems(sheet.originalHtml)[index];if(task)void setTask(index,(task.state+1)%4)};});
  const notice=el('p');notice.dataset.taskNotice='';notice.setAttribute('role','status');body.append(notice);updateSheetControls();
 }
 function patchTaskViews(ref){
- const html=sanitizeHtml(ref.source==='global'?state.globalTaskData:getResolvedSlot(ref.dateId,ref.slot,state));
+ const html=sanitizeHtml(sourceHtml(ref));
  const tasks=taskItems(html);
  const patch=root=>{if(!root)return;root.querySelectorAll('.todo-badge[data-state]').forEach((badge,i)=>{const task=tasks[i];if(!task)return;badge.dataset.state=String(task.state);badge.className=`todo-badge state-${task.state}`;badge.textContent=['未','途','済','急'][task.state];});};
- if(sheet&&sheet.source===ref.source&&(ref.source==='global'||sheet.dateId===ref.dateId&&sheet.slot===ref.slot)){sheet.originalHtml=html;sheet.revision=controller.engine.revision;patch(q('[data-sheet-rich]'));updateSheetControls();}
- q('#agenda').querySelectorAll('[data-task-source]').forEach(button=>{if(button.dataset.taskSource===ref.source&&(ref.source==='global'||button.dataset.dateId===ref.dateId&&button.dataset.slot===ref.slot))patch(button);});
+ if(sheet&&sheet.source===ref.source&&(isSharedTask(ref.source)||sheet.dateId===ref.dateId&&sheet.slot===ref.slot)){sheet.originalHtml=html;sheet.revision=controller.engine.revision;patch(q('[data-sheet-rich]'));updateSheetControls();}
+ q('#agenda').querySelectorAll('[data-task-source]').forEach(button=>{if(button.dataset.taskSource===ref.source&&(isSharedTask(ref.source)||button.dataset.dateId===ref.dateId&&button.dataset.slot===ref.slot))patch(button);});
  incomplete?.update();
 }
 async function changeTaskRef(ref,target){
@@ -231,6 +235,6 @@ q('#undo-task').onclick=async()=>{
  }catch(e){ui.tell(e.message);ui.open()}
 };
 function closeSheet(){if(history.state?.taskkanriSheet)history.back();else if(dialog.open)dialog.close();}
-q('#close-sheet').onclick=closeSheet;dialog.addEventListener('cancel',e=>{e.preventDefault();closeSheet()});window.addEventListener('popstate',()=>{if(dialog.open&&!history.state?.taskkanriSheet)dialog.close()});dialog.addEventListener('close',()=>{document.body.append(q('#toast'));const wasGlobal=sheet?.source==='global';sheet=null;dialog.classList.remove('common-detail');if(wasGlobal&&loaded){tab='agenda';renderContent();q('#agenda').scrollTop=scroll.agenda;}opener?.isConnected?opener.focus():q('#agenda').focus();void controller.refresh()});
+q('#close-sheet').onclick=closeSheet;dialog.addEventListener('cancel',e=>{e.preventDefault();closeSheet()});window.addEventListener('popstate',()=>{if(dialog.open&&!history.state?.taskkanriSheet)dialog.close()});dialog.addEventListener('close',()=>{document.body.append(q('#toast'));const wasGlobal=isSharedTask(sheet?.source);sheet=null;dialog.classList.remove('common-detail');if(wasGlobal&&loaded){tab='agenda';renderContent();q('#agenda').scrollTop=scroll.agenda;}opener?.isConnected?opener.focus():q('#agenda').focus();void controller.refresh()});
 window.addEventListener('beforeunload',event=>{if(controller.storage.pending||controller.storage.error){event.preventDefault();event.returnValue='';}});
 renderCalendar();acquireStorageGate().then(gate=>{window.addEventListener('pagehide',()=>void gate.release(),{once:true});installResetListener(()=>{controller.stopForReset();location.replace('reset-closed.html')});return openPrimaryStorage({onChange:()=>{if(controller.engine)controller.onStatus(controller.storage.pending?'端末に保存中…':statusLabel(controller.engine),controller.engine)},onError:error=>{controller.engine?.emit('blocked',error.message);ui.tell(error.message)}}).then(storage=>{controller.storage=storage;return controller.start()})}).catch(e=>{if(controller.offlineMode)return;setSyncStatus(e.message,controller.engine);ui.tell(e.message)});

@@ -1,6 +1,6 @@
 import { APP_CONFIG, clone, defaultState, normalizeState, sanitizeHtml, stripHtml, getResolvedSlot, getDateSchedulePolicy, isSlotVisibleForDate, isValidIsoDate } from './taskkanri-core.mjs';
 
-export const SHARED_KEYS = Object.freeze(['currentYear','dateSchedules','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','countSettings','daySlotConfig','instructionDayConfig']);
+export const SHARED_KEYS = Object.freeze(['currentYear','dateSchedules','configEvents','calendarHolidays','customHolidays','dayProfiles','timeConfig','globalTaskData','lessonTaskData','countSettings','daySlotConfig','instructionDayConfig']);
 export const BADGE_LABELS = ['未','途','済','急'];
 export const TASK_LABELS = ['未着手','進行中','完了','急ぎ'];
 const badgePattern = () => /<span\b([^>]*\bclass="[^"]*\btodo-badge\b[^"]*"[^>]*)>([\s\S]*?)<\/span>/gi;
@@ -8,12 +8,15 @@ function stableValue(value) {if(Array.isArray(value))return value.map(stableValu
 export function samePayload(a,b) {return JSON.stringify(stableValue(a))===JSON.stringify(stableValue(b));}
 export function toPayload(state) {
   const checked=normalizeState(state); if(!checked.ok) throw new Error(checked.error);
-  return {contractVersion:2, appSchemaVersion:8, state:Object.fromEntries(SHARED_KEYS.map(k=>[k,clone(checked.value[k])]))};
+  return {contractVersion:3, appSchemaVersion:9, state:Object.fromEntries(SHARED_KEYS.map(k=>[k,clone(checked.value[k])]))};
 }
 export function requiresCloudRecovery(local,baseline,stored) {return !baseline||!samePayload(toPayload(local),baseline)||!stored||JSON.stringify(stored)!==JSON.stringify(local);}
 export function mergePayload(payload, local=defaultState()) {
-  if(payload?.contractVersion!==2||payload?.appSchemaVersion!==8||!payload.state||typeof payload.state!=='object'||Array.isArray(payload.state))throw new Error('データ形式を確認できません。現行版のデータを使用してください。');
-  if(Object.keys(payload.state).length!==SHARED_KEYS.length||SHARED_KEYS.some(k=>!Object.hasOwn(payload.state,k)))throw new Error('共有データの必須項目が不足しています。');
+  const previous=payload?.contractVersion===2&&payload?.appSchemaVersion===8;
+  const current=payload?.contractVersion===3&&payload?.appSchemaVersion===9;
+  if((!previous&&!current)||!payload.state||typeof payload.state!=='object'||Array.isArray(payload.state))throw new Error('データ形式を確認できません。現行版のデータを使用してください。');
+  const keys=previous?SHARED_KEYS.filter(k=>k!=='lessonTaskData'):SHARED_KEYS;
+  if(Object.keys(payload.state).length!==keys.length||keys.some(k=>!Object.hasOwn(payload.state,k)))throw new Error('共有データの必須項目が不足しています。');
   const converted=normalizeState(payload.state);
   if(!converted.ok)throw new Error(converted.error);
   const shared=Object.fromEntries(SHARED_KEYS.map(k=>[k,converted.value[k]]));
@@ -33,8 +36,8 @@ export function taskItems(value) {
 }
 export function changeTask(state, ref, targetState, revision) {
   if(ref.revision!==revision || !Number.isInteger(targetState) || targetState<0 || targetState>3) throw new Error('別の端末で変更されました。内容を確認してもう一度操作してください。');
-  if(ref.source!=='global' && (ref.source!=='slot' || !isValidIsoDate(ref.dateId) || !APP_CONFIG.slotsAll.includes(ref.slot))) throw new Error('タスクの参照が不正です。');
-  const before=ref.source==='global'?state.globalTaskData:getResolvedSlot(ref.dateId,ref.slot,state);
+  if(ref.source!=='global' && ref.source!=='lesson' && (ref.source!=='slot' || !isValidIsoDate(ref.dateId) || !APP_CONFIG.slotsAll.includes(ref.slot))) throw new Error('タスクの参照が不正です。');
+  const before=ref.source==='global'?state.globalTaskData:ref.source==='lesson'?state.lessonTaskData:getResolvedSlot(ref.dateId,ref.slot,state);
   if(sanitizeHtml(before)!==ref.originalHtml) throw new Error('タスクの内容が更新されています。');
   let index=0, found=false;
   const after=sanitizeHtml(before).replace(badgePattern(), (match,attrs) => {
@@ -47,6 +50,7 @@ export function changeTask(state, ref, targetState, revision) {
   if(!found) throw new Error('タスクが見つかりません。');
   const next=clone(state); const undo={source:ref.source,dateId:ref.dateId,slot:ref.slot,before,after};
   if(ref.source==='global') next.globalTaskData=after;
+  else if(ref.source==='lesson') next.lessonTaskData=after;
   else {
     undo.previousDay=clone(next.dateSchedules[ref.dateId]);
     next.dateSchedules[ref.dateId] ||= {};
@@ -55,10 +59,11 @@ export function changeTask(state, ref, targetState, revision) {
   return {state:next,undo};
 }
 export function undoTask(state, undo) {
-  const current=undo.source==='global'?state.globalTaskData:getResolvedSlot(undo.dateId,undo.slot,state);
+  const current=undo.source==='global'?state.globalTaskData:undo.source==='lesson'?state.lessonTaskData:getResolvedSlot(undo.dateId,undo.slot,state);
   if(current!==undo.after) throw new Error('このタスクは更新されています。取り消しできません。');
   const next=clone(state);
   if(undo.source==='global') next.globalTaskData=undo.before;
+  else if(undo.source==='lesson') next.lessonTaskData=undo.before;
   else if(undo.previousDay) next.dateSchedules[undo.dateId]=clone(undo.previousDay);
   else delete next.dateSchedules[undo.dateId];
   return next;
@@ -78,7 +83,7 @@ export function hasAgenda(id,state) { return Boolean(stripHtml(state.configEvent
 
 export function mergeSyncPayloads(base,local,remote){
   // HTML strings and arrays are indivisible. Only independent object fields merge.
-  for(const value of [base,local,remote])mergePayload(value);
+  [base,local,remote]=[base,local,remote].map(value=>toPayload(mergePayload(value)));
   const missing=Symbol('missing'),conflicts=[];
   const equal=(a,b)=>a===missing||b===missing?a===b:samePayload(a,b);
   const object=v=>v!==missing&&v!==null&&typeof v==='object'&&!Array.isArray(v);

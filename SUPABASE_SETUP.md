@@ -87,3 +87,19 @@ DBテストはPGliteの独立したPostgres環境でRLS・権限・CAS・重複�
 公開資産はdistだけ。SQL・テスト・仕様書・node_modules・私的バックアップをGitHub Pagesへ配布しない。今回の承認範囲にはフロント公開と追加DB migrationの適用を含む。
 
 サービスワーカーはMVPでは導入していない。開いている画面でのオフライン閲覧は対応するが、オフラインの初回起動は保証しない。
+
+## 授業タスク対応（2026-11-13）
+
+既存の初期設定と日別予定migrationが適用済みのDBでは、公開前に
+`supabase/migrations/202611130001_lesson_tasks.sql` をSQL Editorで実行する。
+これは既存RPCのみの置換で、保存済み文書・認証・RLS・権限は変更しない。
+旧schema 8文書は読み込み時に授業タスク空欄へ移行する。
+新schema 9文書の保存後、旧クライアントによる保存は`app_update_required`で拒否し、授業タスクの欠落を防ぐ。
+
+公開順序:
+1. 上記SQLを適用し、関数定義に`lesson_contract`とschema 9の形式検証があることを確認する。
+2. `feat/lesson-task-panels`の変更を最新版mainへ統合してpushする。
+3. GitHub Actionsのtest/deploy成功を確認する。
+4. 公開PC・モバイルのbuild `20261113-lesson-tasks-v36`と操作をPlaywrightで確認する。
+
+DBの更新前に新フロントエンドを公開しない。新schemaの送信は旧RPCでは拒否される。

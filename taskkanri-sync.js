@@ -11,7 +11,7 @@ export function consumeDesktopStartup(storage,navigationType) {
  return !seen && navigationType==='navigate';
 }
 const blockedCodes=new Set(['42501','22023','PGRST202','PGRST301']);
-function checked(result) {if(result.error){const e=new Error(result.error.message==='app_update_required'?'アプリを更新してください。未送信データは保持しています。':result.error.code==='42501'?'このアカウントは同期を許可されていません。':result.error.code==='PGRST202'?'Supabaseの初期設定が必要です。':result.error.message);e.blocked=blockedCodes.has(result.error.code);e.permissionDenied=result.error.code==='42501';throw e}return result.data}
+function checked(result) {if(result.error){const e=new Error(result.error.message==='app_update_required'?'アプリを更新してください。未送信データは保持しています。':result.error.code==='42501'?'このアカウントは同期を許可されていません。':result.error.code==='PGRST202'?'Supabaseの初期設定が必要です。':result.error.message);e.upgradeRequired=result.error.message==='app_update_required';e.blocked=blockedCodes.has(result.error.code);e.permissionDenied=result.error.code==='42501';throw e}return result.data}
 export function statusLabel(engine) {
  if(engine?.manualOffline)return 'オフラインモード';
  const stamp=engine?.lastSuccessfulSyncAt?new Date(engine.lastSuccessfulSyncAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';

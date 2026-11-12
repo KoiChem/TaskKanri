@@ -3,14 +3,16 @@ import {sanitizeHtml} from './taskkanri-core.mjs';
 import {prepareGlobalSave,globalDraftStore,prepareEventSave,eventDraftStore} from './mobile-editor-model.mjs';
 import {installOutsideDismiss} from './mobile-ui.mjs';
 
-export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDate=null}){
- const isEvent=!!eventDate,label=isEvent?'行事予定':'共通タスク';
- const currentHtml=()=>sanitizeHtml(isEvent?getState().configEvents[active.dateId]||'':getState().globalTaskData);
- const dialog=document.createElement('dialog');dialog.id=isEvent?'event-editor-sheet':'global-editor-sheet';dialog.setAttribute('aria-labelledby','global-editor-title');
+export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDate=null,source='global'}){
+ const isEvent=!!eventDate,isLesson=!isEvent&&source==='lesson',label=isEvent?'行事予定':isLesson?'授業タスク':'共通タスク';
+ const field=isLesson?'lessonTaskData':'globalTaskData',prefix=isEvent?'event':isLesson?'lesson':'global';
+ const currentHtml=()=>sanitizeHtml(isEvent?getState().configEvents[active.dateId]||'':getState()[field]);
+ const dialog=document.createElement('dialog');dialog.id=prefix+'-editor-sheet';dialog.setAttribute('aria-labelledby','global-editor-title');
  dialog.innerHTML='<div class="sheet-heading"><h2 id="global-editor-title">共通タスクを編集</h2><button type="button" data-editor-close>閉じる</button></div><div class="global-editor-scroll"><div class="global-editor-tools"><button type="button" data-add-task>タスク追加</button><span>下書きは端末に保存</span></div><div id="global-editor-content" contenteditable="true" role="textbox" aria-label="共通タスクの内容" aria-multiline="true"></div><div data-editor-conflict hidden><h3>最新の共通タスク</h3><div data-editor-latest></div><p>下書きとは別に更新されています。下書きで置き換える場合は、両方を確認してから保存してください。</p><button type="button" data-confirm-save>下書きの内容で保存</button></div></div><p data-editor-sync role="status"></p><p data-editor-message role="status"></p><div class="global-editor-footer"><button type="button" data-editor-save>保存</button></div>';
+ if(isLesson){dialog.innerHTML=dialog.innerHTML.replaceAll('共通タスク','授業タスク').replaceAll('global-editor-title','lesson-editor-title').replaceAll('global-editor-content','lesson-editor-content');dialog.setAttribute('aria-labelledby','lesson-editor-title');}
  if(isEvent){dialog.innerHTML=dialog.innerHTML.replaceAll('共通タスク','行事予定');dialog.querySelector('#global-editor-title').id='event-editor-title';dialog.setAttribute('aria-labelledby','event-editor-title');dialog.querySelector('#global-editor-content').id='event-editor-content';dialog.querySelector('[data-add-task]').hidden=true;}
  document.body.append(dialog);
- const q=s=>dialog.querySelector(s),input=q(isEvent?'#event-editor-content':'#global-editor-content');let active=null,opener=null,range=null,composing=false;
+ const q=s=>dialog.querySelector(s),input=q('#'+prefix+'-editor-content');let active=null,opener=null,range=null,composing=false;
  const tell=text=>q('[data-editor-message]').textContent=text;
  const html=()=>sanitizeHtml(input.innerHTML);
  function badges(){input.querySelectorAll('.todo-badge').forEach(badge=>badge.contentEditable='false')}
@@ -67,7 +69,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
    const checked=await controller.refresh();if(active!==ctx||controller.user?.id!==ctx.userId)return;
    if(checked.error)throw checked.error;
    const engine=controller.engine;if(engine.deferred){const doc=engine.deferred;engine.deferred=null;await engine.accept(doc);if(active!==ctx||controller.user?.id!==ctx.userId||controller.engine!==engine)return;}
-   let next;try{next=(isEvent?prepareEventSave(getState(),ctx.dateId,original,submitted):prepareGlobalSave(getState(),original,submitted))}catch(error){showConflict(ctx);return}
+   let next;try{next=(isEvent?prepareEventSave(getState(),ctx.dateId,original,submitted):prepareGlobalSave(getState(),original,submitted,source))}catch(error){showConflict(ctx);return}
    tell('保存しています…');const result=await controller.save(next,{canApply:()=>active===ctx&&ctx.saving&&controller.user?.id===ctx.userId&&!composing&&html()===submitted});
    if(result.status==='conflict'&&active===ctx&&controller.engine===engine){
     if(engine.pending?.nextPayload||!samePayload(engine.pending?.request.payload,toPayload(next)))throw new Error('別の未送信データがあります。同期設定で確認してください。');
@@ -87,8 +89,8 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
   openEditor(button){
    if(!controller.user||!controller.engine?.payload)return;
    try{
-    const dateId=isEvent?eventDate():null,store=isEvent?eventDraftStore(controller.storage,controller.user.id,dateId):globalDraftStore(controller.storage,controller.user.id),draft=store.read();
-    const originalHtml=sanitizeHtml(isEvent?getState().configEvents[dateId]||'':getState().globalTaskData);
+    const dateId=isEvent?eventDate():null,store=isEvent?eventDraftStore(controller.storage,controller.user.id,dateId):globalDraftStore(controller.storage,controller.user.id,source),draft=store.read();
+    const originalHtml=sanitizeHtml(isEvent?getState().configEvents[dateId]||'':getState()[field]);
     active={dateId,id:crypto.randomUUID(),userId:controller.user.id,store,originalHtml:draft?.originalHtml??originalHtml,html:draft?.html??originalHtml,saving:false};
     if(isEvent)q('#event-editor-title').textContent=`${dateId} 行事予定を編集`;
     opener=button;range=null;input.innerHTML=active.html;badges();q('[data-editor-conflict]').hidden=true;q('[data-editor-latest]').replaceChildren();tell(draft?'未保存の下書きを復元しました。':'');

@@ -6,7 +6,6 @@ import {
   defaultState,
   escapeHtmlAttribute,
   escapeHtmlText,
-  extractTodoItems,
   getResolvedSlot,
   HistoryManager,
   formatStateSummary,
@@ -26,7 +25,7 @@ import {SyncController,statusLabel} from './taskkanri-sync.js';
 import {openPrimaryStorage} from './taskkanri-primary-storage.mjs';
 import {installSyncUI, downloadJson, exportFilename} from './taskkanri-sync-ui.js';
 import {scopedStorage} from './taskkanri-device-storage.mjs';
-import {toPayload,samePayload,requiresCloudRecovery} from './taskkanri-sync-model.mjs';
+import {toPayload,samePayload,requiresCloudRecovery,taskItems,changeTask} from './taskkanri-sync-model.mjs';
 
 import {planTimetableInput} from './taskkanri-timetable.mjs';
 import {parseBulkDateRows,formatBulkDateText,summarizeTimetableChanges,planSettingsDateMaps} from './taskkanri-settings.mjs';
@@ -66,6 +65,8 @@ let syncUI;
 let taskTab='common';
 let todoScroll=0;
 let todoReveal=null;
+let todoVisibleKeys=new Set();
+let todoResizeObserver=null;
 let cloudUser = null;
 let applyingCloud = false;
 let initialized = false;
@@ -749,9 +750,9 @@ function updateSlot(dateId, slot, htmlValue) {
   if (ok) updatePreviewUI(dateId);
   return ok;
 }
-function updateGlobalTask(htmlValue) {
-  if(sanitizeHtml(htmlValue)===sanitizeHtml(appState.globalTaskData))return true;
-  return commitState(state => { state.globalTaskData = sanitizeHtml(htmlValue); }, { historyLabel: '共通タスクの変更', historyScope: 'task' });
+function updateGlobalTask(htmlValue,field='globalTaskData') {
+  if(sanitizeHtml(htmlValue)===sanitizeHtml(appState[field]))return true;
+  return commitState(state => { state[field] = sanitizeHtml(htmlValue); }, { historyLabel: field==='lessonTaskData'?'授業タスクの変更':'共通タスクの変更', historyScope: 'task' });
 }
 
 const EditorCmd = {
@@ -1118,37 +1119,79 @@ function bindEditorEvents() {
     if (input) input.dispatchEvent(new Event('blur'));
   });
 }
-function extractTasksForDisplay(html, dateId, slotName) {
-  return extractTodoItems(html).map(item => ({ ...item, dateId, slotName }));
-}
 function buildTaskTabs() {
   const area=el('section');area.className='task-tabs';
   const tabs=el('div');tabs.className='task-tab-buttons';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','タスク表示');
-  const common=el('div');common.className='slot-input task-tab-content';common.id='common-task-panel';common.dataset.commonEditor='';common.contentEditable=editorReady?'true':'false';common.setAttribute('role','tabpanel');common.setAttribute('aria-labelledby','common-task-tab');
-  appendSafeRich(common,appState.globalTaskData);common.addEventListener('blur',()=>updateGlobalTask(editorHtml(common)));common.addEventListener('paste',handlePaste);
+  const common=el('div');common.className='task-tab-content task-editor-columns';common.id='common-task-panel';common.setAttribute('role','tabpanel');common.setAttribute('aria-labelledby','common-task-tab');
+  const editors={};
+  for(const [field,label,attribute] of [['globalTaskData','共通タスク','commonEditor'],['lessonTaskData','授業タスク','lessonEditor']]){
+    const input=el('div');input.className='slot-input';input.dataset[attribute]='';input.dataset.taskField=field;input.contentEditable=editorReady?'true':'false';input.setAttribute('aria-label',label);
+    appendSafeRich(input,appState[field]);input.addEventListener('blur',()=>updateGlobalTask(editorHtml(input),field));input.addEventListener('paste',handlePaste);editors[field]=input;common.append(input);
+  }
   const list=el('div');list.className='task-tab-content todo-inline-list';list.id='todo-task-panel';list.dataset.todoList='';list.setAttribute('role','tabpanel');list.setAttribute('aria-labelledby','todo-task-tab');
   list.addEventListener('scroll',()=>todoScroll=list.scrollTop);
+  const taskKey=task=>JSON.stringify([task.source,task.dateId,task.slot,task.badgeIndex,task.text]);
+  const collectTasks=()=>{
+    const tasks=[];
+    const add=(html,source,dateId,slot)=>taskItems(html).forEach(item=>tasks.push({...item,source,dateId,slot,originalHtml:sanitizeHtml(html)}));
+    add(appState.globalTaskData,'global');add(appState.lessonTaskData,'lesson');
+    academicDateIds().forEach(dateId=>APP_CONFIG.slotsAll.forEach(slot=>add(resolvedSlot(dateId,slot),'slot',dateId,slot)));
+    return tasks;
+  };
+  const distribute=()=>{
+    if(list.hidden||!list.isConnected||!list.clientHeight)return;
+    const columns=[...list.querySelectorAll('.todo-inline-column')];if(columns.length!==2)return;
+    const rows=[...list.querySelectorAll('.todo-inline-item')];
+    const available=list.clientHeight-12;let used=0,right=false;
+    for(const row of rows){columns[0].append(row);const height=row.getBoundingClientRect().height;if(used&&used+6+height>available)right=true;if(right)columns[1].append(row);else used+=height+(used?6:0);}
+  };
   const renderList=()=>{
     list.replaceChildren();
-    const tasks=extractTasksForDisplay(appState.globalTaskData,'GLOBAL','共通タスク');
-    academicDateIds().forEach(dateId=>APP_CONFIG.slotsAll.forEach(slot=>tasks.push(...extractTasksForDisplay(resolvedSlot(dateId,slot),dateId,slot))));
-    if(!tasks.length)list.append(el('p','未完了のタスクはありません。'));
+    const tasks=collectTasks().filter(task=>task.state!==2||todoVisibleKeys.has(taskKey(task)));
+    tasks.forEach(task=>todoVisibleKeys.add(taskKey(task)));
+    if(!tasks.length){list.append(el('p','未完了のタスクはありません。'));return;}
+    const left=el('div'),right=el('div');left.className=right.className='todo-inline-column';list.append(left,right);
     tasks.forEach(task=>{
-      const button=el('button');button.type='button';button.className='todo-inline-item';
-      const date=task.dateId==='GLOBAL'?null:dateFromIso(task.dateId);
-      const location=el('span',date?`${date.getMonth()+1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]}) ${task.slotName}`:'共通');location.className='todo-inline-location';
-      const text=el('span');const badge=el('span',({0:'未',1:'途',3:'急'})[task.state]);badge.className=`todo-badge state-${task.state}`;text.append(badge,document.createTextNode(task.text));button.append(location,text);
-      button.onclick=()=>{
+      const row=el('div');row.className='todo-inline-item';
+      const cycle=el('button');cycle.type='button';cycle.dataset.taskCycle='';cycle.className='todo-state-button';
+      const badge=el('span');updateBadgeElement(badge,task.state);cycle.append(badge);cycle.setAttribute('aria-label',`${task.text}の状態を変更`);
+      const jump=el('button');jump.type='button';jump.className='todo-jump-button';
+      const date=task.source==='slot'?dateFromIso(task.dateId):null;
+      const location=el('span',date?`${date.getMonth()+1}/${date.getDate()}(${APP_CONFIG.daysStr[date.getDay()]}) ${task.slot}`:task.source==='lesson'?'授業':'共通');location.className='todo-inline-location';
+      jump.append(location,el('span',task.text));
+      cycle.onclick=()=>{
+        if(!canCloudEdit())return;
+        const latest=collectTasks().find(item=>taskKey(item)===taskKey(task));
+        if(!latest||latest.originalHtml!==task.originalHtml){renderList();return;}
+        const next=(latest.state+1)%4;
+        const ok=commitState(state=>{
+          const changed=changeTask(state,{...latest,revision:0},next,0).state;
+          if(latest.source==='slot')state.dateSchedules=changed.dateSchedules;else state[latest.source==='lesson'?'lessonTaskData':'globalTaskData']=changed[latest.source==='lesson'?'lessonTaskData':'globalTaskData'];
+        },{historyLabel:'タスクの状態変更',historyScope:'task'});
+        if(ok){
+          task.state=next;task.originalHtml=sanitizeHtml(task.source==='slot'?resolvedSlot(task.dateId,task.slot):appState[task.source==='lesson'?'lessonTaskData':'globalTaskData']);
+          updateBadgeElement(badge,next);
+          // Other rows from this same HTML source keep their guarded reference current.
+          tasks.forEach(item=>{if(item.source===task.source&&item.dateId===task.dateId&&item.slot===task.slot)item.originalHtml=task.originalHtml;});
+          const editor=task.source==='slot'?[...document.querySelectorAll('.slot-input[data-slot]')].filter(input=>input.dataset.dateId===task.dateId&&input.dataset.slot===task.slot):[editors[task.source==='lesson'?'lessonTaskData':'globalTaskData']];
+          for(const input of editor){const marker=[...input.querySelectorAll('.todo-badge')].filter(node=>/^[0-3]$/.test(node.dataset.state||''))[task.badgeIndex];if(marker)updateBadgeElement(marker,next);}
+          if(task.source==='slot')updatePreviewUI(task.dateId);
+        }
+      };
+      jump.onclick=()=>{
         todoScroll=list.scrollTop;
-        if(!date){select('common');common.focus();return;}
-        todoReveal={dateId:task.dateId,slot:task.slotName};renderEditor(task.dateId,'top');executeJump(task.dateId);
-        const input=[...document.querySelectorAll('#top-panel .slot-input[data-slot]')].find(node=>node.dataset.slot===task.slotName);input?.focus();input?.scrollIntoView({block:'nearest'});
-      };list.append(button);
-    });list.scrollTop=todoScroll;
+        if(!date){select('common');editors[task.source==='lesson'?'lessonTaskData':'globalTaskData'].focus();return;}
+        todoReveal={dateId:task.dateId,slot:task.slot};renderEditor(task.dateId,'top');executeJump(task.dateId);
+        const input=[...document.querySelectorAll('#top-panel .slot-input[data-slot]')].find(node=>node.dataset.slot===task.slot);input?.focus();input?.scrollIntoView({block:'nearest'});
+      };row.append(cycle,jump);left.append(row);
+    });
+    requestAnimationFrame(()=>{distribute();list.scrollTop=todoScroll;});
   };
+  todoResizeObserver?.disconnect();todoResizeObserver=new ResizeObserver(distribute);todoResizeObserver.observe(list);
   const buttons=[];
   const select=value=>{
     if(taskTab==='todo'&&list.childElementCount)todoScroll=list.scrollTop;
+    if(value==='common')todoVisibleKeys.clear();
     taskTab=value;common.hidden=value!=='common';list.hidden=value!=='todo';
     buttons.forEach((button,i)=>{const selected=(i===0)===(value==='common');button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;});
     if(value==='todo')renderList();
@@ -1784,7 +1827,7 @@ function installCloudSync() {
         if(!hasMaster) { const result=storageService.saveAll(candidate);if(!result.ok)throw new Error(result.error);loaded=result; }
         appState=loaded.state;localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
       } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(primaryStorage,'logged-out');storageService=makeStorageService(storageLike);storageService.load();document.body.classList.add('cloud-signed-out'); }
-      landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
+      landing.hidden=!document.body.classList.contains('cloud-signed-out');todoVisibleKeys.clear();historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
     },
     onData:next=>{
       if(samePayload(toPayload(next),toPayload(appState)))return;
@@ -1795,7 +1838,7 @@ function installCloudSync() {
     },
     onStatus:(label,engine)=>{if(engine?.active&&['synced','pending','cached','offline','empty'].includes(engine.status))enableEditors();if(primaryStorage?.pending)label='端末に保存中…';status.textContent='同期設定：'+mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.hasAttribute('data-common-editor')?updateGlobalTask(html):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
   (async()=>{
     await primaryStorage.flush();await syncController.start();enableEditors();

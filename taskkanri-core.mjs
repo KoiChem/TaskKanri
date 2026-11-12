@@ -9,9 +9,9 @@
 export const APP_CONFIG = Object.freeze({
   displayVersion: '78',
   compatibilityVersion: '73',
-  buildVersion: '20261111-mobile-conflict-v35',
-  schemaVersion: 8,
-  supportedSchemaVersions: Object.freeze([8]),
+  buildVersion: '20261113-lesson-tasks-v36',
+  schemaVersion: 9,
+  supportedSchemaVersions: Object.freeze([8, 9]),
   storeKey: 'TASK_KUN_MASTER_STORAGE',
   readOnlyGuardKey: 'TASK_KUN_MASTER_STORAGE_READ_ONLY_GUARD',
   quarantinePrefix: 'TASK_KUN_MASTER_STORAGE_QUARANTINE_',
@@ -50,7 +50,7 @@ const LEGACY_SUFFIXES = Object.freeze(['V46', 'V43', 'V42', 'V41']);
 const LEGACY_KEYS = Object.freeze(LEGACY_BASE_KEYS.flatMap(base => LEGACY_SUFFIXES.map(suffix => `${base}${suffix}`)));
 const STATE_KEYS = Object.freeze([
   'currentYear', 'isLandscapeMode', 'isClockVisible', 'isWakeLockRequested', 'dateSchedules', 'configEvents', 'calendarHolidays',
-  'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData',
+  'customHolidays', 'dayProfiles', 'timeConfig', 'globalTaskData', 'lessonTaskData',
   'bulkCalendarSelectionMode', 'bulkCalendarMonthLayout', 'countSettings', 'countDateRange', 'daySlotConfig', 'instructionDayConfig', 'timetableWords'
 ]);
 const SLOT_SET = new Set(APP_CONFIG.slotsAll);
@@ -163,6 +163,7 @@ export function defaultState(year = 2026) {
     dayProfiles: {},
     timeConfig: defaultTimeConfig(),
     globalTaskData: '',
+    lessonTaskData: '',
     bulkCalendarSelectionMode: 'standard',
     bulkCalendarMonthLayout: 'horizontal',
     countSettings: [{ word: '', mode: 'down', start: 1 }],
@@ -817,9 +818,10 @@ export function normalizeState(input) {
     if (!normalized.ok) return normalized;
     state.timeConfig = normalized.value;
   }
-  if (own(input, 'globalTaskData')) {
-    if (typeof input.globalTaskData !== 'string') return fail('文字列が必要です', 'globalTaskData');
-    state.globalTaskData = sanitizeHtml(input.globalTaskData);
+  for (const field of ['globalTaskData', 'lessonTaskData']) {
+    if (!own(input, field)) continue;
+    if (typeof input[field] !== 'string') return fail('文字列が必要です', field);
+    state[field] = sanitizeHtml(input[field]);
   }
   if (own(input, 'timetableWords')) {
     if (!Array.isArray(input.timetableWords) || input.timetableWords.some(word => typeof word !== 'string')) return fail('文字列の配列が必要です', 'timetableWords');
@@ -850,12 +852,12 @@ export function normalizeState(input) {
 
 function validateMeta(meta) {
   if (!isPlainObject(meta)) return fail('metaオブジェクトが必要です', 'meta');
-  if (meta.schemaVersion !== APP_CONFIG.schemaVersion) return { ...fail('現行形式（schemaVersion 8）のJSONファイルを使用してください', 'meta.schemaVersion'), unsupported: true };
+  if (!APP_CONFIG.supportedSchemaVersions.includes(meta.schemaVersion)) return { ...fail('対応形式（schemaVersion 8・9）のJSONファイルを使用してください', 'meta.schemaVersion'), unsupported: true };
   for (const field of ['appVersion', 'compatibilityVersion', 'buildVersion', 'format']) {
     if (own(meta, field) && typeof meta[field] !== 'string') return fail('文字列が必要です', `meta.${field}`);
   }
   if (own(meta, 'lastUpdated') && (typeof meta.lastUpdated !== 'string' || Number.isNaN(Date.parse(meta.lastUpdated)))) return fail('ISO日時が必要です', 'meta.lastUpdated');
-  return { ok: true, schemaVersion: APP_CONFIG.schemaVersion };
+  return { ok: true, schemaVersion: meta.schemaVersion };
 }
 
 export function normalizeImportedPayload(rawOrObject) {
@@ -877,7 +879,7 @@ export function normalizeImportedPayload(rawOrObject) {
   for (const key of Object.keys(data)) if (!STATE_KEYS.includes(key)) return fail('未知のデータ項目があります', key);
   const normalized = normalizeState(data);
   if (!normalized.ok) return normalized;
-  return { ok: true, value: normalized.value, schemaVersion: APP_CONFIG.schemaVersion, sourceSchemaVersion: APP_CONFIG.schemaVersion, source: 'wrapped' };
+  return { ok: true, value: normalized.value, schemaVersion: APP_CONFIG.schemaVersion, sourceSchemaVersion: metaResult.schemaVersion, source: 'wrapped' };
 }
 
 export function summarizeState(state) {
