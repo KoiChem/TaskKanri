@@ -31,6 +31,6 @@ Files: mobile-app.js, mobile-editor.js, mobile.html, mobile.css, tests/.
 - [x] Verify mobile browser layout and persistence.
 ## Task 4: Release
 - [x] Run all Node tests, build, diff check; review final changes.
-- [ ] Apply additive RPC migration before publishing frontend; verify old writes rejected.
+- [x] Apply additive RPC migration before publishing frontend; verify old writes rejected.
 - [ ] Fetch/reconcile origin, commit and push authorized release; check CI/Pages.
 - [ ] Verify deployed browser flows and served version. Report native-device gap.

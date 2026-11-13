@@ -13,8 +13,11 @@
 - Playwright: 新規PC二列/状態/完了保持・タブ切替・保存再読込、同期受信後の済保持、既存高さ変更、新規授業モバイル独立編集/下書き/状態取消/競合/再更新保護が成功。既存モバイル編集・保存競合も成功。pageErrorsなし。
 - 別エージェントレビューの2指摘（同期時の完了保持リセット、形式不備バッジを含むDOM誤参照）を失敗テストで再現後に修正し成功確認。
 
-## 未完了
-Supabase管理セッションへアクセスできずDB migration未適用。Macはロック中で利用者は外出中。環境変数にDB管理資格情報なし、CLIログインも未確認。公開順序上、mainへの統合・Pagesデプロイは保留。利用者データへの書き込みなし。実機iPhone未検証。
+## 本番DB更新
+2026-11-13、Supabase管理画面で対象プロジェクト`fethojoncgermqwzrwtw`に追加migrationを適用済み。実行成功（返却行なし）。独立した関数定義確認で`lesson_ready=true`、`lesson_validated=true`、`downgrade_protected=true`、`security_definer=true`、空の`search_path`を確認。既存利用者文書へ書き込みは行っていない。
 
-## 再開
-Mac解除後、SUPABASE_SETUP.md「授業タスク対応」の順にmigration→main統合/公開→公開ブラウザ確認。新旧契約による読み書きは開発テストで検証済みだが、本番DB適用を省略しない。
+## 公開
+DB更新後、最新mainが基準の76240e0と一致することをGitHub MCPとgit fetchで確認。承認済みの変更をmainへ統合してGitHub Actionsから公開する。公開完了とライブ確認の結果は実行報告に記載する。
+
+## 検証範囲
+公開ブラウザ検証は隔離したテスト用データ・API応答で実施し、利用者の本番文書を変更しない。実機iPhoneの検証は未実施。
