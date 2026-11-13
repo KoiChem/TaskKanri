@@ -238,3 +238,16 @@ body.slot-editing #agenda{padding-bottom:calc(100px + var(--slot-keyboard-cover,
 .mobile-header .tabs{grid-column:2;grid-row:2;width:192px;gap:5px;z-index:1}
 .mobile-header .tabs button{flex:0 0 44px;min-width:44px}
 #selected-event{grid-column:1 / -1;grid-row:3}
+
+/* Compact only the mobile sync window while preserving touch targets. */
+.sync-dialog.mobile-dialog .mobile-dialog-panel{max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px);padding:8px 16px;overscroll-behavior:contain}
+.sync-dialog.mobile-dialog .sync-heading{top:-8px;padding:0}
+.sync-dialog.mobile-dialog .sync-heading h2{margin:0}
+.sync-dialog.mobile-dialog .sync-section{padding:6px 0}
+.sync-dialog.mobile-dialog .sync-section h3{margin:0 0 4px}
+.sync-dialog.mobile-dialog p{margin:4px 0}
+.sync-dialog.mobile-dialog p:empty{display:none}
+.sync-dialog.mobile-dialog label{margin:4px 0}
+.sync-dialog.mobile-dialog input{min-height:44px;padding:8px}
+.sync-dialog.mobile-dialog [data-refresh]{margin-bottom:4px}
+.sync-dialog.mobile-dialog .mobile-dialog-panel > p:last-child a{display:inline-flex;align-items:center;min-height:44px}
