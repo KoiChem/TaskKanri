@@ -114,8 +114,8 @@ dialog.mobile-dialog > button.mobile-dialog-backdrop{position:absolute;inset:0;w
 .mobile-header .tabs button[aria-pressed=true]::before{background:#fff;box-shadow:0 1px 3px #10204012}
 #selected-event{min-height:32px;line-height:28px}
 #sync-status{height:32px;line-height:32px}
-#calendar-days{height:224px}
-#toast{bottom:calc(302px + env(safe-area-inset-bottom))}
+#calendar-days{height:264px}
+#toast{bottom:calc(342px + env(safe-area-inset-bottom))}
 body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
 .slot-card{min-height:70px;padding:3px 0;gap:1px}
 .day-meta{line-height:20px;padding:0 8px;margin:0 0 4px}
