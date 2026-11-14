@@ -34,6 +34,7 @@ body.week-view .calendar-page{flex:0 0 100%;scroll-snap-align:start}
 /* A solid fixed header keeps its text away from the standalone status-bar edge. */
 :root{--mobile-header-height:96px;--standalone-blur-gap:0px}
 :root.standalone{--standalone-blur-gap:20px}
+:root.standalone .mobile-header{padding-top:calc(env(safe-area-inset-top) + 4px)}
 #mobile-shell{padding-top:var(--mobile-header-height)}
 .mobile-header{position:fixed;inset:0 0 auto;z-index:10;background:#f6f8fc;display:grid;grid-template-columns:max-content minmax(0,1fr) 76px;grid-template-rows:44px 44px;column-gap:8px;row-gap:0;min-height:0;padding:calc(env(safe-area-inset-top) + var(--standalone-blur-gap) + 4px) 16px 4px}
 .mobile-header h1{grid-column:1;grid-row:1;font-size:20px;font-weight:700;letter-spacing:-.5px;line-height:28px;align-self:center}
@@ -115,8 +116,9 @@ dialog.mobile-dialog > button.mobile-dialog-backdrop{position:absolute;inset:0;w
 #selected-event{min-height:32px;line-height:28px}
 #sync-status{height:32px;line-height:32px}
 #calendar-days{height:264px}
-#toast{bottom:calc(342px + env(safe-area-inset-bottom))}
-body.week-view #toast{bottom:calc(124px + env(safe-area-inset-bottom))}
+#calendar{padding-bottom:env(safe-area-inset-bottom)}
+#toast{bottom:calc(338px + env(safe-area-inset-bottom))}
+body.week-view #toast{bottom:calc(120px + env(safe-area-inset-bottom))}
 .slot-card{min-height:70px;padding:3px 0;gap:1px}
 .day-meta{line-height:20px;padding:0 8px;margin:0 0 4px}
 /* Paint a smaller rectangle inside each unchanged 44px day target. */
