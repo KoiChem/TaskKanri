@@ -21,10 +21,10 @@ export class SyncEngine {
     try {this.onData(this.pending?{...cache,payload:this.pending.nextPayload||this.pending.request.payload}:cache,{source:'cache'});}catch(error){error.blocked=true;this.emit('blocked',error.message);throw error;}
     this.payload=cache.payload;this.revision=cache.revision;this.updatedAt=cache.updated_at;return true;
   }
-  async load() {
+  async load(options={}) {
     const generation=this.generation;
-    this.loadCached();
-    const remote=await this.transport.get(false);
+    if(options.restoreCache!==false)this.loadCached();
+    const remote=Object.hasOwn(options,'remote')?options.remote:await this.transport.get(false);
     if(!this.active||generation!==this.generation)return;
     if(this.pending) {
       if(remote && remote.revision!==this.pending.request.expectedRevision && !this.pending.request.attempted && this.revision!==this.pending.request.expectedRevision) this.emit('conflict');
@@ -32,6 +32,8 @@ export class SyncEngine {
       return;
     }
     if(!remote) {this.emit('empty');return;}
+    this.validate(remote);
+    if(options.deferApply&&this.payload&&!this.canApply()){this.deferred=remote;this.emit('deferred');return;}
     return this.accept(remote);
   }
   accept(document) {
@@ -44,6 +46,7 @@ export class SyncEngine {
   queue(state,{initial=false,offline=false}={}) {
     if(this.unsupportedPending||!this.active||!offline&&(this.status==='conflict'||this.status==='blocked'))throw new Error('同期を確認してから操作してください。');
     if(!this.payload&&!initial)throw new Error('PC版で同期を開始してください。');
+    this.deferred=null;
     const payload=toPayload(state);
     if(this.pending) {
       const next=structuredClone(this.pending);
@@ -126,6 +129,10 @@ export class SyncEngine {
       if(committing)error.blocked=true;
       this.emit(error.blocked?'blocked':'offline',error.message);return {status:'error',error};
     } finally {this.busy=false;this.onChange(this);}
+  }
+  async applyDeferred() {
+    if(!this.active||!this.deferred||this.pending||this.busy||!this.canApply())return;
+    const document=this.deferred;this.deferred=null;return this.accept(document);
   }
   async refresh() {
     if(!this.active||this.busy||this.pending)return;

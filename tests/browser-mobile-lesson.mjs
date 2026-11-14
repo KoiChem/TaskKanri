@@ -2,7 +2,7 @@ async (page) => {
  const base=await page.evaluate(()=>new URL('.',location.href).href.replace(/\/$/,''));
  const check=(value,message)=>{if(!value)throw new Error(message)};
  const context=await page.context().browser().newContext({viewport:{width:428,height:926},isMobile:true,hasTouch:true}),p=await context.newPage(),errors=[];
- p.on('pageerror',e=>errors.push(e.message));
+ p.on('pageerror',e=>errors.push(e.message));await p.clock.install({time:new Date('2026-10-15T00:00:00Z')});
  const endpoint='https://fethojoncgermqwzrwtw.supabase.co/**';
  await context.route(endpoint,r=>r.abort());await p.goto(base+'/mobile.html');
  const payload=await p.evaluate(async()=>{

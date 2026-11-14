@@ -1777,7 +1777,7 @@ function initializeStorage() {
 function canCloudEdit() {
   if(primaryStorage?.error){syncUI?.tell(primaryStorage.error.message);syncUI?.open();return false;}
   if (document.body.classList.contains('cloud-signed-out')) { showAlert('同期設定からログインしてください。'); return false; }
-  if ((cloudUser && !syncController?.engine) || ['conflict','blocked','unloaded'].includes(syncController?.engine?.status)) { syncUI.open(); return false; }
+  if ((cloudUser && !syncController?.engine) || ['conflict','blocked','unloaded'].includes(syncController?.engine?.status) || syncController?.engine?.status==='loading'&&!syncController.engine.payload&&!syncController.engine.pending) { syncUI.open(); return false; }
   return true;
 }
 function queueCloudSave(state) {
@@ -1796,26 +1796,14 @@ function persistenceFailed(error){
 }
 
 function installCloudSync() {
-  document.body.classList.toggle('cloud-signed-out',localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true');
-  const landing=el('section');landing.id='sync-landing';landing.setAttribute('aria-labelledby','start-title');
-  landing.innerHTML=`<h1 id="start-title">TaskKanri</h1><div data-start-choice><p>使い方を選んでください</p><div class="start-options"><div><button type="button" data-start-login>ログインして使う</button><p>ほかの端末と同期して使えます</p></div><div><button type="button" data-start-offline>オフラインで使う</button><p>この端末に保存します</p></div></div></div><form data-start-form hidden><h2>ログイン</h2><label>メールアドレス<input name="email" type="email" autocomplete="username" required></label><label>パスワード<input name="password" type="password" autocomplete="current-password" required></label><p data-start-message role="status"></p><div class="start-form-actions"><button type="submit">ログイン</button><button type="button" data-start-back>戻る</button></div></form>`;
-  landing.hidden=!document.body.classList.contains('cloud-signed-out');document.body.append(landing);
-  const startForm=landing.querySelector('form'),startChoice=landing.querySelector('[data-start-choice]'),startLogin=landing.querySelector('[data-start-login]'),startMessage=landing.querySelector('[data-start-message]');
-  startLogin.onclick=()=>{startChoice.hidden=true;startForm.hidden=false;startMessage.textContent='';startForm.elements.email.focus();};
-  landing.querySelector('[data-start-back]').onclick=()=>{startForm.reset();startForm.hidden=true;startChoice.hidden=false;startMessage.textContent='';startLogin.focus();};
-  startForm.onsubmit=async event=>{
-    event.preventDefault();if(startForm.getAttribute('aria-busy')==='true')return;
-    const email=startForm.elements.email.value,password=startForm.elements.password.value;
-    startForm.elements.password.value='';startForm.setAttribute('aria-busy','true');
-    startForm.querySelectorAll('input,button').forEach(node=>node.disabled=true);startMessage.textContent='ログイン中…';
-    try{const result=await syncController.login(email,password);if(result?.cancelled)startMessage.textContent='ログインを中止しました。';}
-    catch(error){startMessage.textContent='ログインできませんでした。'+error.message;}
-    finally{startForm.removeAttribute('aria-busy');startForm.querySelectorAll('input,button').forEach(node=>node.disabled=false);if(!landing.hidden)startForm.elements.password.focus();else document.getElementById('common-task-tab')?.focus();}
-  };
-  // Keep editing blocked until the saved account is restored, without flashing the login screen.
-  if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')landing.hidden=true;
+  document.body.classList.remove('cloud-signed-out');
   const controls=el('div');controls.className='sync-controls';const button=el('button','未接続');button.type='button';button.className='sync-text-button';button.setAttribute('aria-label','同期設定を開く。未接続');const status=button;controls.append(button);document.body.append(controls);
   syncController=new SyncController({mode:'desktop',storage:primaryStorage,getState:()=>appState,
+    beforeAccountChange:()=>{
+      if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してからログイン状態を確認してください。');
+      const input=document.activeElement?.closest('.slot-input');
+      if(input){const html=editorHtml(input);const saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('入力内容を端末に保存してからログイン状態を確認してください。');}
+    },
     canApply:()=>!hasOpenUnsavedForm()&&!isTextEditingTarget(document.activeElement),
     onAccount:user=>{
       const previous=cloudUser;cloudUser=user;
@@ -1827,19 +1815,19 @@ function installCloudSync() {
         if(!hasMaster) { const result=storageService.saveAll(candidate);if(!result.ok)throw new Error(result.error);loaded=result; }
         appState=loaded.state;localStorage.setItem('TASKKANRI_CLOUD_ENABLED','true');document.body.classList.remove('cloud-signed-out');
       } else if(previous || localStorage.getItem('TASKKANRI_CLOUD_ENABLED')==='true') { qa('.modal-overlay').forEach(node=>node.style.display='none'); const settings=document.getElementById('settings-view');if(settings)settings.style.display='none'; appState=defaultState();storageLike=scopedStorage(primaryStorage,'logged-out');storageService=makeStorageService(storageLike);storageService.load();document.body.classList.add('cloud-signed-out'); }
-      landing.hidden=!document.body.classList.contains('cloud-signed-out');todoVisibleKeys.clear();historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
+      todoVisibleKeys.clear();historyManager.clear();refreshMainUI();positionStartupDate();updateHistoryControls();
     },
     onData:next=>{
       if(samePayload(toPayload(next),toPayload(appState)))return;
       const stored=normalizeImportedPayload(storageLike.getItem(APP_CONFIG.storeKey));
       if(!syncController?.engine?.discarding&&!syncController?.engine?.rebasing&&requiresCloudRecovery(appState,syncController?.engine?.payload,stored.ok?stored.value:null)&&!samePayload(toPayload(appState),toPayload(defaultState(appState.currentYear))))throw new Error('端末に未確認の変更があります。現在の内容を書き出してから同期設定を確認してください。');
       applyingCloud=true;let result;try { result=storageService.saveAll(next); } finally { applyingCloud=false; } if(!result.ok)throw new Error(result.error);
-      appState=result.state;landing.hidden=!document.body.classList.contains('cloud-signed-out');historyManager.clear();refreshMainUI();updateHistoryControls();
+      appState=result.state;historyManager.clear();refreshMainUI();updateHistoryControls();
     },
-    onStatus:(label,engine)=>{if(engine?.active&&['synced','pending','cached','offline','empty'].includes(engine.status))enableEditors();if(primaryStorage?.pending)label='端末に保存中…';status.textContent='同期設定：'+mobileSyncLabel(label,engine);button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
+    onStatus:(label,engine)=>{if(engine?.active&&['synced','pending','cached','offline','empty'].includes(engine.status))enableEditors();if(primaryStorage?.pending)label='端末に保存中…';status.textContent='同期設定：'+((syncController?.authPending||syncController?.connecting)&&['cached','pending','loading'].includes(engine?.status)?'接続確認中…':mobileSyncLabel(label,engine));button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);landing.querySelector('[data-start-offline]').onclick=()=>syncController.enterOffline().catch(error=>{syncUI.tell(error.message);syncUI.open()});
-  document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.refresh()},0));
+  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);
+  document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.engine.applyDeferred().catch(error=>syncController.engine?.emit('blocked',error.message))},0));
   (async()=>{
     await primaryStorage.flush();await syncController.start();enableEditors();
   })().catch(error=>{if(syncController.offlineMode)return;status.textContent=error.message;syncUI.tell(error.message)});

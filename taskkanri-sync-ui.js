@@ -80,8 +80,8 @@ export function installSyncUI(controller,{mobile=false,getInitialState,prepareIm
  function update(){const e=controller.engine;
  if(reportOwner&&(reportOwner.engine!==e||reportOwner.userId!==controller.user?.id))clearReceived();
  q('[data-offline]').hidden=!!controller.offlineMode;q('[data-offline]').disabled=false;
- q('[data-online]').hidden=!controller.offlineMode;q('[data-online]').disabled=!!e?.busy;
- q('[data-offline-info]').textContent=controller.offlineMode?(controller.localOnly?'この端末専用で保存します。クラウドへは自動統合されません。必要なデータはエクスポートで保管できます。':'通信を停止しています。変更はこの端末に保存し、オンラインに戻ると同期します。'):'通信できないときは、端末に保存されたデータで利用できます。';q('form').hidden=!!controller.user;q('[data-actions]').hidden=!controller.user;q('[data-account]').textContent=controller.user?.email||'';
+ q('[data-online]').hidden=!controller.offlineMode||!!controller.automaticOffline;q('[data-online]').disabled=!!e?.busy;
+ q('[data-offline-info]').textContent=controller.offlineMode?(controller.localOnly?'この端末専用で保存します。クラウドへは自動統合されません。必要なデータはエクスポートで保管できます。':'通信を停止しています。変更はこの端末に保存し、オンラインに戻ると同期します。'):'通信できないときは、端末に保存されたデータで利用できます。';q('form').hidden=!!controller.user&&!controller.automaticOffline&&!controller.needsLogin;q('[data-actions]').hidden=!controller.user||!!controller.automaticOffline;q('[data-account]').textContent=controller.automaticOffline?'':controller.user?.email||'';
  quarantineButton.hidden=!e?.quarantined;
  q('[data-logout]').hidden=!!controller.offlineMode;
  q('[data-initialize]').hidden=mobile||e?.status!=='empty';q('[data-draft]').hidden=!e?.pending;q('[data-reload]').hidden=controller.offlineMode||!e?.pending && !['blocked','conflict'].includes(e?.status);
