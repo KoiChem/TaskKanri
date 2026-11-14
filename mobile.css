@@ -119,6 +119,9 @@ dialog.mobile-dialog > button.mobile-dialog-backdrop{position:absolute;inset:0;w
 #calendar{padding-bottom:env(safe-area-inset-bottom)}
 #toast{bottom:calc(338px + env(safe-area-inset-bottom))}
 body.week-view #toast{bottom:calc(120px + env(safe-area-inset-bottom))}
+:root.standalone #calendar{padding-bottom:0}
+:root.standalone #toast{bottom:338px}
+:root.standalone body.week-view #toast{bottom:120px}
 .slot-card{min-height:70px;padding:3px 0;gap:1px}
 .day-meta{line-height:20px;padding:0 8px;margin:0 0 4px}
 /* Paint a smaller rectangle inside each unchanged 44px day target. */
