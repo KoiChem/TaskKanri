@@ -16,6 +16,6 @@ async (page) => {
  await context.addInitScript(s=>localStorage.setItem('TASKKANRI_SUPABASE_AUTH',JSON.stringify(s)),session);
  await p.goto(base);await p.locator('[data-common-editor][contenteditable="true"]').waitFor();await p.locator('[data-common-editor]').fill('local unique');await p.locator('[data-common-editor]').blur();
  doc={...doc,revision:2,payload:structuredClone(doc.payload)};doc.payload.state.globalTaskData='phone change';await p.keyboard.press('Control+Alt+s');await p.locator('[data-message]').getByText(/競合/).waitFor();
- p.on('dialog',d=>d.accept());const download=p.waitForEvent('download');await p.locator('[data-reload]').click();await download;await p.locator('[data-message]').getByText('最新データを読み込みました。',{exact:true}).waitFor({timeout:3000});if(await p.locator('[data-common-editor]').textContent()!=='phone change')throw Error('explicit conflict recovery failed');if(errors.length)throw Error(errors.join(','));return {conflictRecovery:true,pendingExported:true,errors};
+ p.on('dialog',d=>d.accept());const download=p.waitForEvent('download');await p.locator('[data-reload]').click();await download;await p.locator('[data-message]').getByText(/最新データを読み込みました。必要な変更/).waitFor({timeout:3000});if(await p.locator('[data-common-editor]').textContent()!=='phone change')throw Error('explicit conflict recovery failed');if(errors.length)throw Error(errors.join(','));return {conflictRecovery:true,pendingExported:true,errors};
  }finally{await context.close()}
 }

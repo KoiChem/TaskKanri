@@ -148,11 +148,27 @@ export class SyncEngine {
     if(!this.canApply()){this.deferred=document;this.emit('deferred');return;}
     this.deferred=null;return this.accept(document);
   }
-  async discardPending() {
+  async discardPending({snapshot,unchanged=()=>true}={}) {
     if(this.busy)throw new Error('保存結果を確認してから操作してください');
-    this.discarding=!!this.pending;
-    try{this.store.remove('pending');if(this.store.flush)await this.store.flush();this.pending=null;this.unsupportedPending=false;this.emit('loading');await this.load();}
-    finally{this.discarding=false;}
+    const generation=this.generation,original={pending:this.pending,payload:this.payload,revision:this.revision};
+    this.busy=true;
+    try{
+      const remote=await this.transport.get(false);
+      if(!this.active||generation!==this.generation||this.pending!==original.pending||!unchanged())throw new Error('利用状態が変わりました。操作をやり直してください。');
+      if(!remote)throw new Error('クラウドのデータが見つかりません。端末の内容を保持しています。');
+      this.validate(remote);
+      this.store.write('recovery-before-reload',{snapshot,pending:this.pending,cache:this.store.read('cache'),capturedAt:new Date().toISOString()});
+      if(this.store.flush)await this.store.flush();
+      if(!this.active||generation!==this.generation||this.pending!==original.pending||!unchanged())throw new Error('復旧中に内容が変わりました。もう一度確認してください。');
+      this.discarding=true;
+      try{
+        const apply=()=>{this.onData(remote);this.store.write('cache',remote);this.store.remove('pending');};
+        if(this.store.atomic)this.store.atomic(apply);else apply();
+        if(this.store.flush)await this.store.flush();
+      }catch(error){this.pending=original.pending;this.payload=original.payload;this.revision=original.revision;throw error;}
+      this.pending=null;this.unsupportedPending=false;this.payload=remote.payload;this.revision=remote.revision;this.updatedAt=remote.updated_at;this.emit('synced');
+    }catch(error){this.emit('blocked',error.message);throw error;}
+    finally{this.discarding=false;this.busy=false;}
   }
   stop() {this.active=false;this.generation++;this.payload=null;this.pending=null;this.deferred=null;this.onChange=()=>{};this.onData=()=>{};}
 }

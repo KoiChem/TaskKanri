@@ -1795,6 +1795,17 @@ function persistenceFailed(error){
  syncController?.engine?.emit('blocked',error.message);syncUI?.tell(error.message);showStorageWarning(error.message);
 }
 
+function recoverySnapshot(){
+  const next=clone(appState);
+  qa('.slot-input').forEach(input=>{
+    const html=editorHtml(input);
+    if(input.dataset.taskField)next[input.dataset.taskField]=html;
+    else if(input.dataset.dateId&&input.dataset.slot&&html!==resolvedSlot(input.dataset.dateId,input.dataset.slot)){
+      const date=input.dataset.dateId;next.dateSchedules[date]={...next.dateSchedules[date],[input.dataset.slot]:html};
+    }
+  });
+  return next;
+}
 function installCloudSync() {
   document.body.classList.remove('cloud-signed-out');
   const controls=el('div');controls.className='sync-controls';const button=el('button','未接続');button.type='button';button.className='sync-text-button';button.setAttribute('aria-label','同期設定を開く。未接続');const status=button;controls.append(button);document.body.append(controls);
@@ -1826,7 +1837,7 @@ function installCloudSync() {
     },
     onStatus:(label,engine)=>{if(engine?.active&&['synced','pending','cached','offline','empty'].includes(engine.status))enableEditors();if(primaryStorage?.pending)label='端末に保存中…';status.textContent='同期設定：'+((syncController?.authPending||syncController?.connecting)&&['cached','pending','loading'].includes(engine?.status)?'接続確認中…':mobileSyncLabel(label,engine));button.setAttribute('aria-label',`同期設定を開く。${engine?.status==='synced'&&!syncController.offlineMode?'最終同期 ':''}${status.textContent}`);syncUI?.update();status.title=engine?.error||'';if(document.getElementById('settings-view').style.display==='block'&&!settingsDirtySections.size){const message=({synced:'保存済み',pending:'端末に保存済み・未送信',saving:'端末に保存済み・同期中…',offline:'端末に保存済み・未送信',conflict:'同期を確認してください',blocked:'同期を確認してください',deferred:'ほかの端末の更新があります'})[engine?.status];if(message)updateSettingsStatus(message);}}
   });
-  syncUI=installSyncUI(syncController,{getInitialState:()=>appState,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);
+  syncUI=installSyncUI(syncController,{getInitialState:recoverySnapshot,prepareImport:prepareFileImport,saveImportedState,beforeRefresh:()=>{if(syncController.composing)throw new Error('日本語の変換を確定してから同期してください。');if(hasOpenUnsavedForm())throw new Error('設定の変更を保存してから同期してください。');const active=document.activeElement,input=active?.closest('.slot-input');if(input){const html=editorHtml(input),saved=input.dataset.taskField?updateGlobalTask(html,input.dataset.taskField):updateSlot(input.dataset.dateId,input.dataset.slot,html);if(!saved)throw new Error('端末への保存を確認できないため、同期を開始しませんでした。');active.blur();}}});button.onclick=e=>syncUI.open(e);
   document.addEventListener('focusout',()=>setTimeout(()=>{if(syncController.engine?.deferred)void syncController.engine.applyDeferred().catch(error=>syncController.engine?.emit('blocked',error.message))},0));
   (async()=>{
     await primaryStorage.flush();await syncController.start();enableEditors();
