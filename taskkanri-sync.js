@@ -17,6 +17,13 @@ export function statusLabel(engine) {
  const stamp=engine?.lastSuccessfulSyncAt?new Date(engine.lastSuccessfulSyncAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}):'';
  return ({loading:'読み込み中',storing:'端末に保存中…',cached:'端末の保存内容',unloaded:'同期して最新データを取得',empty:'PC版で同期を開始してください',synced:`同期済み ${stamp}`,pending:'未送信の変更あり',saving:'保存中',offline:`オフライン・最終取得 ${stamp}`,conflict:'変更が競合しています',deferred:'入力を終えると最新データを表示します',blocked:'同期を停止しています'})[engine?.status]||'未接続';
 }
+const desktopSyncPeriod = 30 * 60 * 1000;
+
+export function delayUntilDesktopSync(now) {
+ const time = new Date(now);
+ return desktopSyncPeriod - ((time.getMinutes() % 30) * 60000 + time.getSeconds() * 1000 + time.getMilliseconds());
+}
+
 export class SyncController {
  constructor({mode,getState,storage=globalThis.localStorage,onAccount=()=>{},onData=()=>{},onStatus=()=>{},canApply=()=>true,beforeAccountChange=()=>{}}) {
   Object.assign(this,{mode,getState,storage,onAccount,onData,onStatus,canApply,beforeAccountChange});this.engine=null;this.user=null;this.client=null;this.generation=0;this.composing=false;this.retry=0;this.networkRequests=new Set();
@@ -24,6 +31,17 @@ export class SyncController {
   document.addEventListener('visibilitychange',this.visibility);window.addEventListener('online',this.visibility);
   document.addEventListener('compositionstart',()=>this.composing=true);document.addEventListener('compositionend',()=>{this.composing=false;if(this.engine?.pending)this.schedule()});
   this.interval=mode==='desktop'?null:setInterval(()=>{if(document.visibilityState==='visible')void this.refresh()},15000);
+ }
+ scheduleDesktopSync() {
+  const now = Date.now();
+  const delay = delayUntilDesktopSync(now);
+  const target = now + delay;
+  this.desktopSyncTimer = setTimeout(() => {
+   this.scheduleDesktopSync();
+   const lateness = Date.now() - target;
+   if(lateness >= 0 && lateness < 60000)void this.refresh({scheduled:true});
+  }, delay);
+  this.desktopSyncTimer?.unref?.();
  }
  async fetchOnline(input,init={}) {
   if(this.offlineMode)throw new Error('オフラインモードでは通信しません。');
@@ -38,6 +56,10 @@ export class SyncController {
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true')this.onStatus('オフラインモード');
   if(this.mode==='desktop')this.allowStartupRead=consumeDesktopStartup(sessionStorage,globalThis.performance?.getEntriesByType?.('navigation')?.[0]?.type);
   this.id=await acquireClientId(sessionStorage);
+  if(this.mode==='desktop'){
+   this.scheduleDesktopSync();
+   window.addEventListener('pagehide',()=>clearTimeout(this.desktopSyncTimer),{once:true});
+  }
   if(localStorage.getItem('TASKKANRI_OFFLINE_MODE')==='true'){await this.enterOffline();return;}
   if(this.offlineMode)return;
   if(this.mode==='desktop'){
@@ -139,17 +161,21 @@ export class SyncController {
  }
  applyDocument(doc,context){
   const before=this.mode==='desktop'&&this.receivedSync?structuredClone(this.getState()):null;
-  this.onData(mergePayload(doc.payload,this.getState()),doc);
+  const current=this.getState(),next=mergePayload(doc.payload,current);
+  if(this.scheduledRefresh&&(this.composing||!this.canApply())&&!samePayload(toPayload(current),toPayload(next)))throw new Error('入力中のため受信内容を反映しませんでした。');
+  this.onData(next,doc);
   const report=this.receivedSync;
   if(before&&context?.source!=='cache'&&report?.engine===this.engine&&report.userId===this.user?.id)report.groups.push(receivedChanges(before,this.getState()));
  }
- async refresh({manual=false}={}){
-  if(this.mode==='desktop'&&!manual)return {status:this.engine?.status||'stopped'};
+ async refresh({manual=false,scheduled=false}={}){
+  if(this.mode==='desktop'&&!manual&&!scheduled)return {status:this.engine?.status||'stopped'};
   if(this.offlineMode)return {status:'synced'};
   if(this.connecting)return {status:'stopped',error:new Error('接続確認が終わってから同期してください。')};
   if(!this.engine)return {status:'stopped',error:new Error('ログインしてから更新してください。')};
+  if(this.refreshing || (scheduled && (!this.client || this.authPending || this.engine.busy || this.composing || !this.canApply())))return {status:'stopped'};
   const engine=this.engine;const before=engine.revision;
-  const report=this.mode==='desktop'?{engine,userId:this.user?.id,groups:[],initial:!engine.payload&&!engine.store.read('cache')}:null;
+  this.refreshing=true;this.scheduledRefresh=scheduled;
+  const report=this.mode==='desktop'&&!scheduled?{engine,userId:this.user?.id,groups:[],initial:!engine.payload&&!engine.store.read('cache')}:null;
   this.receivedSync=report;
   const resultReport=()=>report?{receivedChanges:combineReceivedChanges(report.groups),initialReceived:report.initial}:{};
   try{
@@ -157,15 +183,15 @@ export class SyncController {
    if(!data.session||data.session.expires_at*1000<=Date.now()){await this.activate(null);return {status:'stopped',error:new Error('ログインし直してください。')};}
    if(data.session.user.id!==this.user?.id){await this.activate(data.session);return {status:this.engine?.status||'stopped'};}
    if(!checked(await this.client.rpc('taskkanri_is_allowed'))){const e=new Error('このアカウントは同期を許可されていません。');e.permissionDenied=true;throw e;}
-   if(engine!==this.engine)return {status:'stopped'};
+   if(engine!==this.engine||this.offlineMode||(scheduled&&(this.composing||!this.canApply())))return {status:'stopped'};
    this.authPending=false;
-   if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else if(!engine.payload)await engine.load();else await engine.refresh();
+   if(engine.pending && !['conflict','blocked'].includes(engine.status))await this.flush();else if(!engine.payload)await engine.load({deferApply:scheduled});else await engine.refresh();
    return {status:engine.status,changed:engine.revision!==before,error:engine.error?new Error(engine.error):undefined,...resultReport()};
   }catch(e){
    if(engine!==this.engine)return {status:'stopped',error:e};
    if(e.permissionDenied){await this.activate(null);this.onStatus(e.message);}else engine.emit(e.blocked?'blocked':'offline',e.message);
    return {status:'error',error:e,...resultReport()};
-  }finally{if(this.receivedSync===report)this.receivedSync=null;}
+  }finally{this.refreshing=false;this.scheduledRefresh=false;if(this.receivedSync===report)this.receivedSync=null;}
  }
  async login(email,password){
   const automatic=this.automaticOffline;
@@ -179,7 +205,7 @@ export class SyncController {
   }catch(error){if(automatic&&this.automaticOffline){this.offlineMode=true;this.client?.auth.stopAutoRefresh();}throw error;}
  }
  stopForReset(){
-  this.offlineMode=true;++this.generation;clearInterval(this.interval);clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);for(const request of this.networkRequests)request.abort();this.client?.auth.stopAutoRefresh();this.engine?.stop();this.engine=null;
+  this.offlineMode=true;++this.generation;clearTimeout(this.desktopSyncTimer);clearInterval(this.interval);clearTimeout(this.sendTimer);clearTimeout(this.retryTimer);clearTimeout(this.maxTimer);for(const request of this.networkRequests)request.abort();this.client?.auth.stopAutoRefresh();this.engine?.stop();this.engine=null;
  }
  async logout(){clearTimeout(this.retryTimer);const result=await this.client.auth.signOut({scope:'local'});checked(result);await this.activate(null);}
  async initialize(state){if(!this.engine||this.engine.status!=='empty')throw new Error('初期登録できません。同期状態を確認してください');this.engine.queue(state,{initial:true});return this.flush();}

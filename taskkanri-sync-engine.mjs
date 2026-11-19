@@ -33,7 +33,7 @@ export class SyncEngine {
     }
     if(!remote) {this.emit('empty');return;}
     this.validate(remote);
-    if(options.deferApply&&this.payload&&!this.canApply()){this.deferred=remote;this.emit('deferred');return;}
+    if(options.deferApply&&!this.canApply()){this.deferred=remote;this.emit('deferred');return;}
     return this.accept(remote);
   }
   accept(document) {

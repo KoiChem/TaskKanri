@@ -36,3 +36,10 @@ test('an initial unsent document without cache still queues further desktop edit
  const state=defaultState();const values=new Map();const store={read:k=>values.get(k),write:(k,v)=>values.set(k,structuredClone(v)),remove:k=>values.delete(k)};
  const c=new SyncController({mode:'desktop',getState:()=>state});c.engine=new SyncEngine({store,transport:{}});c.engine.queue(state,{initial:true});state.globalTaskData='初回未送信の追加入力';c.dirty(state);assert.equal(store.read('pending').request.payload.state.globalTaskData,'初回未送信の追加入力');assert.equal(store.read('pending').request.expectedRevision,0);
 });
+
+test('desktop timer aligns to the next local half hour', async()=>{
+ const {delayUntilDesktopSync}=await import('../taskkanri-sync.js');
+ assert.equal(delayUntilDesktopSync(new Date(2026,10,19,9,12,15,250)),1064750);
+ assert.equal(delayUntilDesktopSync(new Date(2026,10,19,9,59,59,999)),1);
+ assert.equal(delayUntilDesktopSync(new Date(2026,10,19,9,30)),1800000);
+});
