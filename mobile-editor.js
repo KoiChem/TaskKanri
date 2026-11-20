@@ -13,6 +13,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
  if(isEvent){dialog.innerHTML=dialog.innerHTML.replaceAll('共通タスク','行事予定');dialog.querySelector('#global-editor-title').id='event-editor-title';dialog.setAttribute('aria-labelledby','event-editor-title');dialog.querySelector('#global-editor-content').id='event-editor-content';dialog.querySelector('[data-add-task]').hidden=true;}
  document.body.append(dialog);
  const q=s=>dialog.querySelector(s),input=q('#'+prefix+'-editor-content');let active=null,opener=null,range=null,composing=false;
+ const visualViewport=window.visualViewport;
  const tell=text=>q('[data-editor-message]').textContent=text;
  const html=()=>sanitizeHtml(input.innerHTML);
  function badges(){input.querySelectorAll('.todo-badge').forEach(badge=>badge.contentEditable='false')}
@@ -30,9 +31,14 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
  q('[data-editor-close]').onclick=requestClose;
  dialog.addEventListener('cancel',event=>{event.preventDefault();requestClose()});
  window.addEventListener('popstate',()=>{if(dialog.open&&persistActive())dialog.close()});
- dialog.addEventListener('close',()=>{active=null;range=null;composing=false;input.replaceChildren();q('[data-editor-latest]').replaceChildren();document.documentElement.style.removeProperty('--editor-viewport-height');const focusTarget=opener?.isConnected?opener:document.querySelector('#task-sheet[open] #edit-common')||document.querySelector('#agenda');focusTarget?.focus({preventScroll:true});void controller.refresh()});
- function viewport(){if(dialog.open)document.documentElement.style.setProperty('--editor-viewport-height',`${window.visualViewport?.height||window.innerHeight}px`)}
- window.visualViewport?.addEventListener('resize',viewport);
+ dialog.addEventListener('close',()=>{active=null;range=null;composing=false;input.replaceChildren();q('[data-editor-latest]').replaceChildren();dialog.style.removeProperty('--editor-viewport-height');dialog.style.removeProperty('--editor-viewport-top');const focusTarget=opener?.isConnected?opener:document.querySelector('#task-sheet[open] #edit-common')||document.querySelector('#agenda');focusTarget?.focus({preventScroll:true});void controller.refresh()});
+ function syncViewport(){
+  if(!dialog.open)return;
+  dialog.style.setProperty('--editor-viewport-top',`${visualViewport?.offsetTop??0}px`);
+  dialog.style.setProperty('--editor-viewport-height',`${visualViewport?.height||window.innerHeight}px`);
+ }
+ (visualViewport||window).addEventListener('resize',syncViewport);
+ visualViewport?.addEventListener('scroll',syncViewport);
  input.addEventListener('compositionstart',()=>{composing=true;update()});input.addEventListener('compositionend',()=>{composing=false;persistActive();update()});
  input.addEventListener('input',()=>{persistActive();update()});
  document.addEventListener('selectionchange',()=>{const selection=window.getSelection();if(selection?.rangeCount&&input.contains(selection.anchorNode)&&input.contains(selection.focusNode))range=selection.getRangeAt(0).cloneRange()});
@@ -95,7 +101,7 @@ export function installGlobalEditor({controller,getState,onSaved=()=>{},eventDat
     if(isEvent)q('#event-editor-title').textContent=`${dateId} 行事予定を編集`;
     opener=button;range=null;input.innerHTML=active.html;badges();q('[data-editor-conflict]').hidden=true;q('[data-editor-latest]').replaceChildren();tell(draft?'未保存の下書きを復元しました。':'');
     if(draft)persist(active);
-    history.pushState({taskkanriTextEdit:true},'');dialog.showModal();viewport();update();input.focus({preventScroll:true});
+    history.pushState({taskkanriTextEdit:true},'');dialog.showModal();syncViewport();update();input.focus({preventScroll:true});
    }catch(error){active=null;controller.onStatus(error.message,controller.engine)}
   },
   reset(){

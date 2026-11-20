@@ -7,7 +7,7 @@ async (page) => {
  await context.route(endpoint,r=>r.abort());await p.goto(base+'/mobile.html');
  const payload=await p.evaluate(async()=>{
   const c=await import('./taskkanri-core.mjs'),m=await import('./taskkanri-sync-model.mjs'),s=c.defaultState(2026),badge=(n,t)=>`<span class="todo-badge state-${n}" data-state="${n}">${['未','途','済','急'][n]}</span>${t}`;
-  s.configEvents['2026-10-15']='職員会議';s.globalTaskData=badge(0,'共通の仕事');s.lessonTaskData=badge(0,'授業の仕事');s.dayProfiles['2026-10-16']='morning';
+  s.configEvents['2026-10-15']='職員会議';s.globalTaskData=badge(0,'共通の仕事');s.lessonTaskData=badge(0,'授業の仕事')+'<br>授業の予定'.repeat(40);s.dayProfiles['2026-10-16']='morning';
   s.dateSchedules={'2026-10-15':{'１限':'<b>化学</b><br>'+badge(0,'配布'),'２限':badge(2,'済の仕事')+'<br>'+badge(1,'実験準備'),'３限':badge(0,'確認1')+'<br>'+badge(1,'確認2')},'2026-10-16':{'５限':badge(3,'非表示枠の仕事')}};
   return m.toPayload(s);
  });
@@ -45,7 +45,33 @@ async (page) => {
   await Promise.all([p.waitForResponse(r=>r.url().includes('save_taskkanri_document')),p.locator('[data-task-cycle]').click()]);await p.locator('#sheet-body .todo-badge[data-state="1"]').waitFor();
   check(doc.payload.state.lessonTaskData.includes('data-state="1"')&&doc.payload.state.globalTaskData.includes('data-state="0"'),'lesson cycle changed common');
   await Promise.all([p.waitForResponse(r=>r.url().includes('save_taskkanri_document')),p.locator('#undo-task').click()]);await p.locator('#sheet-body .todo-badge[data-state="0"]').waitFor();
-  await p.locator('#edit-common').click();await p.locator('#lesson-editor-content').fill('授業だけの下書き');
+  await p.locator('#edit-common').click();await p.locator('#lesson-editor-content').waitFor();
+  const editorLayout=async(event,height,offsetTop)=>p.evaluate(({event,height,offsetTop})=>{
+   const viewport=window.visualViewport,editor=document.querySelector('#lesson-editor-sheet');
+   if(height===undefined){delete viewport.height;delete viewport.offsetTop}
+   else Object.defineProperties(viewport,{
+    height:{value:height,configurable:true},offsetTop:{value:offsetTop,configurable:true}
+   });
+   viewport.dispatchEvent(new Event(event));
+   const heading=editor.querySelector('.sheet-heading').getBoundingClientRect();
+   const save=editor.querySelector('[data-editor-save]').getBoundingClientRect();
+   const scroll=editor.querySelector('.global-editor-scroll');
+   return {
+    viewportTop:viewport.offsetTop,viewportBottom:viewport.offsetTop+viewport.height,
+    editorTop:editor.getBoundingClientRect().top,headingTop:heading.top,saveBottom:save.bottom,
+    scrollable:scroll.scrollHeight>scroll.clientHeight,
+    backdrop:getComputedStyle(editor,'::backdrop').backgroundColor
+   };
+  },{event,height,offsetTop});
+  const keyboard=await editorLayout('resize',490,0);
+  check(keyboard.saveBottom<=keyboard.viewportBottom&&keyboard.scrollable,'long lesson draft or save is outside the keyboard viewport');
+  const shifted=await editorLayout('scroll',490,155);
+  check(shifted.editorTop===shifted.viewportTop&&shifted.headingTop>=shifted.viewportTop&&shifted.saveBottom<=shifted.viewportBottom,
+   'the editor did not follow the keyboard viewport when it moved: '+JSON.stringify(shifted));
+  check(shifted.backdrop==='rgb(255, 255, 255)','the lesson detail behind the editor can show through');
+  const restored=await editorLayout('resize');
+  check(restored.editorTop===restored.viewportTop&&restored.saveBottom<=restored.viewportBottom,'editor did not recover after dismissing the keyboard');
+  await p.locator('#lesson-editor-content').fill('授業だけの下書き');
   await p.locator('#lesson-editor-sheet [data-editor-close]').click();await p.locator('#lesson-editor-sheet').waitFor({state:'hidden'});await closeDetail();
   await edit('global');check((await p.locator('#global-editor-content').innerText()).includes('共通の仕事'),'lesson draft leaked into common');await p.locator('#global-editor-content').fill('共通だけの下書き');
   await p.locator('#global-editor-sheet [data-editor-close]').click();await p.locator('#global-editor-sheet').waitFor({state:'hidden'});await closeDetail();
@@ -60,6 +86,6 @@ async (page) => {
   await edit('global');check((await p.locator('#global-editor-content').innerText())==='共通だけの下書き','common draft lost');
   await p.locator('#global-editor-sheet [data-editor-save]').click();await p.locator('#global-editor-sheet').waitFor({state:'hidden'});
   check(doc.payload.state.globalTaskData==='共通だけの下書き'&&doc.payload.state.lessonTaskData==='授業だけの下書き','common save affected lesson');
-  check(errors.length===0,errors.join(';'));return {writes,layout,checks:'lesson-cycle/undo/independent-drafts/save/conflict/newer-update-protection/common-regression',pageErrors:errors};
+  check(errors.length===0,errors.join(';'));return {writes,layout,shifted,checks:'lesson-cycle/undo/keyboard-viewport/independent-drafts/save/conflict/newer-update-protection/common-regression',pageErrors:errors};
  }finally{await context.close()}
 }
